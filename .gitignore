@@ -1,0 +1,6 @@
+/radar
+*.db
+*.db-wal
+*.db-shm
+/radar.hcl
+.DS_Store

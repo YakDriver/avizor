@@ -1,0 +1,305 @@
+// Command radar finds what is already known about new information and gathers evidence for a human or agent to act on.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"time"
+
+	"github.com/YakDriver/radar/internal/config"
+	"github.com/YakDriver/radar/internal/github"
+	"github.com/YakDriver/radar/internal/index"
+	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/radar/internal/services"
+	"github.com/YakDriver/radar/internal/syncer"
+)
+
+var version = "dev"
+
+const usage = `radar finds existing issues, pull requests, and code related to new information.
+
+Usage:
+  radar sync [flags]                         Refresh the local index from GitHub.
+  radar candidates [flags] <issue|url>       Reconcile an issue number, issue URL, or other URL.
+  radar candidates [flags] --text "..."      Reconcile a free-text description.
+  radar version
+
+Common flags:
+  --config path      Config file (default ./radar.hcl, then $XDG_CONFIG_HOME/radar/radar.hcl)
+  --state-dir path   State directory (default $XDG_DATA_HOME/radar)
+  --target name      Target to use when several are configured
+  --format fmt       Output format: json (default) or text
+
+Run "radar <command> -h" for command flags.
+`
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
+		fmt.Fprintln(os.Stderr, "radar:", err)
+		if errors.Is(err, errUsage) {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
+}
+
+var errUsage = errors.New("usage error")
+
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return errUsage
+	}
+	switch args[0] {
+	case "sync":
+		return cmdSync(ctx, args[1:], stdout, stderr)
+	case "candidates":
+		return cmdCandidates(ctx, args[1:], stdout, stderr)
+	case "version":
+		fmt.Fprintln(stdout, "radar", version)
+		return nil
+	case "help", "-h", "--help":
+		fmt.Fprint(stdout, usage)
+		return nil
+	default:
+		fmt.Fprint(stderr, usage)
+		return fmt.Errorf("%w: unknown command %q", errUsage, args[0])
+	}
+}
+
+// common holds flags shared by commands.
+type common struct {
+	configPath string
+	stateDir   string
+	target     string
+	format     string
+}
+
+func (c *common) register(fs *flag.FlagSet) {
+	fs.StringVar(&c.configPath, "config", "", "config file")
+	fs.StringVar(&c.stateDir, "state-dir", "", "state directory")
+	fs.StringVar(&c.target, "target", "", "target name")
+	fs.StringVar(&c.format, "format", "json", "output format: json or text")
+}
+
+// open loads config and opens the target's index.
+func (c *common) open() (*config.Target, *index.Store, error) {
+	if c.format != "json" && c.format != "text" {
+		return nil, nil, fmt.Errorf("%w: --format must be json or text", errUsage)
+	}
+	path := c.configPath
+	if path == "" {
+		p, err := config.DefaultPath()
+		if err != nil {
+			return nil, nil, err
+		}
+		path = p
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	t, err := cfg.Target(c.target)
+	if err != nil {
+		return nil, nil, err
+	}
+	dir := c.stateDir
+	if dir == "" {
+		if dir, err = config.DefaultStateDir(); err != nil {
+			return nil, nil, err
+		}
+	}
+	st, err := index.Open(filepath.Join(dir, t.Name+".db"))
+	if err != nil {
+		return nil, nil, err
+	}
+	return t, st, nil
+}
+
+// parseInterspersed parses flags that may appear before or after positional arguments.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var pos []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		args = fs.Args()
+		if len(args) == 0 {
+			return pos, nil
+		}
+		if args[0] == "--" {
+			return append(pos, args[1:]...), nil
+		}
+		pos = append(pos, args[0])
+		args = args[1:]
+	}
+}
+
+func cmdSync(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var c common
+	c.register(fs)
+	full := fs.Bool("full", false, "refetch everything and remove records GitHub no longer returns")
+	sinceFlag := fs.String("since", "", "only fetch records updated since a date (2026-01-02), time (RFC 3339), or age (90d, 12h); doesn't move checkpoints")
+	quiet := fs.Bool("quiet", false, "suppress progress messages")
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errUsage, err)
+	}
+	if len(pos) > 0 {
+		return fmt.Errorf("%w: sync takes no arguments", errUsage)
+	}
+	if *full && *sinceFlag != "" {
+		return fmt.Errorf("%w: --full and --since can't be combined", errUsage)
+	}
+	var since time.Time
+	if *sinceFlag != "" {
+		if since, err = parseSince(*sinceFlag, time.Now()); err != nil {
+			return fmt.Errorf("%w: %v", errUsage, err)
+		}
+	}
+
+	t, st, err := c.open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	gh, err := github.NewClient(ctx)
+	if err != nil {
+		return err
+	}
+	logf := func(format string, args ...any) {
+		if !*quiet {
+			fmt.Fprintf(stderr, format+"\n", args...)
+		}
+	}
+	gh.Log = logf
+
+	res, err := syncer.Run(ctx, gh, st, t, syncer.Options{Full: *full, Since: since, Log: logf})
+	if err != nil {
+		if res != nil {
+			logf("partial sync: %d issues, %d comments before the error; progress is saved", res.Issues, res.Comments)
+		}
+		return err
+	}
+
+	if c.format == "text" {
+		fmt.Fprintf(stdout, "synced %s: %d issues and PRs, %d comments, %d removed in %s\n", res.Repo, res.Issues, res.Comments, res.Removed, res.Duration)
+		return nil
+	}
+	return writeJSON(stdout, res)
+}
+
+var ageRE = regexp.MustCompile(`^(\d+)([dh])$`)
+
+func parseSince(s string, now time.Time) (time.Time, error) {
+	if m := ageRE.FindStringSubmatch(s); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		unit := time.Hour
+		if m[2] == "d" {
+			unit = 24 * time.Hour
+		}
+		return now.Add(-time.Duration(n) * unit), nil
+	}
+	if t, err := time.Parse(time.DateOnly, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("invalid --since %q: use a date (2026-01-02), RFC 3339 time, or age (90d, 12h)", s)
+}
+
+func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("candidates", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var c common
+	c.register(fs)
+	text := fs.String("text", "", "free-text description to reconcile")
+	noFetch := fs.Bool("no-fetch", false, "don't fetch URL inputs to read their title")
+	noCode := fs.Bool("no-code", false, "don't search the target checkout")
+	related := fs.Int("related", 0, "maximum related candidates (default 10)")
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errUsage, err)
+	}
+	if len(pos) > 1 {
+		return fmt.Errorf("%w: candidates takes one argument", errUsage)
+	}
+	var arg string
+	if len(pos) == 1 {
+		arg = pos[0]
+	}
+
+	t, st, err := c.open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	r := &reconcile.Reconciler{
+		Store:  st,
+		Target: t,
+		HTTP:   &http.Client{Timeout: 15 * time.Second},
+		Options: reconcile.Options{
+			NoFetch:      *noFetch,
+			NoCode:       *noCode,
+			RelatedLimit: *related,
+			Version:      version,
+		},
+	}
+	if p := t.NamesDataPath(); p != "" {
+		if svcs, err := services.Load(p); err != nil {
+			fmt.Fprintf(stderr, "radar: warning: service map unavailable: %v\n", err)
+		} else {
+			r.Services = svcs
+		}
+	}
+	if gh, err := github.NewClient(ctx); err == nil {
+		r.Issues = fetcher{gh}
+	}
+
+	res, err := r.Run(ctx, arg, *text)
+	if err != nil {
+		return err
+	}
+	if c.format == "text" {
+		return writeText(stdout, res)
+	}
+	return writeJSON(stdout, res)
+}
+
+// fetcher adapts the GitHub client to reconcile.IssueFetcher.
+type fetcher struct {
+	gh *github.Client
+}
+
+func (f fetcher) FetchIssue(ctx context.Context, repo string, n int) (*index.Issue, error) {
+	is, err := f.gh.GetIssue(ctx, repo, n)
+	if err != nil {
+		return nil, err
+	}
+	return syncer.Convert(is), nil
+}
+
+func writeJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	return enc.Encode(v)
+}

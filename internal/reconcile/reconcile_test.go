@@ -1,0 +1,340 @@
+package reconcile
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/YakDriver/radar/internal/config"
+	"github.com/YakDriver/radar/internal/index"
+	"github.com/YakDriver/radar/internal/services"
+)
+
+const repo = "hashicorp/terraform-provider-aws"
+
+func seed(t *testing.T) *index.Store {
+	t.Helper()
+	ctx := context.Background()
+	st, err := index.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	issues := []*index.Issue{
+		{Number: 45362, Kind: index.KindIssue, State: "open", Labels: []string{"enhancement", "service/fsx", "service/s3control"},
+			Title: "r/aws_fsx_s3_access_point_attachment: Attach to Amazon FSx for NetApp ONTAP file systems",
+			Body:  "* [Announcement](https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/)\nRequires https://github.com/aws/aws-sdk-go-v2/commit/abc123. Similar to aws_s3_access_point.\nRelates #43195. Bumped in #45358."},
+		{Number: 45358, Kind: index.KindPR, State: "closed", Merged: true, Labels: []string{"dependencies"},
+			Title: "aws-sdk-go-v2 updates", Body: "https://github.com/aws/aws-sdk-go-v2/commit/abc123"},
+		{Number: 45400, Kind: index.KindPR, State: "closed", Merged: true, Labels: []string{"service/fsx"},
+			Title: "New resource: aws_fsx_s3_access_point_attachment",
+			Body:  "Closes #45362. Uses CreateAndAttachS3AccessPoint."},
+		{Number: 43195, Kind: index.KindIssue, State: "open", Labels: []string{"service/s3control"},
+			Title: "S3 access point support for more sources", Body: "Access points everywhere."},
+		{Number: 40000, Kind: index.KindIssue, State: "closed", StateReason: "not_planned", Labels: []string{"service/fsx"},
+			Title: "Support S3 access points for FSx ONTAP volumes", Body: "Call DetachAndDeleteS3AccessPoint too."},
+		{Number: 30000, Kind: index.KindIssue, State: "open", Labels: []string{"service/ec2"},
+			Title: "aws_instance crashes", Body: "Unrelated, mentions aws_fsx_s3_access_point_attachment in a log."},
+		{Number: 45361, Kind: index.KindIssue, State: "open", Labels: []string{"service/s3tables"},
+			Title: "S3 Tables Intelligent-Tiering storage class",
+			Body:  "Requires https://github.com/aws/aws-sdk-go-v2/commit/abc123. See aws_s3_access_point for prior art."},
+		{Number: 45084, Kind: index.KindPR, State: "closed", Merged: true, Labels: []string{"service/s3control"},
+			Title: "r/aws_s3_access_point: Test tagging", Body: ""},
+		{Number: 30001, Kind: index.KindIssue, State: "open", Labels: []string{"service/lambda"},
+			Title: "Lambda timeout", Body: "nothing here"},
+	}
+	tx, err := st.Begin(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, is := range issues {
+		is.CreatedAt, is.UpdatedAt, is.URL = ts, ts, "https://github.com/"+repo+"/issues/"
+		if err := tx.UpsertIssue(ctx, is, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A comment on #43195 pastes the announcement.
+	if err := tx.ReplaceCommentSignals(ctx, 43195, 9, "AWS announced https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetMeta(ctx, "last_sync", ts.Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+func checkout(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	files := map[string]string{
+		"internal/service/fsx/s3_access_point_attachment.go":          "package fsx\n// @FrameworkResource(\"aws_fsx_s3_access_point_attachment\", name=\"S3 Access Point Attachment\")\nfunc f() { conn.CreateAndAttachS3AccessPoint(ctx, input) }\n",
+		"internal/service/fsx/s3_access_point_attachment_test.go":     "package fsx\n// CreateAndAttachS3AccessPoint in a test\n",
+		"website/docs/r/fsx_s3_access_point_attachment.html.markdown": "# aws_fsx_s3_access_point_attachment\n",
+	}
+	for p, body := range files {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func reconciler(t *testing.T, st *index.Store, co string) *Reconciler {
+	t.Helper()
+	return &Reconciler{
+		Store: st,
+		Services: services.New(
+			&services.Service{Package: "fsx", Names: []string{"FSx"}, ResourcePrefixes: []string{"aws_fsx_"}},
+			&services.Service{Package: "s3control", Names: []string{"S3 Control"}, ResourcePrefixes: []string{"aws_s3control_"}},
+		),
+		Target:  &config.Target{Name: "tfaws", Repo: repo, Checkout: co, ServiceLabelPrefix: "service/"},
+		Options: Options{NoFetch: true},
+	}
+}
+
+type got struct {
+	category, kind string
+	number         int
+	path           string
+}
+
+func summarizeCandidates(cs []Candidate) []got {
+	var out []got
+	for _, c := range cs {
+		out = append(out, got{c.Category, c.Kind, c.Number, c.Path})
+	}
+	return out
+}
+
+func hasSignal(c Candidate, typ, value string) bool {
+	return slices.ContainsFunc(c.Signals, func(m Match) bool { return m.Type == typ && m.Value == value })
+}
+
+func find(t *testing.T, cs []Candidate, number int, path string) Candidate {
+	t.Helper()
+	for _, c := range cs {
+		if c.Number == number && c.Path == path {
+			return c
+		}
+	}
+	t.Fatalf("candidate #%d %s not found in %v", number, path, summarizeCandidates(cs))
+	return Candidate{}
+}
+
+func TestRunURL(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler(t, seed(t), "")
+	res, err := r.Run(context.Background(), "https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/?trk=x", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := find(t, res.Candidates, 45362, "")
+	if c.Category != CategoryTracked || !hasSignal(c, "url", "https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access") {
+		t.Errorf("#45362 = %+v", c)
+	}
+	c = find(t, res.Candidates, 43195, "")
+	if c.Category != CategoryTracked || c.Signals[0].Where != index.WhereComment {
+		t.Errorf("#43195 should match through its comment: %+v", c)
+	}
+	if res.Summary.Unmatched {
+		t.Error("summary says unmatched")
+	}
+}
+
+func TestRunIssue(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler(t, seed(t), checkout(t))
+	res, err := r.Run(context.Background(), "45362", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Merged PR naming the resource in its title, and referencing the input.
+	pr := find(t, res.Candidates, 45400, "")
+	if pr.Category != CategoryImplemented || !hasSignal(pr, "tfname", "aws_fsx_s3_access_point_attachment") || !hasSignal(pr, "references_input", "#45362") {
+		t.Errorf("#45400 = %+v", pr)
+	}
+
+	// Code and docs found from the title's Terraform name. Test files are excluded from op matches.
+	find(t, res.Candidates, 0, "website/docs/r/fsx_s3_access_point_attachment.html.markdown")
+	code := find(t, res.Candidates, 0, "internal/service/fsx/s3_access_point_attachment.go")
+	if code.Category != CategoryImplemented {
+		t.Errorf("code candidate = %+v", code)
+	}
+	for _, c := range res.Candidates {
+		if c.Path == "internal/service/fsx/s3_access_point_attachment_test.go" && hasSignal(c, "op", "CreateAndAttachS3AccessPoint") {
+			t.Error("op matched in a test file")
+		}
+	}
+
+	// A body-only Terraform name mention is weak, so the unrelated bug is only "related".
+	if c := find(t, res.Candidates, 30000, ""); c.Category != CategoryRelated {
+		t.Errorf("#30000 category = %s, want related", c.Category)
+	}
+
+	if c := find(t, res.Candidates, 45358, ""); c.Category != CategoryRelated || !c.crossReferenced() {
+		t.Errorf("#45358 = %+v, want related cross-reference", c)
+	}
+
+	// Sharing an SDK release commit or a body-only Terraform name doesn't make a candidate tracked or implemented.
+	for _, n := range []int{45361, 45084} {
+		for _, c := range res.Candidates {
+			if c.Number == n && c.Category != CategoryRelated {
+				t.Errorf("#%d category = %s, want related or absent", n, c.Category)
+			}
+		}
+	}
+
+	// The cross-referenced issue appears; the input itself does not.
+	find(t, res.Candidates, 43195, "")
+	for _, c := range res.Candidates {
+		if c.Number == 45362 {
+			t.Error("input issue returned as its own candidate")
+		}
+		if c.Number == 30001 {
+			t.Error("unrelated issue returned")
+		}
+	}
+
+	// Services inferred from labels, and the request kind, each with a basis.
+	if len(res.Inferences) < 3 || res.Inferences[0].Value != "fsx" || res.Inferences[0].Basis != "label service/fsx" {
+		t.Errorf("inferences = %+v", res.Inferences)
+	}
+	if inf := res.Inferences[len(res.Inferences)-1]; inf.Type != "request" || inf.Value != RequestNewType {
+		t.Errorf("request inference = %+v", inf)
+	}
+
+	// Within a category, direct cross-references sort ahead of other matches with the same number of strong signals.
+	for i := 1; i < len(res.Candidates); i++ {
+		a, b := res.Candidates[i-1], res.Candidates[i]
+		if a.Category == b.Category && a.strongCount() == b.strongCount() && !a.crossReferenced() && b.crossReferenced() {
+			t.Errorf("cross-referenced #%d sorted after #%d", b.Number, a.Number)
+		}
+	}
+
+	// Implemented candidates sort first.
+	if res.Candidates[0].Category != CategoryImplemented {
+		t.Errorf("first candidate = %+v", res.Candidates[0])
+	}
+}
+
+func TestRunText(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler(t, seed(t), "")
+	res, err := r.Run(context.Background(), "", "FSx S3 access point support")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Input.Keywords, []string{"fsx", "s3", "access", "point"}) {
+		t.Errorf("keywords = %v", res.Input.Keywords)
+	}
+	// Keyword-only matches are "related", including the closed-not-planned issue that is worded differently.
+	for _, n := range []int{45362, 40000, 43195} {
+		if c := find(t, res.Candidates, n, ""); c.Category != CategoryRelated {
+			t.Errorf("#%d category = %s, want related", n, c.Category)
+		}
+	}
+	if !res.Summary.Unmatched {
+		t.Error("keyword-only results should be summarized as unmatched")
+	}
+}
+
+func TestRunOpInText(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler(t, seed(t), "")
+	res, err := r.Run(context.Background(), "", "Does the provider support DetachAndDeleteS3AccessPoint?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res.Candidates, 40000, ""); c.Category != CategoryConsidered {
+		t.Errorf("#40000 category = %s, want previously_considered", c.Category)
+	}
+}
+
+func TestRunChangeRequest(t *testing.T) {
+	t.Parallel()
+
+	// A request to change an existing type: its code and same-titled PRs are context, not implementation.
+	r := reconciler(t, seed(t), checkout(t))
+	res, err := r.Run(context.Background(), "", "aws_fsx_s3_access_point_attachment: add tags argument")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inf := res.Inferences[len(res.Inferences)-1]; inf.Value != RequestChange {
+		t.Errorf("request inference = %+v", inf)
+	}
+	for _, c := range res.Candidates {
+		if c.Category != CategoryRelated {
+			t.Errorf("candidate %d %s category = %s, want related", c.Number, c.Path, c.Category)
+		}
+	}
+	find(t, res.Candidates, 0, "internal/service/fsx/s3_access_point_attachment.go")
+	find(t, res.Candidates, 45400, "")
+}
+
+func TestInferRequest(t *testing.T) {
+	t.Parallel()
+
+	for text, want := range map[string]string{
+		"r/aws_fsx_s3_access_point_attachment: Attach to Amazon FSx for NetApp ONTAP file systems": RequestNewType,
+		"New resource: aws_fsx_s3_access_point_attachment":                                         RequestNewType,
+		"[New Resource]: aws_s3tables_table_bucket_logging":                                        RequestNewType,
+		"[Enhancement]: aws_imagebuilder_infrastructure_configuration: support parent_instance":    RequestChange,
+		"r/aws_instance: Add cpu_options argument":                                                 RequestChange,
+		"FSx S3 access point": RequestUnknown,
+	} {
+		if got := inferRequest(text, &Result{}); got != want {
+			t.Errorf("inferRequest(%q) = %s, want %s", text, got, want)
+		}
+	}
+}
+
+func TestResolveErrors(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler(t, seed(t), "")
+	ctx := context.Background()
+	for _, tc := range []struct{ arg, text string }{
+		{"", ""},
+		{"45362", "also text"},
+		{"not-a-thing", ""},
+		{"99999", ""}, // not indexed, no fetcher
+	} {
+		if _, err := r.Run(ctx, tc.arg, tc.text); err == nil {
+			t.Errorf("Run(%q, %q): expected error", tc.arg, tc.text)
+		}
+	}
+}
+
+func TestParsePage(t *testing.T) {
+	t.Parallel()
+
+	title, desc, err := parsePage(`<html><head><title>Ignored</title>
+<meta property="og:title" content="Amazon FSx for NetApp ONTAP now supports Amazon S3 access - AWS" />
+<meta name="description" content="Posted On: Dec 2, 2025 &amp; more" /></head></html>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title != "Amazon FSx for NetApp ONTAP now supports Amazon S3 access" || desc != "Posted On: Dec 2, 2025 & more" {
+		t.Errorf("parsePage = %q, %q", title, desc)
+	}
+	if _, _, err := parsePage("<html></html>"); err == nil {
+		t.Error("expected error for page without a title")
+	}
+}
