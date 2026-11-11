@@ -254,8 +254,8 @@ func sleep(ctx context.Context, d time.Duration) error {
 }
 
 func redact(u string) string {
-	if i := strings.IndexByte(u, '?'); i >= 0 {
-		return u[:i]
+	if before, _, ok := strings.Cut(u, "?"); ok {
+		return before
 	}
 	return u
 }

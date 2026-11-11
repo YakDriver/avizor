@@ -1,6 +1,9 @@
 package reconcile
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Match categories. They are provisional findings for a human or agent to confirm, not dispositions.
 const (
@@ -146,10 +149,8 @@ func (c *Candidate) crossReferenced() bool {
 }
 
 func (c *Candidate) addSignal(m Match) {
-	for _, e := range c.Signals {
-		if e == m {
-			return
-		}
+	if slices.Contains(c.Signals, m) {
+		return
 	}
 	c.Signals = append(c.Signals, m)
 }
