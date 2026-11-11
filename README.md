@@ -94,8 +94,11 @@ Signals found in more than 40 records (contributing guide links, boilerplate) ar
 
 ## Develop
 
+`make ci` runs every check CI runs: build, gofmt, `go fix`, `go mod tidy`, vet, and tests. Run `make help` for the individual targets. Tests need ripgrep.
+
+To also test service-map parsing against the real provider file:
+
 ```
-go test ./...
 RADAR_NAMES_DATA=~/go/src/github.com/hashicorp/terraform-provider-aws/names/data/names_data.hcl go test ./internal/services
 ```
 
