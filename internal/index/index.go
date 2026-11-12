@@ -2,12 +2,15 @@
 package index
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -413,50 +416,114 @@ func (s *Store) Signals(ctx context.Context, number int) ([]SignalHit, error) {
 	return out, rows.Err()
 }
 
-// SearchHit is a full-text search result. Rank is FTS5 bm25: lower is better.
+// SearchHit is a full-text search result. Rank is the negated score: lower is better.
 type SearchHit struct {
 	Number int
 	Rank   float64
 }
 
-// Search runs a full-text query over titles, bodies, and labels. Each term is matched as a quoted token; terms are
-// OR'ed, and titles weigh more than bodies.
+// Column weights for Search. A term in a title says more about an issue than one in its body.
+const (
+	weightTitle  = 3.0
+	weightLabels = 2.0
+	weightBody   = 1.0
+)
+
+// Search ranks issues matching any of terms, best first, and returns up to limit.
+//
+// Each matched term contributes its inverse document frequency, weighted by the best column it appears in (title,
+// then labels, then body). Document frequencies are counted over the records this view can see, so in a point-in-time
+// view, records created later can't change the ranking. FTS5's bm25() isn't used because its statistics always cover
+// the whole table. Term frequency and document length are ignored: issue bodies vary from one line to pasted logs, and
+// a term repeated in a log says little.
 func (s *Store) Search(ctx context.Context, terms []string, limit int) ([]SearchHit, error) {
-	q := ftsQuery(terms)
-	if q == "" {
+	terms = ftsTerms(terms)
+	if len(terms) == 0 || limit <= 0 {
 		return nil, nil
 	}
-	cond, args := s.asOf("i.created_at")
+	cond, cargs := s.asOf("i.created_at")
+
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues i WHERE 1=1`+cond, cargs...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("counting documents: %w", err)
+	}
+
+	scores := map[int]float64{}
+	for _, t := range terms {
+		any, err := s.matching(ctx, t, cond, cargs)
+		if err != nil {
+			return nil, err
+		}
+		if len(any) == 0 {
+			continue
+		}
+		title, err := s.matching(ctx, "title : "+t, cond, cargs)
+		if err != nil {
+			return nil, err
+		}
+		labels, err := s.matching(ctx, "labels : "+t, cond, cargs)
+		if err != nil {
+			return nil, err
+		}
+		df := float64(len(any))
+		idf := math.Log(1 + (float64(total)-df+0.5)/(df+0.5))
+		for n := range any {
+			w := weightBody
+			switch {
+			case title[n]:
+				w = weightTitle
+			case labels[n]:
+				w = weightLabels
+			}
+			scores[n] += idf * w
+		}
+	}
+
+	out := make([]SearchHit, 0, len(scores))
+	for n, sc := range scores {
+		out = append(out, SearchHit{Number: n, Rank: -sc})
+	}
+	slices.SortFunc(out, func(a, b SearchHit) int {
+		if c := cmp.Compare(a.Rank, b.Rank); c != 0 {
+			return c
+		}
+		// Newer issues first among equals, so results are deterministic.
+		return cmp.Compare(b.Number, a.Number)
+	})
+	return out[:min(limit, len(out))], nil
+}
+
+// matching returns the visible issues matching an FTS5 query.
+func (s *Store) matching(ctx context.Context, q, cond string, cargs []any) (map[int]bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT issues_fts.rowid, bm25(issues_fts, 10.0, 1.0, 3.0) AS rank
-FROM issues_fts JOIN issues i ON i.number = issues_fts.rowid
-WHERE issues_fts MATCH ?`+cond+`
-ORDER BY rank LIMIT ?`, append(append([]any{q}, args...), limit)...)
+SELECT issues_fts.rowid FROM issues_fts JOIN issues i ON i.number = issues_fts.rowid
+WHERE issues_fts MATCH ?`+cond, append([]any{q}, cargs...)...)
 	if err != nil {
 		return nil, fmt.Errorf("searching %q: %w", q, err)
 	}
 	defer rows.Close()
-	var out []SearchHit
+	out := map[int]bool{}
 	for rows.Next() {
-		var h SearchHit
-		if err := rows.Scan(&h.Number, &h.Rank); err != nil {
+		var n int
+		if err := rows.Scan(&n); err != nil {
 			return nil, fmt.Errorf("scanning search hit: %w", err)
 		}
-		out = append(out, h)
+		out[n] = true
 	}
 	return out, rows.Err()
 }
 
-// ftsQuery builds an FTS5 query that ORs quoted terms. Quoting prevents terms from being read as FTS5 syntax.
-func ftsQuery(terms []string) string {
-	var parts []string
+// ftsTerms quotes each term as an FTS5 string, so it's matched as a token and never read as query syntax. Empty and
+// duplicate terms are dropped.
+func ftsTerms(terms []string) []string {
+	var out []string
 	for _, t := range terms {
-		t = strings.ReplaceAll(t, `"`, "")
-		if t = strings.TrimSpace(t); t != "" {
-			parts = append(parts, `"`+t+`"`)
+		t = strings.TrimSpace(strings.ReplaceAll(t, `"`, ""))
+		if q := `"` + t + `"`; t != "" && !slices.Contains(out, q) {
+			out = append(out, q)
 		}
 	}
-	return strings.Join(parts, " OR ")
+	return out
 }
 
 // Stats summarizes the index.
