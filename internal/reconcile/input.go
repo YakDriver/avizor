@@ -40,7 +40,7 @@ type input struct {
 
 var (
 	issueArgRE  = regexp.MustCompile(`^#?(\d+)$`)
-	ghIssueRE   = regexp.MustCompile(`^https?://github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)`)
+	ghIssueRE   = regexp.MustCompile(`^https?://github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)(?:[/?#].*)?$`)
 	titleRE     = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 	metaRE      = regexp.MustCompile(`(?is)<meta\s+[^>]*>`)
 	metaAttrRE  = regexp.MustCompile(`(?is)(property|name|content)\s*=\s*"([^"]*)"`)
@@ -64,18 +64,28 @@ func (r *Reconciler) resolve(ctx context.Context, arg, text string) (*input, err
 		return nil, errors.New("nothing to reconcile: give an issue number, URL, or --text")
 	}
 
-	if m := issueArgRE.FindStringSubmatch(arg); m != nil {
-		n, _ := strconv.Atoi(m[1])
-		return r.resolveIssue(ctx, arg, n)
-	}
-	if m := ghIssueRE.FindStringSubmatch(arg); m != nil && strings.EqualFold(m[1], r.Target.Repo) {
-		n, _ := strconv.Atoi(m[2])
+	if n, ok := IssueNumber(arg, r.Target.Repo); ok {
 		return r.resolveIssue(ctx, arg, n)
 	}
 	if strings.HasPrefix(arg, "http://") || strings.HasPrefix(arg, "https://") {
 		return r.resolveURL(ctx, arg)
 	}
 	return nil, fmt.Errorf("can't interpret %q: give an issue number, URL, or --text", arg)
+}
+
+// IssueNumber reports whether arg names an issue or PR in repo ("owner/name"): a number, "#number", or a GitHub issue or
+// PR URL for that repo, with or without a fragment such as "#issuecomment-1". It returns the number.
+func IssueNumber(arg, repo string) (int, bool) {
+	arg = strings.TrimSpace(arg)
+	if m := issueArgRE.FindStringSubmatch(arg); m != nil {
+		n, err := strconv.Atoi(m[1])
+		return n, err == nil && n > 0
+	}
+	if m := ghIssueRE.FindStringSubmatch(arg); m != nil && strings.EqualFold(m[1], repo) {
+		n, err := strconv.Atoi(m[2])
+		return n, err == nil && n > 0
+	}
+	return 0, false
 }
 
 func (r *Reconciler) resolveIssue(ctx context.Context, ref string, n int) (*input, error) {
@@ -105,7 +115,9 @@ func (r *Reconciler) resolveIssue(ctx context.Context, ref string, n int) (*inpu
 		signalText: is.Title + "\n" + is.Body,
 		focusText:  is.Title,
 	}
-	if in.indexed, err = r.Store.Signals(ctx, n); err != nil {
+	// The input is resolved from the full index so a case can be evaluated as of a time before it was filed, but its
+	// comment signals come from the point-in-time view.
+	if in.indexed, err = r.view.Signals(ctx, n); err != nil {
 		return nil, err
 	}
 	return in, nil
