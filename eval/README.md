@@ -80,28 +80,36 @@ Labels come from repository history, not from Radar's output.
 
 The report also counts cases with existing work that were summarized as unmatched.
 
-## Baseline
+## Results
 
-Milestone 2, index synced from 2025-01-01 (15,493 issues and PRs, 52,167 comments), checkout `main` at 2026-11-11:
+Index synced from 2025-01-01 (15,493 issues and PRs, 52,167 comments), checkout `main` at 2026-11-11.
+
+| Change | pass | hit@1 | hit@3 | hit@5 | recall | category | false= |
+|---|---|---|---|---|---|---|---|
+| Milestone 2 baseline | 27 | 69% | 86% | 90% | 88% | 37% | 1/5 |
+| View-scoped full-text ranking (replaces FTS5 `bm25()`) | 27 | 71% | 83% | 90% | 88% | 37% | 1/5 |
+| Follow references from matched issues to PRs | 30 | 69% | 83% | 88% | 96% | 47% | 1/5 |
+
+Current, by kind:
 
 ```
 kind               cases   pass  hit@1  hit@3  hit@5  recall category  unmatch false=
 announcement           6      6   100%   100%   100%    100%     100%        -    0/0
 announcement-text      6      0    83%   100%   100%    100%       0%        -    0/0
-dev                    4      4    75%   100%   100%    100%     100%     100%    0/1
-duplicate             20      3    45%    70%    80%     90%      15%        -    0/0
-implemented            6      2   100%   100%   100%     67%      33%        -    0/0
+dev                    4      3    75%   100%   100%    100%     100%     100%    0/1
+duplicate             20      3    45%    65%    75%     90%      15%        -    0/0
+implemented            6      6   100%   100%   100%    100%     100%        -    0/0
 new                    5      5      -      -      -       -        -     100%    0/0
 no-work                4      4      -      -      -       -        -     100%    0/0
 related                4      3      -      -      -       -        -        -    1/4
-overall               55     27    69%    86%    90%     88%      37%     100%    1/5
+overall               55     30    69%    83%    88%     96%      47%     100%    1/5
 17 case(s) with existing work were summarized as unmatched
 ```
 
 What it shows:
 
-- **Retrieval is good; categorization is the gap.** 90% of cases with an answer have it in the top 5, but only 37% of expected candidates get the right category. Most duplicates and reworded announcements are found, as "related", because they share keywords and labels but no exact anchor.
+- **Retrieval is good; categorization is the gap.** 88% of cases with an answer have it in the top 5, but only 47% of expected candidates get the right category. Most duplicates and reworded announcements are found as "related", because they share keywords and labels with the original but no exact anchor.
 - **Exact anchors work.** Announcement URLs find their trackers every time.
-- **Implementing PRs are missed when they don't repeat the anchor.** For 4 of 6 `implemented` cases the tracker is found but the PR that closed it isn't, because Radar doesn't follow links from a candidate to the PRs that reference it.
-- **Some strong signals are too broad.** The one false-equivalent comes from a News Blog post that announced two features at once. Other failures show an operation name or an SDK docs URL shared by unrelated issues.
+- **Following references finds implementing PRs.** A tracker rarely links the PR that implements it, but the PR links the tracker. Following those links fixed all 4 `implemented` misses. The cost is crowding: followed PRs can push a related candidate down, as in `dup-41782` (#41710 moved from rank 5 to 6) and `dev-45362-code` (#50872 to rank 6).
+- **Some strong signals are too broad.** The one false-equivalent comes from a News Blog post that announced two features at once. Other failures show an operation name, an SDK docs URL, or a Terraform Registry docs URL shared by unrelated issues. Making Registry URLs weak was tried and rejected: it fixed `dup-41782` but broke `dup-43828`, and lowered pass and recall.
 - **`new` and `no-work` pass trivially.** Keyword-only matches are always "related", so these confirm Radar doesn't invent strong matches, but they can't fail any other way.
