@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"time"
 
 	"github.com/YakDriver/radar/internal/config"
@@ -142,7 +141,10 @@ func (c *common) open() (*config.Target, *index.Store, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	st, err := index.Open(filepath.Join(dir, t.Name+".db"))
+	if err := config.MigrateIndex(dir, t.Name); err != nil {
+		return nil, nil, err
+	}
+	st, err := index.Open(config.IndexPath(dir, t.Name))
 	if err != nil {
 		return nil, nil, err
 	}

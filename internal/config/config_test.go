@@ -52,6 +52,8 @@ func TestLoadErrors(t *testing.T) {
 		"duplicate":  {`target "x" { repo = "a/b" }` + "\n" + `target "x" { repo = "a/c" }`, "duplicate target"},
 		"comments":   {`target "x" {` + "\n" + `repo = "a/b"` + "\n" + `index { comments = "all" }` + "\n}", "index.comments"},
 		"unknown":    {`target "x" {` + "\n" + `repo = "a/b"` + "\n" + `bogus = 1` + "\n}", "Unsupported argument"},
+		"path name":  {`target "../x" { repo = "a/b" }`, "target name"},
+		"src name":   {`target "x" { repo = "a/b" }` + "\n" + `source "A B" { type = "aws-sdk-go-v2" }`, "source name"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -155,5 +157,41 @@ func TestSourceErrors(t *testing.T) {
 				t.Errorf("err = %v, want containing %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestIndexPath(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	// A target named "items" can't collide with the items database.
+	if IndexPath(dir, "items") == ItemsPath(dir) {
+		t.Error("index for target \"items\" collides with items.db")
+	}
+
+	// A legacy index and its WAL file move to the index directory.
+	for _, suffix := range []string{"", "-wal"} {
+		if err := os.WriteFile(filepath.Join(dir, "tfaws.db"+suffix), []byte("x"+suffix), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := MigrateIndex(dir, "tfaws"); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"", "-wal"} {
+		b, err := os.ReadFile(IndexPath(dir, "tfaws") + suffix)
+		if err != nil || string(b) != "x"+suffix {
+			t.Errorf("migrated %s = %q, %v", suffix, b, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "tfaws.db"+suffix)); err == nil {
+			t.Errorf("legacy %s still present", suffix)
+		}
+	}
+	// Migrating again, or with nothing to migrate, is a no-op.
+	if err := MigrateIndex(dir, "tfaws"); err != nil {
+		t.Error(err)
+	}
+	if err := MigrateIndex(dir, "none"); err != nil {
+		t.Error(err)
 	}
 }

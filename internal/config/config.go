@@ -25,7 +25,11 @@ const (
 	stateDirName               = "radar"
 )
 
-var repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+var (
+	repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	// namePattern limits target and source names, which become file names and item ID prefixes.
+	namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+)
 
 // Config is the top-level configuration file.
 type Config struct {
@@ -197,6 +201,9 @@ func Load(path string) (*Config, error) {
 		}
 		seen[t.Name] = true
 
+		if !namePattern.MatchString(t.Name) {
+			return nil, fmt.Errorf("config %s: target name %q must be lowercase letters, digits, dashes, and underscores", path, t.Name)
+		}
 		if !repoPattern.MatchString(t.Repo) {
 			return nil, fmt.Errorf("target %q: repo must be owner/name, got %q", t.Name, t.Repo)
 		}
@@ -234,6 +241,9 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("config %s: duplicate source %q", path, s.Name)
 		}
 		seenSources[s.Name] = true
+		if !namePattern.MatchString(s.Name) {
+			return nil, fmt.Errorf("config %s: source name %q must be lowercase letters, digits, dashes, and underscores", path, s.Name)
+		}
 		if err := s.setDefaults(); err != nil {
 			return nil, fmt.Errorf("config %s: %w", path, err)
 		}
@@ -319,4 +329,37 @@ func expandHome(p string) string {
 		}
 	}
 	return p
+}
+
+// IndexPath returns where a target's index lives under stateDir: index/<target>.db. Indexes have their own directory so
+// target names can't collide with other state files such as items.db.
+func IndexPath(stateDir, target string) string {
+	return filepath.Join(stateDir, "index", target+".db")
+}
+
+// ItemsPath returns where pulled items live under stateDir.
+func ItemsPath(stateDir string) string {
+	return filepath.Join(stateDir, "items.db")
+}
+
+// MigrateIndex moves a target's index from its pre-index-directory location, <state>/<target>.db, if it exists there
+// and not at IndexPath. SQLite's -wal and -shm files move with it.
+func MigrateIndex(stateDir, target string) error {
+	legacy := filepath.Join(stateDir, target+".db")
+	dst := IndexPath(stateDir, target)
+	if _, err := os.Stat(legacy); err != nil {
+		return nil
+	}
+	if _, err := os.Stat(dst); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		return err
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Rename(legacy+suffix, dst+suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("moving index %s to %s: %w", legacy+suffix, dst+suffix, err)
+		}
+	}
+	return nil
 }
