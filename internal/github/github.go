@@ -89,6 +89,7 @@ type Comment struct {
 	ID        int64     `json:"id"`
 	Body      string    `json:"body"`
 	IssueURL  string    `json:"issue_url"`
+	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -121,10 +122,7 @@ func (c *Client) ListIssues(ctx context.Context, repo string, since time.Time, f
 		"direction": {"asc"},
 		"per_page":  {strconv.Itoa(perPage)},
 	}
-	if !since.IsZero() {
-		q.Set("since", since.UTC().Format(time.RFC3339))
-	}
-	return paginate(ctx, c, fmt.Sprintf("%s/repos/%s/issues?%s", c.BaseURL, repo, q.Encode()), fn)
+	return listWindowed(ctx, c, fmt.Sprintf("%s/repos/%s/issues", c.BaseURL, repo), q, since, func(is Issue) time.Time { return is.UpdatedAt }, fn)
 }
 
 // ListComments pages through all issue and PR comments in a repo updated at or after since, oldest update first.
@@ -134,10 +132,51 @@ func (c *Client) ListComments(ctx context.Context, repo string, since time.Time,
 		"direction": {"asc"},
 		"per_page":  {strconv.Itoa(perPage)},
 	}
-	if !since.IsZero() {
-		q.Set("since", since.UTC().Format(time.RFC3339))
+	return listWindowed(ctx, c, fmt.Sprintf("%s/repos/%s/issues/comments", c.BaseURL, repo), q, since, func(cm Comment) time.Time { return cm.UpdatedAt }, fn)
+}
+
+// listWindowed pages through a list sorted by ascending update time. GitHub stops returning a next link after a fixed
+// number of pages on some list endpoints, so a pass that ends on a full page may be truncated. listWindowed then starts
+// a new pass from the latest update time seen. Items at that boundary are delivered twice; callers must be idempotent.
+func listWindowed[T any](ctx context.Context, c *Client, base string, q url.Values, since time.Time, updated func(T) time.Time, fn func([]T) error) error {
+	for {
+		if !since.IsZero() {
+			q.Set("since", since.UTC().Format(time.RFC3339))
+		}
+		var (
+			latest   time.Time
+			lastFull bool
+			pages    int
+		)
+		err := paginate(ctx, c, base+"?"+q.Encode(), func(page []T) error {
+			pages++
+			lastFull = len(page) == perPage
+			for _, it := range page {
+				if u := updated(it); u.After(latest) {
+					latest = u
+				}
+			}
+			return fn(page)
+		})
+		if err != nil {
+			return err
+		}
+		if !lastFull {
+			return nil
+		}
+		if !latest.After(since) {
+			// A full pass that didn't advance means one timestamp spans more items than a pass returns. Return rather
+			// than loop; the next sync resumes from the checkpoint.
+			if pages > 1 {
+				return fmt.Errorf("listing %s: more than %d pages of items share update time %s", redact(base), pages, latest.Format(time.RFC3339))
+			}
+			return nil
+		}
+		if c.Log != nil && pages > 1 {
+			c.Log("pagination ended after %d pages; continuing from %s", pages, latest.Format(time.RFC3339))
+		}
+		since = latest
 	}
-	return paginate(ctx, c, fmt.Sprintf("%s/repos/%s/issues/comments?%s", c.BaseURL, repo, q.Encode()), fn)
 }
 
 func paginate[T any](ctx context.Context, c *Client, next string, fn func([]T) error) error {
