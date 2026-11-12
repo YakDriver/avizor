@@ -19,6 +19,13 @@
 #                      after the release.
 #
 #   item-no-work       Pulled SDK items that need no provider work.
+#   item-gap           Pulled SDK items that need provider work nothing covers yet, from the gap sample (below).
+#   item-covered       Pulled SDK items from the gap sample that existing work covers, though no tracker cites the
+#                      release commit.
+#
+# The gap sample: 32 items drafted in a seeded random order (seed 20261112) from items in implemented services with
+# the SDK version available and some inferred work, until 30 had no confident existing work. Each was hand-checked
+# against provider code at 258e7008847 (2026-11-12) and a GitHub search of issues and PRs.
 #
 # Item cases need pulled items: run `radar pull --since 2025-11-30` first.
 #
@@ -1327,4 +1334,288 @@ case "item-nowork-ec2-2026-09-04" {
   note      = "ValidateSecurityGroupQuotasForInterface is for AWS services only; the bump PR #49854 cites the release commit and has the ec2 label"
   unmatched = true
   different = [49854]
+}
+
+# --- gap sample: item-gap, item-covered, and item-no-work
+
+case "item-nowork-mediaconvert-2026-07-01" {
+  item  = "aws-sdk-go-v2/mediaconvert/release-2026-07-01"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "job template and preset settings; the provider has no job template or preset resource (#47145 tracks one)"
+  unmatched = true
+}
+
+case "item-nowork-gamelift-2026-06-18" {
+  item  = "aws-sdk-go-v2/gamelift/release-2026-06-18"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "container group definitions, which the provider does not implement"
+  unmatched = true
+}
+
+case "item-nowork-connect-2026-01-27" {
+  item  = "aws-sdk-go-v2/connect/release-2026-01-27"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "StartTaskContact starts a contact, not a resource"
+  unmatched = true
+}
+
+case "item-nowork-cleanrooms-2026-07-27" {
+  item  = "aws-sdk-go-v2/cleanrooms/release-2026-07-27"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "worker type for protected queries, which are not resources"
+  unmatched = true
+}
+
+case "item-nowork-sagemaker-2026-03-11" {
+  item  = "aws-sdk-go-v2/sagemaker/release-2026-03-11"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "training plan extensions; the provider has no training plan resource"
+  unmatched = true
+}
+
+case "item-nowork-bcmdataexports-2026-07-27" {
+  item  = "aws-sdk-go-v2/bcmdataexports/release-2026-07-27"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "new enum values; aws_bcmdataexports_export validates against the SDK enum, so the bump covers it"
+  unmatched = true
+}
+
+case "item-nowork-glue-2026-10-12" {
+  item  = "aws-sdk-go-v2/glue/release-2026-10-12"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "data quality result V2 reads and publishes; no resource to manage"
+  unmatched = true
+}
+
+case "item-nowork-cloudformation-2026-07-31-2" {
+  item  = "aws-sdk-go-v2/cloudformation/release-2026-07-31.2"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "an output-only DescribeChangeSet enum value"
+  unmatched = true
+}
+
+case "item-nowork-sagemaker-2026-04-10" {
+  item  = "aws-sdk-go-v2/sagemaker/release-2026-04-10"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "StartClusterHealthCheck and HyperPod node additions, not resource configuration"
+  unmatched = true
+}
+
+case "item-nowork-connect-2025-12-29" {
+  item  = "aws-sdk-go-v2/connect/release-2025-12-29"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "DescribeContact output; contacts are not resources"
+  unmatched = true
+}
+
+case "item-nowork-codecommit-2026-08-13" {
+  item  = "aws-sdk-go-v2/codecommit/release-2026-08-13"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "GetBlobDifferences compares commits; not a resource or a useful data source"
+  unmatched = true
+}
+
+case "item-nowork-glue-2026-05-14" {
+  item  = "aws-sdk-go-v2/glue/release-2026-05-14"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "a GetCatalogs filter"
+  unmatched = true
+}
+
+case "item-nowork-datazone-2026-09-30" {
+  item  = "aws-sdk-go-v2/datazone/release-2026-09-30"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "notebook runs, which are not resources"
+  unmatched = true
+}
+
+case "item-nowork-sagemaker-2026-08-07" {
+  item  = "aws-sdk-go-v2/sagemaker/release-2026-08-07"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "new notebook instance statuses; the waiter targets InService and Stopped"
+  unmatched = true
+}
+
+case "item-nowork-bedrock-2026-05-14" {
+  item  = "aws-sdk-go-v2/bedrock/release-2026-05-14"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "advanced prompt optimization jobs, which run once"
+  unmatched = true
+}
+
+case "item-nowork-bedrock-2026-05-28" {
+  item  = "aws-sdk-go-v2/bedrock/release-2026-05-28"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "CreateCustomModel, which the provider does not call"
+  unmatched = true
+}
+
+case "item-nowork-sagemaker-2026-05-19" {
+  item  = "aws-sdk-go-v2/sagemaker/release-2026-05-19"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "new instance types; aws_sagemaker_notebook_instance does not validate instance_type"
+  unmatched = true
+}
+
+case "item-nowork-ec2-2026-06-02" {
+  item  = "aws-sdk-go-v2/ec2/release-2026-06-02"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-no-work"
+  note  = "capacity reservation cancellation quotes, which are transient"
+  unmatched = true
+}
+
+case "item-gap-docdb-2026-09-21" {
+  item  = "aws-sdk-go-v2/docdb/release-2026-09-21"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-gap"
+  note  = "aws_docdb_cluster has no copy_tags_to_snapshot"
+  unmatched = true
+}
+
+case "item-gap-batch-2026-09-30" {
+  item  = "aws-sdk-go-v2/batch/release-2026-09-30"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-gap"
+  note  = "aws_batch_compute_environment eks_configuration has no access entry"
+  unmatched = true
+}
+
+case "item-gap-medialive-2026-06-10" {
+  item  = "aws-sdk-go-v2/medialive/release-2026-06-10"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-gap"
+  note  = "aws_medialive_channel has no premix or peak limiter settings"
+  unmatched = true
+}
+
+case "item-gap-configservice-2026-07-02" {
+  item  = "aws-sdk-go-v2/configservice/release-2026-07-02"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-gap"
+  note  = "the organization rule and conformance pack resources have no tags"
+  unmatched = true
+}
+
+case "item-gap-quicksight-2026-05-29" {
+  item  = "aws-sdk-go-v2/quicksight/release-2026-05-29"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-gap"
+  note  = "no OAuth client application resource"
+  unmatched = true
+}
+
+case "item-gap-kafkaconnect-2026-10-22" {
+  item  = "aws-sdk-go-v2/kafkaconnect/release-2026-10-22"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-gap"
+  note  = "aws_mskconnect_connector cannot pause or resume, and has no skip_health_validation"
+  unmatched = true
+}
+
+case "item-gap-rds-2026-08-27" {
+  item  = "aws-sdk-go-v2/rds/release-2026-08-27"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-gap"
+  note  = "aws_db_snapshot has no full snapshot size attribute"
+  unmatched = true
+}
+
+case "item-gap-appstream-2026-06-19" {
+  item  = "aws-sdk-go-v2/appstream/release-2026-06-19"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-gap"
+  note  = "aws_appstream_stack has no agent access configuration at all"
+  unmatched = true
+}
+
+case "item-covered-arcregionswitch-2026-02-27" {
+  item  = "aws-sdk-go-v2/arcregionswitch/release-2026-02-27"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-covered"
+  note  = "RDS read replica execution blocks were added to plan.go on 2026-03-16 (PR #49675)"
+  expect {
+    path     = "internal/service/arcregionswitch/plan.go"
+    category = "already_implemented"
+  }
+}
+
+case "item-covered-bedrockagent-2026-08-28-2" {
+  item  = "aws-sdk-go-v2/bedrockagent/release-2026-08-28.2"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-covered"
+  note  = "sync_schedule was added to aws_bedrockagent_data_source in 791712d0633 (2026-10-09)"
+  expect {
+    path     = "internal/service/bedrockagent/data_source.go"
+    category = "already_implemented"
+  }
+}
+
+case "item-covered-cloudwatch-2026-05-01" {
+  item  = "aws-sdk-go-v2/cloudwatch/release-2026-05-01"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-covered"
+  note  = "#48548 r/aws_cloudwatch_dashboard: Tagging support"
+  expect {
+    number   = 48548
+    category = "already_tracked"
+  }
+}
+
+case "item-covered-cognitoidentityprovider-2026-06-01" {
+  item  = "aws-sdk-go-v2/cognitoidentityprovider/release-2026-06-01"
+  as_of = "2026-11-12T21:00:00Z"
+  code  = true
+  kind  = "item-covered"
+  note  = "open PR #48670 adds aws_cognito_user_pool_replica"
+  expect {
+    number   = 48670
+    category = "already_tracked"
+  }
 }
