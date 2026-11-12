@@ -28,3 +28,13 @@ func TestWriteUnjudgedErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestShellJoin(t *testing.T) {
+	t.Parallel()
+
+	got := shellJoin([]string{"issue", "--title", "New resource: `aws_x`", "--label", "service/x", "it's", ""})
+	want := `issue --title 'New resource: ` + "`aws_x`" + `' --label service/x 'it'\''s' ''`
+	if got != want {
+		t.Errorf("shellJoin = %s, want %s", got, want)
+	}
+}

@@ -21,6 +21,14 @@ target "tfaws" {
   # the source's models clone (created by `radar pull`) and cached next to it.
   # operations = "aws-sdk-go-v2"
 
+  # Terraform type prefix, used to name new resources in drafts. This is the default.
+  # type_prefix = "aws_"
+
+  # Go text/template file for `radar draft` issue bodies, relative to this file. The default follows the provider's
+  # tracking issues: quoted release notes and the required SDK release with its bump PR. The template sees
+  # draft.Data: .Headline, .Notes, .Release, .ReleaseURL, .BumpPRURL, .Service, .Work, and .Item.
+  # draft_template = "templates/issue.md.tmpl"
+
   index {
     # "urls-and-identifiers" (default) scans comments for URLs, API operation names, Terraform names, and issue
     # references, without storing comment text. "none" skips comments.
