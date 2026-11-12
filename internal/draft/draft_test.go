@@ -60,7 +60,7 @@ func TestNewResource(t *testing.T) {
 	if !slices.Equal(d.Labels, []string{"enhancement", "service/widget", "new-resource"}) {
 		t.Errorf("labels = %q", d.Labels)
 	}
-	want := "> Adds S3 access points.\n\n> Second note.\n\nRequires AWS SDK for Go v2 [Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc): https://github.com/o/r/pull/10.\n"
+	want := "> Adds S3 access points. More detail here.\n\n> Second note.\n\nRequires AWS SDK for Go v2 [Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc): https://github.com/o/r/pull/10.\n"
 	if d.Body != want {
 		t.Errorf("body =\n%s\nwant\n%s", d.Body, want)
 	}
@@ -135,14 +135,16 @@ func TestNewService(t *testing.T) {
 	t.Parallel()
 
 	en := &enrich.Result{Service: enrich.ServiceMatch{Status: enrich.ServiceUnknown}, Work: []enrich.Work{{Kind: enrich.WorkNewResource, Subject: "Gadget"}}}
-	d, err := New(item("gizmo", "New AWS service client module", "Initial release of Gizmo."), en, nil, opts)
+	o := opts
+	o.LabelPrefix = "svc:"
+	d, err := New(item("gizmo", "New AWS service client module", "Initial release of Gizmo."), en, nil, o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(d.Labels, []string{"enhancement", "new-service", "service/gizmo", "new-resource"}) {
+	if !slices.Equal(d.Labels, []string{"enhancement", "new-service", "svc:gizmo", "new-resource"}) {
 		t.Errorf("labels = %q", d.Labels)
 	}
-	if !strings.HasPrefix(d.Body, "> Initial release of Gizmo.\n") {
+	if !strings.HasPrefix(d.Body, "> Initial release of Gizmo.\n") || strings.Contains(d.Body, newModuleNote) {
 		t.Errorf("body =\n%s", d.Body)
 	}
 	if d.Title != "New resource: `aws_gizmo_gadget`" {

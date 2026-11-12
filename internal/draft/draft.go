@@ -58,10 +58,10 @@ type Relate struct {
 // Data is what the body template sees.
 type Data struct {
 	Item *awssdk.Item
-	// Headline is the first sentence of the item's first release note.
-	Headline string
-	// Notes are the release notes after the first.
+	// Notes are the item's release notes, in full, without the "New AWS service client module" marker.
 	Notes []string
+	// Headline is the first sentence of the first note. Titles use it.
+	Headline string
 	// Release is the release name, such as "Release 2025-12-02".
 	Release    string
 	ReleaseURL string
@@ -79,6 +79,8 @@ type Options struct {
 	Checkout string
 	// Prefix is the Terraform type prefix, such as "aws_".
 	Prefix string
+	// LabelPrefix is the target's service label prefix, such as "service/".
+	LabelPrefix string
 	// Template is a body template file. Empty uses the built-in one.
 	Template string
 	// RelatesLimit caps suggested related candidates.
@@ -111,20 +113,14 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	if data.ReleaseURL == "" {
 		data.ReleaseURL = it.Release.URL
 	}
-	for i, n := range it.Notes {
-		if i == 0 {
-			data.Headline = firstSentence(n.Text)
-			continue
-		}
+	for _, n := range it.Notes {
 		if n.Text != newModuleNote {
 			data.Notes = append(data.Notes, n.Text)
 		}
 	}
-	if data.Headline == newModuleNote && len(data.Notes) > 0 {
-		data.Headline, data.Notes = firstSentence(data.Notes[0]), data.Notes[1:]
-	}
-	if data.Headline != "" {
-		infer("headline", data.Headline, "first sentence of the release notes; replace it with the announcement headline if there is one")
+	if len(data.Notes) > 0 {
+		data.Headline = firstSentence(data.Notes[0])
+		infer("headline", data.Headline, "first sentence of the release notes, used in the title; add the announcement headline to the body if there is one")
 	}
 
 	if av := en.Availability; av != nil {
@@ -186,7 +182,7 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 		// A service the provider doesn't implement yet; its package would most likely be named after the module.
 		pkg = it.Service.Module
 		addLabel("new-service", "the target has no implemented service for module "+it.Service.Module)
-		addLabel(labelPrefix(en.Service.Label)+pkg, "the new service's package would most likely be named after its SDK module")
+		addLabel(cmp(opts.LabelPrefix, "service/")+pkg, "the new service's package would most likely be named after its SDK module")
 	}
 
 	var newTypes, newDataSources, argTypes []string
@@ -237,13 +233,6 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 	}
 	infer("title", title, "release notes; no single resource is affected")
 	return title, labels
-}
-
-func labelPrefix(label string) string {
-	if i := strings.LastIndex(label, "/"); i >= 0 {
-		return label[:i+1]
-	}
-	return "service/"
 }
 
 func cmp(ss ...string) string {

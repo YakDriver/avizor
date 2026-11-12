@@ -51,7 +51,8 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	d, err := draft.New(it, en, rec, draft.Options{
-		Repo: t.Repo, Checkout: t.Checkout, Prefix: t.TypePrefix, Template: t.DraftTemplate, RelatesLimit: *relates,
+		Repo: t.Repo, Checkout: t.Checkout, Prefix: t.TypePrefix, LabelPrefix: t.ServiceLabelPrefix, Template: t.DraftTemplate,
+		RelatesLimit: *relates,
 	})
 	if err != nil {
 		return err
@@ -62,12 +63,32 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		_, err := io.WriteString(stdout, d.Body)
 		return err
 	case c.format == "text":
-		return writeDraftText(stdout, d)
+		return writeDraftText(stdout, d, regenArgs(fs, d.Item, t.Name))
 	}
 	return writeJSON(stdout, d)
 }
 
-func writeDraftText(w io.Writer, d *draft.Draft) error {
+// regenArgs is the command that prints this draft's body again: the same item, with the flags that were set (config,
+// state directory, target, and options) and the target it resolved to.
+func regenArgs(fs *flag.FlagSet, item, target string) []string {
+	args := []string{"radar", "draft", item}
+	hasTarget := false
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "format", "body":
+			return
+		case "target":
+			hasTarget = true
+		}
+		args = append(args, "--"+f.Name+"="+f.Value.String())
+	})
+	if !hasTarget {
+		args = append(args, "--target="+target)
+	}
+	return append(args, "--body")
+}
+
+func writeDraftText(w io.Writer, d *draft.Draft, regen []string) error {
 	fmt.Fprintf(w, "title:   %s\nlabels:  %s\n\n%s\n", d.Title, strings.Join(d.Labels, ", "), d.Body)
 	fmt.Fprintln(w, "--- for the reviewer (not part of the issue)")
 	for _, warn := range d.Warnings {
@@ -85,7 +106,7 @@ func writeDraftText(w io.Writer, d *draft.Draft) error {
 			fmt.Fprintf(w, "  #%d %s (%s)\n", r.Number, r.Title, r.Basis)
 		}
 	}
-	fmt.Fprintf(w, "\nto file it:\n  radar draft %s --body | gh %s\n", d.Item, shellJoin(d.GHArgs))
+	fmt.Fprintf(w, "\nto file it:\n  %s | gh %s\n", shellJoin(regen), shellJoin(d.GHArgs))
 	return nil
 }
 

@@ -144,16 +144,16 @@ For `aws-sdk-go-v2/fsx/release-2025-12-02`, the ONTAP tracker #45362 is already 
 
 ```
 radar draft aws-sdk-go-v2/kinesis/release-2026-08-31 --format text
-radar draft aws-sdk-go-v2/kinesis/release-2026-08-31 --body | gh issue create --repo hashicorp/terraform-provider-aws --title ... --label ... --body-file -
+radar draft aws-sdk-go-v2/kinesis/release-2026-08-31 --target=tfaws --body | gh issue create --repo hashicorp/terraform-provider-aws --title ... --label ... --body-file -
 ```
 
-`radar draft` renders a new issue for an item in the format of the provider's tracking issues: the release notes quoted, then `Requires AWS SDK for Go v2 [Release ...](<release commit>): <bump PR>.` The body holds only what the item shows, so it can be filed as is. Radar prints the `gh` command but doesn't run it.
+`radar draft` renders a new issue for an item in the format of the provider's tracking issues: the release notes quoted in full, then `Requires AWS SDK for Go v2 [Release ...](<release commit>): <bump PR>.` The body holds only what the item shows, so it can be filed as is. Radar prints the `gh` command, with the flags needed to regenerate the same body, but doesn't run it.
 
 Everything Radar guessed is listed for the reviewer, with its basis, in a reviewer section (text) or under `inferred` (JSON), not in the body:
 
 - **Title.** ``New resource: `aws_<package>_<noun>` `` for one inferred new resource, `New data source: ...` for one new read-only noun, `r/<resource>: <first sentence>` when new arguments affect operations only one resource calls, and otherwise `<service>: <first sentence>`.
 - **Labels.** `enhancement`, the service label, `new-resource`, and `new-service` for a new SDK module or a service the target doesn't implement.
-- **Headline.** The first sentence of the release notes. Replace it with the announcement's headline if there is one.
+- **Headline.** The first sentence of the release notes, used in titles. If there's an announcement, add its headline and link to the body.
 
 The reviewer section also has:
 

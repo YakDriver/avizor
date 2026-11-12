@@ -334,10 +334,10 @@ PR 2 (enrich and reconcile items):
 PR 3 (draft):
 
 - **`radar draft <item-id>`** renders the title, labels, body, and `gh issue create` arguments. Radar doesn't run `gh`.
-- **The body holds only what the item shows**: the release notes quoted and the required SDK release with its bump PR. Inferred values (title, Terraform names, labels, headline) are listed with their basis in the JSON and the text reviewer section, not in the body, so the body can be filed as is.
+- **The body holds only what the item shows**: the release notes quoted in full and the required SDK release with its bump PR. Inferred values (title, Terraform names, labels, headline) are listed with their basis in the JSON and the text reviewer section, not in the body, so the body can be filed as is.
 - **`Relates` is a suggestion, not body text.** Related candidates are weak matches, so writing them into the issue would state a relation Radar hasn't established.
 - **Existing work is a warning.** A confident candidate means the item may already be tracked or implemented. Radar fills gaps, so it doesn't draft comments on existing issues.
-- **No announcement source yet.** The headline is the release note's first sentence, which the reviewer can replace; milestone 4's announcement source will supply it.
+- **No announcement source yet.** The body quotes the release notes in full; titles use the first sentence. The reviewer can add the announcement headline, and milestone 4's announcement source will supply it.
 - **Tagging operations** (`TagResource` and its family) are inferred as tagging support, not a new resource, and aren't strong signals in reconciliation: every service has them.
 - **Measured against history.** Drafts for the 37 items with maintainer trackers (39 tracker pairs):
   - The drafted service label is on the tracker in all 39.

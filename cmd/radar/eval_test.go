@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"flag"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,5 +38,23 @@ func TestShellJoin(t *testing.T) {
 	want := `issue --title 'New resource: ` + "`aws_x`" + `' --label service/x 'it'\''s' ''`
 	if got != want {
 		t.Errorf("shellJoin = %s, want %s", got, want)
+	}
+}
+
+func TestRegenArgs(t *testing.T) {
+	t.Parallel()
+
+	fs := flag.NewFlagSet("draft", flag.ContinueOnError)
+	var c common
+	c.register(fs)
+	fs.Bool("no-code", false, "")
+	fs.Bool("body", false, "")
+	if err := fs.Parse([]string{"--config", "/x/radar.hcl", "--state-dir", "/s", "--format", "text", "--no-code"}); err != nil {
+		t.Fatal(err)
+	}
+	got := regenArgs(fs, "sdk/x/release-1", "tf")
+	want := []string{"radar", "draft", "sdk/x/release-1", "--config=/x/radar.hcl", "--no-code=true", "--state-dir=/s", "--target=tf", "--body"}
+	if !slices.Equal(got, want) {
+		t.Errorf("regenArgs = %q, want %q", got, want)
 	}
 }
