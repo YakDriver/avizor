@@ -561,7 +561,7 @@ func TestRunItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := find(t, res.Candidates, 45400, ""); c.Category != CategoryRelated || !hasSignal(c, matchBump, "brings in the SDK version; doesn't implement the change") {
+	if c := find(t, res.Candidates, 45400, ""); c.Category != CategoryRelated || !hasSignal(c, MatchBump, "brings in the SDK version; doesn't implement the change") {
 		t.Errorf("bump PR #45400 = %s %+v, want related", c.Category, c.Signals)
 	}
 

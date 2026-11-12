@@ -109,6 +109,10 @@ func TestFallbackTitleAndWarnings(t *testing.T) {
 			Signals: []reconcile.Match{{Type: "label", Value: "service/widget"}, {Type: "keyword", Value: "widget"}, {Type: "keyword", Value: "crash"}}},
 		{Category: reconcile.CategoryRelated, Kind: reconcile.KindIssue, Number: 8, Title: "Other",
 			Signals: []reconcile.Match{{Type: "keyword", Value: "widget"}, {Type: "keyword", Value: "other"}}},
+		{Category: reconcile.CategoryRelated, Kind: reconcile.KindPR, Number: 9, Title: "Bump the SDK",
+			Signals: []reconcile.Match{{Type: reconcile.MatchBump, Value: "widget"}, {Type: "label", Value: "service/widget"}, {Type: "keyword", Value: "widget"}, {Type: "keyword", Value: "sdk"}}},
+		{Category: reconcile.CategoryRelated, Kind: reconcile.KindPR, Number: 10, Title: "Widget sizes PR",
+			Signals: []reconcile.Match{{Type: "label", Value: "service/widget"}, {Type: "keyword", Value: "widget"}, {Type: "keyword", Value: "sizes"}}},
 	}}
 	d, err := New(item("widget", "Adds sizes."), en, rec, opts)
 	if err != nil {
@@ -123,7 +127,7 @@ func TestFallbackTitleAndWarnings(t *testing.T) {
 	if len(d.Warnings) != 2 || !strings.Contains(d.Warnings[0], "isn't available yet") || !strings.Contains(d.Warnings[1], "already tracked: #5") {
 		t.Errorf("warnings = %q", d.Warnings)
 	}
-	if len(d.Relates) != 1 || d.Relates[0].Number != 6 {
+	if len(d.Relates) != 2 || d.Relates[0].Number != 6 || d.Relates[1].Number != 10 || d.Relates[1].Kind != reconcile.KindPR {
 		t.Errorf("relates = %+v", d.Relates)
 	}
 	if strings.Contains(d.Body, "Relates") {
@@ -144,7 +148,7 @@ func TestNewService(t *testing.T) {
 	if !slices.Equal(d.Labels, []string{"enhancement", "new-service", "svc:gizmo", "new-resource"}) {
 		t.Errorf("labels = %q", d.Labels)
 	}
-	if !strings.HasPrefix(d.Body, "> Initial release of Gizmo.\n") || strings.Contains(d.Body, newModuleNote) {
+	if !strings.HasPrefix(d.Body, "> Initial release of Gizmo.\n") || strings.Contains(d.Body, NewModuleNote) {
 		t.Errorf("body =\n%s", d.Body)
 	}
 	if d.Title != "New resource: `aws_gizmo_gadget`" {
