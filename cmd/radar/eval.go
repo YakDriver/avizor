@@ -125,7 +125,13 @@ func writeEvalText(w io.Writer, rep *eval.Report, failuresOnly bool) error {
 
 func writeUnjudged(w io.Writer, rep *eval.Report) error {
 	n := 0
+	var errored []string
 	for _, cr := range rep.Cases {
+		if cr.Error != "" {
+			// An errored case returned no candidates, so none of them could be judged.
+			errored = append(errored, fmt.Sprintf("  %s: %s", cr.Name, cr.Error))
+			continue
+		}
 		var lines []string
 		for _, j := range cr.Confident {
 			if j.Verdict == eval.VerdictUnjudged {
@@ -139,6 +145,9 @@ func writeUnjudged(w io.Writer, rep *eval.Report) error {
 		fmt.Fprintf(w, "%s  %s\n%s\n", cr.Name, cr.Input, strings.Join(lines, "\n"))
 	}
 	fmt.Fprintf(w, "\n%d unjudged confident candidate(s)\n", n)
+	if len(errored) > 0 {
+		fmt.Fprintf(w, "\n%d case(s) errored, so their candidates weren't checked:\n%s\n", len(errored), strings.Join(errored, "\n"))
+	}
 	return nil
 }
 
