@@ -37,7 +37,7 @@ Reconciliation is the hardest and most valuable part, and it's useful on its own
 1. **Index and reconcile.** Given an issue number, URL, or free text, find related issues, PRs, and existing code. This is useful immediately for triaging incoming community issues.
 2. **Evaluate.** Build the evaluation corpus (see [Evaluation](#evaluation)) and measure reconciliation before tuning anything.
 3. **SDK source and draft.** Turn aws-sdk-go-v2 changes into items, enrich them, and draft issues.
-4. **Queue and decisions.** Record dispositions, revisit deferred items, and add the announcement feed as a secondary source.
+4. **Queue and decisions.** List the items that need a decision, record dispositions, revisit deferred items, and add the announcement feed as a secondary source. See [Milestone 4 plan](#milestone-4-plan).
 5. **Generalize.** Add other sources or targets only when a concrete use case needs them.
 
 ## Concepts
@@ -152,24 +152,22 @@ related
 
 ### Draft
 
-Renders a new issue, or a comment on an existing one, from the item's findings using a per-target template. Output is the Markdown body plus `gh issue create` arguments (title, labels). For the Terraform AWS Provider, the format follows #45362:
+Renders a new issue from the item's findings using a per-target template. Output is the Markdown body plus `gh issue create` arguments (title, labels). Radar doesn't draft comments on existing issues: if existing work covers the item, the draft warns and the item is left alone. For the Terraform AWS Provider, the format follows #45362:
 
-- Title: `r/aws_<service>_<thing>: <capability>` or `r/aws_<resource>: Add <argument> argument`.
-- Quoted announcement headline, when one was found.
-- Links to the announcement and blog post.
+- Title: ``New resource: `aws_<service>_<thing>` ``, `r/aws_<resource>: <capability>`, or `<service>: <capability>`.
+- Quoted announcement headline, when one was found (milestone 4), and links to the announcement and blog post.
+- The release notes, quoted.
 - Required SDK release and bump PR.
-- `Relates #...` for related candidates.
 - Suggested labels.
 
-Inferred values, such as the Terraform name, are marked in the draft for the reviewer to confirm.
+Inferred values, such as the Terraform name, and possibly related issues for a `Relates` line are listed for the reviewer, not written into the body. See [Milestone 3 notes](#milestone-3-notes).
 
 ### Disposition
 
 The recorded outcome for an item.
 
 - `created #N`
-- `duplicate-of #N`
-- `commented #N`
+- `duplicate-of #N`: existing work covers the item.
 - `skipped` (with reason)
 - `deferred`
 
@@ -346,6 +344,28 @@ PR 3 (draft):
   - Of the 5 trackers that name a Terraform type, 3 drafts name the same type: `aws_kinesis_channel` (new resource), and `aws_fsx_s3_access_point_attachment` and `aws_grafana_workspace` (`r/` titles). The S3 ones get service titles, since their new members reach operations several resources call.
   - Every draft warns that its tracker already tracks the item, which is what the warning is for when drafting after the fact.
   - I dropped the `new-data-source` label: new read-only operations were mostly statuses and sub-resource listings (14 drafted, 0 on trackers).
+
+## Milestone 4 plan
+
+A look back after milestone 3 changed the order of milestone 4.
+
+**What the data showed:**
+
+- **Volume is the bottleneck.** From 2025-11-30 there are 1,487 SDK items, about 130 a month. 37 of them have a maintainer tracker that cites the release commit. Choosing which items deserve an issue matters more than the quality of any one draft, so the queue is the main interface, not bookkeeping.
+- **"No existing work" is unmeasured.** Drafting history only exercises the "already tracked" warning, since every historical item with a tracker is tracked. A gap draft rests on the claim that nothing covers the item, and nothing measures that claim's precision yet.
+- **Item precision is optimistic.** Item cases (2 of 48 confident candidates wrong) come from trackers that cite the release commit, which is also a strong reconcile signal. Non-item cases (20 of 53 wrong) are likely closer to real-world precision. The `item-new` cases are sound (each replays an item just before its tracker was filed), but they come from the same tracked items, so they say nothing about items no one tracked.
+- **Release-note titles are weak.** "KMS GetKeyLastUsage API provides information on..." against the maintainer's "AWS KMS key last usage". Announcements improve titles and also cover trackers that cite only an announcement.
+- **The AI half of the workflow is untested.** The design assumes a reader of the candidate list catches duplicates a deterministic check misses. That is why "related" is acceptable, and it hasn't been measured.
+
+**Order:**
+
+1. **Measure the gap claim.** Hand-check a sample of recent items in implemented services with no confident existing work: is work really missing, and does the item deserve an issue? This gives a precision for "no existing work" and the share of items worth filing, and the checked items become eval cases that don't come from the release-commit signal.
+2. **`radar queue`.** List items with no confident existing work, filtered and sorted by work kind, service, and availability.
+3. **Dispositions.** Record decisions on queue items, re-surface them when evidence changes, and add them to the corpus.
+4. **Announcement source.** What's New entries joined to items, for headlines, links, and announcement-only trackers.
+5. **Agent experiment.** Give an agent the candidates for the duplicate cases and score its picks. If it fixes most of the confidently wrong ones, tuning matters less there; if not, [#3](https://github.com/YakDriver/radar/issues/3) comes first.
+
+Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hurt in practice.
 
 ## Open questions
 
