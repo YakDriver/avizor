@@ -10,6 +10,7 @@ import (
 	"github.com/YakDriver/radar/internal/awssdk"
 	"github.com/YakDriver/radar/internal/draft"
 	"github.com/YakDriver/radar/internal/enrich"
+	"github.com/YakDriver/radar/internal/items"
 	"github.com/YakDriver/radar/internal/reconcile"
 )
 
@@ -30,11 +31,15 @@ const (
 	Unimplemented = "unimplemented"
 	// NoWork: the item has no inferred work, such as documentation-only model changes.
 	NoWork = "no_work"
+	// Decided groups items whose recorded decision still stands, and Resurfaced the decided items that need another
+	// look. They're groups, not states Classify returns.
+	Decided    = "decided"
+	Resurfaced = "resurfaced"
 )
 
-// Shown reports whether a state is in the default queue.
-func Shown(state string) bool {
-	return state == Gap || state == Pending || state == NewService
+// Shown reports whether a state or group is in the default queue.
+func Shown(group string) bool {
+	return group == Gap || group == Pending || group == NewService || group == Resurfaced
 }
 
 // Entry is one item in the queue.
@@ -55,6 +60,53 @@ type Entry struct {
 	Relates []draft.Relate `json:"relates"`
 	// Warnings are the enrichment's, such as a failed model load or code search.
 	Warnings []string `json:"warnings,omitempty"`
+	// Evidence is what a decision about the item records, to notice when it changes.
+	Evidence Evidence `json:"evidence"`
+
+	// Decision is the item's current decision, if any. Resurfaced says why a decided item needs another look; it's
+	// empty while the decision stands.
+	Decision   *items.Disposition `json:"decision,omitempty"`
+	Resurfaced string             `json:"resurfaced,omitempty"`
+}
+
+// Evidence is the part of an entry that a skipped or deferred decision depends on.
+type Evidence struct {
+	// CodeSearched is the enrichment's: whether the target's code was searched. State and code candidates depend on it.
+	CodeSearched bool       `json:"code_searched"`
+	State        string     `json:"state"`
+	Availability string     `json:"availability,omitempty"`
+	Covering     []Covering `json:"covering,omitempty"`
+}
+
+// Covering is a confident candidate.
+type Covering struct {
+	Category string `json:"category"`
+	Number   int    `json:"number,omitempty"`
+	Path     string `json:"path,omitempty"`
+	State    string `json:"state,omitempty"`
+}
+
+func (c Covering) String() string {
+	ref := c.Path
+	if c.Number != 0 {
+		ref = fmt.Sprintf("#%d", c.Number)
+	}
+	s := strings.ReplaceAll(c.Category, "_", " ") + " " + ref
+	if c.State != "" {
+		s += " (" + c.State + ")"
+	}
+	return s
+}
+
+// Group is the entry's state, or Decided or Resurfaced for a decided item.
+func (e Entry) Group() string {
+	switch {
+	case e.Decision == nil:
+		return e.State
+	case e.Resurfaced != "":
+		return Resurfaced
+	}
+	return Decided
 }
 
 // Classify sorts an item into a state. d is the item's draft; its title, labels, and related matches are copied.
@@ -84,12 +136,14 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 			if c.Category == reconcile.CategoryRelated {
 				continue
 			}
-			ref := c.Path
-			if c.Number != 0 {
-				ref = fmt.Sprintf("#%d", c.Number)
-			}
-			e.Covered = append(e.Covered, strings.ReplaceAll(c.Category, "_", " ")+" "+ref)
+			cv := Covering{Category: c.Category, Number: c.Number, Path: c.Path, State: c.State}
+			e.Evidence.Covering = append(e.Evidence.Covering, cv)
+			e.Covered = append(e.Covered, Covering{Category: cv.Category, Number: cv.Number, Path: cv.Path}.String())
 		}
+		slices.SortFunc(e.Evidence.Covering, func(a, b Covering) int { return strings.Compare(a.String(), b.String()) })
+	}
+	if en.Availability != nil {
+		e.Evidence.Availability = en.Availability.Status
 	}
 
 	newModule := slices.ContainsFunc(it.Notes, func(n awssdk.Note) bool { return n.Text == draft.NewModuleNote })
@@ -120,5 +174,6 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 			e.Reason = "code not searched"
 		}
 	}
+	e.Evidence.State, e.Evidence.CodeSearched = e.State, en.CodeSearched
 	return e
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/YakDriver/radar/internal/config"
 	"github.com/YakDriver/radar/internal/draft"
 	"github.com/YakDriver/radar/internal/enrich"
+	"github.com/YakDriver/radar/internal/index"
 	"github.com/YakDriver/radar/internal/items"
 	"github.com/YakDriver/radar/internal/queue"
 	"github.com/YakDriver/radar/internal/reconcile"
@@ -29,7 +30,7 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	sinceFlag := fs.String("since", "30d", "only releases published since a date, RFC 3339 time, or age (30d); empty for all")
 	service := fs.String("service", "", "only this SDK service module (e.g. fsx)")
 	source := fs.String("source", "", "only this source")
-	all := fs.Bool("all", false, "also show items that are covered or probably need no work")
+	all := fs.Bool("all", false, "also show items that are decided, covered, or probably need no work")
 	states := fs.String("state", "", "only these states, comma-separated (overrides --all): "+strings.Join(queueStates, ", "))
 	noCode := fs.Bool("no-code", false, "don't search the target checkout (no item is then no_code)")
 	relates := fs.Int("relates", 3, "maximum related issues and PRs per item")
@@ -69,6 +70,11 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	recs, err := ist.List(ctx, f)
+	if err != nil {
+		ist.Close()
+		return err
+	}
+	decisions, err := ist.Current(ctx, t.Name)
 	ist.Close()
 	if err != nil {
 		return err
@@ -118,14 +124,26 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	close(next)
 	wg.Wait()
 
+	now := time.Now()
+	lookup := func(n int) *index.Issue {
+		is, err := st.Issue(ctx, n)
+		if err != nil {
+			return nil
+		}
+		return is
+	}
 	counts := map[string]int{}
 	var shown []queue.Entry
 	for i, e := range entries {
 		if errs[i] != nil {
 			return fmt.Errorf("%s: %w", recs[i].ID, errs[i])
 		}
-		counts[e.State]++
-		if (want == nil && (*all || queue.Shown(e.State))) || slices.Contains(want, e.State) {
+		if d, ok := decisions[e.Item]; ok {
+			queue.Resurface(&e, d, lookup, now)
+		}
+		g := e.Group()
+		counts[g]++
+		if (want == nil && (*all || queue.Shown(g))) || slices.Contains(want, g) {
 			shown = append(shown, e)
 		}
 	}
@@ -145,7 +163,7 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 }
 
 // queueStates are the queue states in the order they're reported.
-var queueStates = []string{queue.Gap, queue.Pending, queue.NewService, queue.Covered, queue.NoCode, queue.Unimplemented, queue.NoWork}
+var queueStates = []string{queue.Resurfaced, queue.Gap, queue.Pending, queue.NewService, queue.Decided, queue.Covered, queue.NoCode, queue.Unimplemented, queue.NoWork}
 
 // queueEnricher is newEnricher with a shared service map, for many items from one source.
 func queueEnricher(cfg *config.Config, dir string, t *config.Target, svcs *services.Map, source string, noCode bool) *enrich.Enricher {
@@ -180,12 +198,16 @@ func writeQueueText(w io.Writer, shown []queue.Entry, counts map[string]int, tot
 		}
 		note := ""
 		switch {
+		case e.Decision != nil && e.Resurfaced != "":
+			note = decisionText(*e.Decision) + "; resurfaced: " + e.Resurfaced
+		case e.Decision != nil:
+			note = decisionText(*e.Decision)
 		case e.State == queue.Covered:
 			note = e.Reason
 		case len(rel) > 0:
 			note = "related " + strings.Join(rel, ", ")
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Published, e.Item, e.State, workSummary(e.Work), truncate(e.Title, 80), note)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Published, e.Item, e.Group(), workSummary(e.Work), truncate(e.Title, 80), note)
 	}
 	if err := tw.Flush(); err != nil {
 		return err
