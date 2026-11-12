@@ -227,3 +227,23 @@ source "sdk" { type = "aws-sdk-go-v2" }`, want: "sdk"},
 		})
 	}
 }
+
+func TestTargetDraftSettings(t *testing.T) {
+	t.Parallel()
+
+	p := writeConfig(t, `target "x" {
+  repo           = "a/b"
+  draft_template = "templates/issue.md"
+}`)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tg := cfg.Targets[0]
+	if tg.TypePrefix != "aws_" {
+		t.Errorf("type prefix = %q", tg.TypePrefix)
+	}
+	if want := filepath.Join(filepath.Dir(p), "templates", "issue.md"); tg.DraftTemplate != want {
+		t.Errorf("draft template = %q, want %q", tg.DraftTemplate, want)
+	}
+}

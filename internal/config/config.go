@@ -20,6 +20,7 @@ const (
 	CommentsURLsAndIdentifiers = "urls-and-identifiers"
 	defaultNamesData           = "names/data/names_data.hcl"
 	defaultServiceLabelPrefix  = "service/"
+	defaultTypePrefix          = "aws_"
 	defaultCommentsMode        = CommentsURLsAndIdentifiers
 	configFileName             = "radar.hcl"
 	stateDirName               = "radar"
@@ -179,6 +180,10 @@ type Target struct {
 	// Operations names the source whose API models define real operation names, so only those count as operation
 	// signals. It defaults to the first aws-sdk-go-v2 source; "none" turns the check off.
 	Operations string `hcl:"operations,optional"`
+	// TypePrefix is the Terraform type prefix of the target's resources, used to name new ones in drafts.
+	TypePrefix string `hcl:"type_prefix,optional"`
+	// DraftTemplate is a Go text/template file for draft issue bodies. Empty uses the built-in template.
+	DraftTemplate string `hcl:"draft_template,optional"`
 
 	Index *Index `hcl:"index,block"`
 }
@@ -224,6 +229,15 @@ func Load(path string) (*Config, error) {
 		}
 		if t.ServiceLabelPrefix == "" {
 			t.ServiceLabelPrefix = defaultServiceLabelPrefix
+		}
+		if t.TypePrefix == "" {
+			t.TypePrefix = defaultTypePrefix
+		}
+		if t.DraftTemplate != "" {
+			t.DraftTemplate = expandHome(t.DraftTemplate)
+			if !filepath.IsAbs(t.DraftTemplate) {
+				t.DraftTemplate = filepath.Join(filepath.Dir(path), t.DraftTemplate)
+			}
 		}
 		if t.Index == nil {
 			t.Index = &Index{}
