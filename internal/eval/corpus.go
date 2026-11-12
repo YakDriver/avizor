@@ -4,6 +4,7 @@ package eval
 import (
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"slices"
 	"time"
@@ -44,6 +45,8 @@ type Case struct {
 	RelatedOnly []int `hcl:"related_only,optional"`
 
 	asOf time.Time
+	// issue is the input's issue number in the bound repo, or 0. Set by Bind.
+	issue int
 }
 
 // Expect is one candidate a correct result contains.
@@ -60,19 +63,25 @@ const (
 	AsOfNow   = "now"
 )
 
-var (
-	nameRE       = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
-	issueInputRE = regexp.MustCompile(`^(?:#?\d+|https://github\.com/[^/]+/[^/]+/(?:issues|pull)/\d+)$`)
-)
+var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // Load reads and validates a corpus file.
 func Load(path string) (*Corpus, error) {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("loading corpus: %w", err)
+	}
+	return Parse(path, src)
+}
+
+// Parse validates a corpus from source. name is used in error messages and must end in ".hcl".
+func Parse(name string, src []byte) (*Corpus, error) {
 	var c Corpus
-	if err := hclsimple.DecodeFile(path, nil, &c); err != nil {
-		return nil, fmt.Errorf("loading corpus %s: %w", path, err)
+	if err := hclsimple.Decode(name, src, nil, &c); err != nil {
+		return nil, fmt.Errorf("loading corpus %s: %w", name, err)
 	}
 	if err := c.validate(); err != nil {
-		return nil, fmt.Errorf("corpus %s: %w", path, err)
+		return nil, fmt.Errorf("corpus %s: %w", name, err)
 	}
 	return &c, nil
 }
@@ -104,16 +113,8 @@ func (cs *Case) validate() error {
 		return errors.New("set exactly one of input and text")
 	}
 	switch cs.AsOf {
-	case "":
-		cs.AsOf = AsOfNow
-		if issueInputRE.MatchString(cs.Input) {
-			cs.AsOf = AsOfFiled
-		}
-	case AsOfFiled:
-		if !issueInputRE.MatchString(cs.Input) {
-			return errors.New(`as_of = "filed" needs an issue input`)
-		}
-	case AsOfNow:
+	case "", AsOfFiled, AsOfNow:
+		// Defaults and "filed" depend on the target repo; see Bind.
 	default:
 		t, err := parseTime(cs.AsOf)
 		if err != nil {
@@ -146,6 +147,34 @@ func (cs *Case) validate() error {
 		}
 	}
 	return nil
+}
+
+// Bind resolves cases against the target repo ("owner/name"): it finds which inputs are the repo's issues, defaults
+// as_of to "filed" for those and "now" otherwise, and rejects "filed" for other inputs. It uses the same input parsing
+// as reconciliation, so an issue URL with a comment fragment is an issue and another repo's issue URL is not.
+func (c *Corpus) Bind(repo string) error {
+	var errs []error
+	for i := range c.Cases {
+		cs := &c.Cases[i]
+		cs.issue = 0
+		if cs.Input != "" {
+			if n, ok := reconcile.IssueNumber(cs.Input, repo); ok {
+				cs.issue = n
+			}
+		}
+		switch cs.AsOf {
+		case "":
+			cs.AsOf = AsOfNow
+			if cs.issue != 0 {
+				cs.AsOf = AsOfFiled
+			}
+		case AsOfFiled:
+			if cs.issue == 0 {
+				errs = append(errs, fmt.Errorf(`case %q: as_of = "filed" needs an issue in %s as input`, cs.Name, repo))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // AsOfTime returns the parsed as_of time. It is zero for "now" and "filed"; the runner resolves "filed".

@@ -32,7 +32,6 @@ func TestLoadErrors(t *testing.T) {
 		"both inputs":  {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `text = "x"` + "\n" + `kind = "k"` + "\n" + `unmatched = true` + "\n}", "exactly one of input and text"},
 		"no labels":    {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n}", "at least one of"},
 		"bad category": {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n" + `expect {` + "\n" + `number = 2` + "\n" + `category = "dup"` + "\n}\n}", "unknown category"},
-		"filed text":   {`target = "t"` + "\n" + `case "a" {` + "\n" + `text = "x"` + "\n" + `as_of = "filed"` + "\n" + `kind = "k"` + "\n" + `unmatched = true` + "\n}", "needs an issue input"},
 		"path no code": {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n" + `expect {` + "\n" + `path = "x.go"` + "\n}\n}", "needs code = true"},
 		"bad name":     {`target = "t"` + "\n" + `case "A b" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n" + `unmatched = true` + "\n}", "name must be"},
 	} {
@@ -46,7 +45,7 @@ func TestLoadErrors(t *testing.T) {
 	}
 }
 
-func TestLoadAsOfDefaults(t *testing.T) {
+func TestBind(t *testing.T) {
 	t.Parallel()
 
 	c, err := Load(writeCorpus(t, `
@@ -67,15 +66,58 @@ case "dated" {
   kind      = "duplicate"
   unmatched = false
 }
+case "comment-url" {
+  input     = "https://github.com/o/r/issues/12#issuecomment-99"
+  kind      = "duplicate"
+  unmatched = false
+}
+case "other-repo" {
+  input     = "https://github.com/x/y/issues/12"
+  kind      = "duplicate"
+  unmatched = false
+}
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Cases[0].AsOf != AsOfFiled || c.Cases[1].AsOf != AsOfNow {
-		t.Errorf("defaults = %q, %q", c.Cases[0].AsOf, c.Cases[1].AsOf)
+	if err := c.Bind(repo); err != nil {
+		t.Fatal(err)
 	}
+	for i, want := range []struct {
+		asOf  string
+		issue int
+	}{{AsOfFiled, 12}, {AsOfNow, 0}, {"2026-01-02", 12}, {AsOfFiled, 12}, {AsOfNow, 0}} {
+		if cs := c.Cases[i]; cs.AsOf != want.asOf || cs.issue != want.issue {
+			t.Errorf("%s: as_of %q, issue %d; want %q, %d", cs.Name, cs.AsOf, cs.issue, want.asOf, want.issue)
+		}
+	}
+
 	if got, want := c.Cases[2].AsOfTime(), time.Date(2026, 1, 2, 23, 59, 59, 0, time.UTC); !got.Equal(want) {
 		t.Errorf("dated as_of = %s, want %s", got, want)
+	}
+
+	// "filed" needs an input that is an issue in the bound repo.
+	c, err = Load(writeCorpus(t, `
+target = "t"
+case "filed-other-repo" {
+  input     = "https://github.com/x/y/issues/12"
+  as_of     = "filed"
+  kind      = "duplicate"
+  unmatched = false
+}
+case "filed-text" {
+  text      = "x"
+  as_of     = "filed"
+  kind      = "duplicate"
+  unmatched = false
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.Bind(repo)
+	if err == nil || !strings.Contains(err.Error(), "filed-other-repo") || !strings.Contains(err.Error(), "filed-text") {
+		t.Errorf("Bind err = %v, want both cases rejected", err)
 	}
 }
 
@@ -167,7 +209,10 @@ case "nothing" {
 		Store:  seed(t),
 		Target: &config.Target{Name: "t", Repo: repo, ServiceLabelPrefix: "service/"},
 	}}
-	rep := r.Run(context.Background(), c, path)
+	rep, err := r.Run(context.Background(), c, path)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	byName := map[string]CaseResult{}
 	for _, cr := range rep.Cases {

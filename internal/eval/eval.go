@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/YakDriver/radar/internal/reconcile"
@@ -101,8 +100,11 @@ type Report struct {
 	Duration string              `json:"duration"`
 }
 
-// Run evaluates every case in the corpus, in order.
-func (r *Runner) Run(ctx context.Context, c *Corpus, corpusPath string) *Report {
+// Run binds the corpus to the base reconciler's target repo and evaluates every case, in order.
+func (r *Runner) Run(ctx context.Context, c *Corpus, corpusPath string) (*Report, error) {
+	if err := c.Bind(r.Base.Target.Repo); err != nil {
+		return nil, err
+	}
 	start := time.Now()
 	rep := &Report{Target: c.Target, Corpus: corpusPath, RunAt: start.UTC(), ByKind: map[string]*Metrics{}}
 	for i := range c.Cases {
@@ -121,7 +123,7 @@ func (r *Runner) Run(ctx context.Context, c *Corpus, corpusPath string) *Report 
 		rep.ByKind[k] = &m
 	}
 	rep.Duration = time.Since(start).Round(time.Millisecond).String()
-	return rep
+	return rep, nil
 }
 
 func (r *Runner) runCase(ctx context.Context, cs *Case) CaseResult {
@@ -139,10 +141,7 @@ func (r *Runner) runCase(ctx context.Context, cs *Case) CaseResult {
 	rc.Options.NoCode = !cs.Code
 	rc.AsOf = cs.AsOfTime()
 	if cs.AsOf == AsOfFiled {
-		n, err := issueNumber(cs.Input)
-		if err != nil {
-			return fail(err)
-		}
+		n := cs.issue
 		is, err := r.Base.Store.Issue(ctx, n)
 		if err != nil {
 			return fail(err)
@@ -317,18 +316,6 @@ func expectRef(e Expect) string {
 		return e.Path
 	}
 	return "#" + strconv.Itoa(e.Number)
-}
-
-func issueNumber(input string) (int, error) {
-	s := input
-	if i := strings.LastIndexByte(s, '/'); i >= 0 {
-		s = s[i+1:]
-	}
-	n, err := strconv.Atoi(strings.TrimPrefix(s, "#"))
-	if err != nil {
-		return 0, fmt.Errorf("can't read an issue number from %q", input)
-	}
-	return n, nil
 }
 
 // Filter returns a copy of the corpus with only the named cases, in corpus order.

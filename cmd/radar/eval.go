@@ -7,18 +7,17 @@ import (
 	"io"
 	"strings"
 
+	"github.com/YakDriver/radar"
 	"github.com/YakDriver/radar/internal/eval"
 	"github.com/YakDriver/radar/internal/reconcile"
 )
-
-const defaultCorpus = "eval/tfaws.hcl"
 
 func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var c common
 	c.register(fs)
-	corpusPath := fs.String("corpus", defaultCorpus, "corpus file")
+	corpusPath := fs.String("corpus", "", "corpus file (default: the corpus built into radar, "+radar.DefaultCorpusName+")")
 	fetch := fs.Bool("fetch", false, "fetch URL inputs to read their page titles (results then depend on the network)")
 	failures := fs.Bool("failures", false, "in text output, list only failing cases")
 	names, err := parseInterspersed(fs, args)
@@ -26,7 +25,14 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		return fmt.Errorf("%w: %v", errUsage, err)
 	}
 
-	corpus, err := eval.Load(*corpusPath)
+	var corpus *eval.Corpus
+	name := *corpusPath
+	if name == "" {
+		name = "built-in:" + radar.DefaultCorpusName
+		corpus, err = eval.Parse(radar.DefaultCorpusName, radar.DefaultCorpus)
+	} else {
+		corpus, err = eval.Load(name)
+	}
 	if err != nil {
 		return err
 	}
@@ -53,7 +59,10 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if *fetch {
 		base.HTTP = defaultHTTP()
 	}
-	rep := (&eval.Runner{Base: base}).Run(ctx, corpus, *corpusPath)
+	rep, err := (&eval.Runner{Base: base}).Run(ctx, corpus, name)
+	if err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
