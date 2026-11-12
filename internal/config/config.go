@@ -169,6 +169,9 @@ type Target struct {
 	Repo string `hcl:"repo"`
 	// Checkout is an optional local clone used for code and docs searches.
 	Checkout string `hcl:"checkout,optional"`
+	// Ref is the checkout ref whose go.mod and history show which SDK module versions the target uses. Empty means
+	// HEAD.
+	Ref string `hcl:"ref,optional"`
 	// NamesData is the provider's service metadata file, relative to Checkout.
 	NamesData string `hcl:"names_data,optional"`
 	// ServiceLabelPrefix is the prefix of per-service labels.

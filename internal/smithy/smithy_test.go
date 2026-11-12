@@ -194,3 +194,40 @@ func TestEnumValueDecoding(t *testing.T) {
 		}
 	}
 }
+
+func TestUsages(t *testing.T) {
+	t.Parallel()
+
+	m, err := Parse([]byte(`{"shapes": {
+  "com.amazonaws.w#Svc": {"type": "service", "traits": {"aws.api#service": {"sdkId": "W"}}},
+  "com.amazonaws.w#CreateWidget": {"type": "operation", "input": {"target": "com.amazonaws.w#CreateWidgetRequest"}, "output": {"target": "com.amazonaws.w#CreateWidgetResponse"}},
+  "com.amazonaws.w#ListWidgets": {"type": "operation", "input": {"target": "smithy.api#Unit"}, "output": {"target": "com.amazonaws.w#ListWidgetsResponse"}},
+  "com.amazonaws.w#CreateWidgetRequest": {"type": "structure", "members": {"Config": {"target": "com.amazonaws.w#Config"}}},
+  "com.amazonaws.w#CreateWidgetResponse": {"type": "structure", "members": {"Widget": {"target": "com.amazonaws.w#Widget"}}},
+  "com.amazonaws.w#ListWidgetsResponse": {"type": "structure", "members": {"Widgets": {"target": "com.amazonaws.w#WidgetList"}}},
+  "com.amazonaws.w#WidgetList": {"type": "list", "member": {"target": "com.amazonaws.w#Widget"}},
+  "com.amazonaws.w#Widget": {"type": "structure", "members": {"Config": {"target": "com.amazonaws.w#Config"}, "Tags": {"target": "com.amazonaws.w#TagMap"}}},
+  "com.amazonaws.w#TagMap": {"type": "map", "key": {"target": "smithy.api#String"}, "value": {"target": "com.amazonaws.w#Tag"}},
+  "com.amazonaws.w#Tag": {"type": "structure", "members": {"Value": {"target": "smithy.api#String"}}},
+  "com.amazonaws.w#Config": {"type": "structure", "members": {"Size": {"target": "smithy.api#Integer"}}},
+  "com.amazonaws.w#NotFound": {"type": "structure", "members": {"Message": {"target": "smithy.api#String"}}}
+}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := m.Usages()
+	for shape, want := range map[string]Usage{
+		"Config": {Input: []string{"CreateWidget"}, Output: []string{"CreateWidget", "ListWidgets"}},
+		"Widget": {Output: []string{"CreateWidget", "ListWidgets"}},
+		// Through a list and a map value.
+		"Tag": {Output: []string{"CreateWidget", "ListWidgets"}},
+	} {
+		got := u[shape]
+		if got == nil || !slices.Equal(got.Input, want.Input) || !slices.Equal(got.Output, want.Output) {
+			t.Errorf("Usages[%s] = %+v, want %+v", shape, got, want)
+		}
+	}
+	if u["NotFound"] != nil {
+		t.Errorf("unreferenced shape has usages: %+v", u["NotFound"])
+	}
+}

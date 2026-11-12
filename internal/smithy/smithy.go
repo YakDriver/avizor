@@ -31,6 +31,10 @@ type Model struct {
 type Shape struct {
 	Type    string
 	Members map[string]string
+	// Input and Output are an operation's input and output shapes.
+	Input, Output string
+	// Elems are a list's member target and a map's key and value targets.
+	Elems []string
 }
 
 type astModel struct {
@@ -41,6 +45,11 @@ type astShape struct {
 	Type    string                     `json:"type"`
 	Members map[string]astMember       `json:"members"`
 	Traits  map[string]json.RawMessage `json:"traits"`
+	Input   *astMember                 `json:"input"`
+	Output  *astMember                 `json:"output"`
+	Member  *astMember                 `json:"member"`
+	Key     *astMember                 `json:"key"`
+	Value   *astMember                 `json:"value"`
 }
 
 type astMember struct {
@@ -59,6 +68,17 @@ func Parse(data []byte) (*Model, error) {
 	for id, s := range ast.Shapes {
 		name := shortName(id)
 		sh := Shape{Type: s.Type}
+		if s.Input != nil {
+			sh.Input = shortName(s.Input.Target)
+		}
+		if s.Output != nil {
+			sh.Output = shortName(s.Output.Target)
+		}
+		for _, e := range []*astMember{s.Member, s.Key, s.Value} {
+			if e != nil {
+				sh.Elems = append(sh.Elems, shortName(e.Target))
+			}
+		}
 		if len(s.Members) > 0 {
 			sh.Members = make(map[string]string, len(s.Members))
 			for mn, mem := range s.Members {
@@ -267,6 +287,68 @@ func (m *Model) Operations() []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// Usage is how operations reach a shape: through their input, their output, or both.
+type Usage struct {
+	Input  []string `json:"input,omitempty"`
+	Output []string `json:"output,omitempty"`
+}
+
+// Usages returns, for each shape reachable from an operation's input or output, the operations that reach it, sorted.
+// Structure and union members and list and map elements are followed.
+func (m *Model) Usages() map[string]*Usage {
+	out := map[string]*Usage{}
+	for _, op := range m.Operations() {
+		s := m.Shapes[op]
+		for _, root := range []struct {
+			name  string
+			input bool
+		}{{s.Input, true}, {s.Output, false}} {
+			if root.name == "" {
+				continue
+			}
+			for name := range m.reach(root.name) {
+				u := out[name]
+				if u == nil {
+					u = &Usage{}
+					out[name] = u
+				}
+				if root.input {
+					u.Input = append(u.Input, op)
+				} else {
+					u.Output = append(u.Output, op)
+				}
+			}
+		}
+	}
+	for _, u := range out {
+		u.Input = slices.Compact(u.Input)
+		u.Output = slices.Compact(u.Output)
+	}
+	return out
+}
+
+// reach returns the model shapes reachable from name, including name.
+func (m *Model) reach(name string) map[string]bool {
+	seen := map[string]bool{}
+	stack := []string{name}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		s, ok := m.Shapes[n]
+		if !ok || seen[n] {
+			continue
+		}
+		seen[n] = true
+		if s.Type == TypeStructure || s.Type == TypeUnion {
+			for _, t := range s.Members {
+				stack = append(stack, t)
+			}
+		}
+		stack = append(stack, s.Elems...)
+	}
+	return seen
 }
 
 func isEnum(t string) bool {

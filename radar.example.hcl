@@ -6,6 +6,10 @@ target "tfaws" {
   # Optional local clone, used for code and docs searches and the service map.
   checkout = "~/go/src/github.com/hashicorp/terraform-provider-aws"
 
+  # Checkout ref whose go.mod and first-parent history show which AWS SDK module versions the target uses and which
+  # commit brought each in. The default is HEAD; set it to "main" if you work on other branches in this checkout.
+  # ref = "HEAD"
+
   # Relative to checkout. This is the default.
   # names_data = "names/data/names_data.hcl"
 
