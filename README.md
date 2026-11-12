@@ -27,7 +27,7 @@ target "tfaws" {
 
 `checkout` is optional. Without it, Radar searches only issues and PRs, and can't map service names from `names/data/names_data.hcl`.
 
-State lives in `$XDG_DATA_HOME/radar` (usually `~/.local/share/radar`): one index per target, `items.db` for pulled items, and source clones under `sources/`. Override it with `state_dir` in the config or `--state-dir`.
+State lives in `$XDG_DATA_HOME/radar` (usually `~/.local/share/radar`): one index per target under `index/`, `items.db` for pulled items, and source clones under `sources/`. An index from an earlier version at `<state>/<target>.db` is moved to `index/` automatically. Override it with `state_dir` in the config or `--state-dir`.
 
 ## Sync
 
@@ -96,7 +96,7 @@ Signals found in more than 40 records (contributing guide links, boilerplate) ar
 
 ## Pull SDK changes
 
-`radar pull` turns AWS SDK for Go v2 releases into items: one per service per release. Each item records the release notes and the API model change for that service: new and removed operations, members of existing shapes, enum values, and shapes.
+`radar pull` turns AWS SDK for Go v2 releases into items: one per service per release. Each item records the release notes and the API model change for that service: new and removed operations, shapes, members of existing shapes, and enum values, plus members whose type or enum value changed.
 
 ```
 radar pull                          # resume after the last release pulled (first run: the last 30 days)
@@ -110,11 +110,13 @@ The model change comes from a local bare clone of [aws/api-models-aws](https://g
 
 Items with no API change are stored as `skipped`, with a reason:
 
-- **No API change.** The model changed only in documentation, traits, or rules. This covers protocol additions (Smithy RPC v2 CBOR), serialization traits, and constraint changes such as a new maximum length.
+- **No API change.** The model changed only in documentation, traits, or rules. This covers protocol additions (Smithy RPC v2 CBOR), serialization traits, and constraint changes such as a new maximum length. A member retargeted to another shape of the same type, for example one string shape to another with a different length limit, is kept on the item as evidence but doesn't count as an API change.
 - **Release note without a model change.** For example, "Enable schema-based (de)serialization for this service."
 - **Service model removed.**
 
 Constraint changes can matter to a provider (for example, its validation), so check skipped items before assuming they need no work.
+
+If the models clone isn't fetched (`--no-fetch` or `fetch = false`), it may not have the models for recent releases, and their changes would look like no change. So a pull without a fetch stops at the first release published after the clone's newest commit, with a warning, and leaves the checkpoint there for a later pull with a fetch.
 
 Pulling the 230 releases from 2025-11-30 to 2026-11-11 took about 2.5 minutes and produced 1,487 items with API changes and 2,215 skipped.
 
