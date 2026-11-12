@@ -75,6 +75,13 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	}
 
 	svcs := loadServices(t, stderr)
+	// Without the service map, every item's service is unknown and would be hidden as unimplemented.
+	switch {
+	case t.Checkout == "":
+		return fmt.Errorf("radar queue needs target %q's checkout for its service map; set checkout in the config", t.Name)
+	case svcs == nil:
+		return fmt.Errorf("radar queue needs the service map %s", t.NamesDataPath())
+	}
 	var ops reconcile.Reconciler
 	c.operations(ctx, t, &ops, stderr)
 	opts := draft.Options{Repo: t.Repo, Checkout: t.Checkout, Prefix: t.TypePrefix, LabelPrefix: t.ServiceLabelPrefix,
@@ -99,7 +106,7 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 						e = queueEnricher(c.cfg, c.dir, t, svcs, it.Source, *noCode)
 						enrichers[it.Source] = e
 					}
-					entries[i], err = queueEntry(ctx, it, e, r, opts, !*noCode)
+					entries[i], err = queueEntry(ctx, it, e, r, opts)
 				}
 				errs[i] = err
 			}
@@ -151,7 +158,7 @@ func queueEnricher(cfg *config.Config, dir string, t *config.Target, svcs *servi
 	return e
 }
 
-func queueEntry(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *reconcile.Reconciler, opts draft.Options, codeSearched bool) (queue.Entry, error) {
+func queueEntry(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *reconcile.Reconciler, opts draft.Options) (queue.Entry, error) {
 	en := e.Enrich(ctx, it)
 	rec, err := r.RunItem(ctx, enrich.ReconcileItem(it, en))
 	if err != nil {
@@ -161,7 +168,7 @@ func queueEntry(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *rec
 	if err != nil {
 		return queue.Entry{}, err
 	}
-	return queue.Classify(it, en, rec, d, codeSearched), nil
+	return queue.Classify(it, en, rec, d), nil
 }
 
 func writeQueueText(w io.Writer, shown []queue.Entry, counts map[string]int, total int, all bool) error {

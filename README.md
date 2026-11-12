@@ -159,7 +159,7 @@ radar queue --since 90d --service s3 --all --format text
 | `unimplemented` | no | The service isn't one the target implements, and it isn't a new SDK module. |
 | `no_work` | no | Radar inferred no work, as for documentation-only model changes. |
 
-`--all` shows the hidden states too, and `--state gap,covered` picks states. A `gap` is still a guess. In a hand-checked sample, the queue showed 20 items as gaps: 8 were real gaps, 8 needed no provider work, and 4 were already implemented or tracked. 2 of those 4 had the covering issue or PR in the related list. Check the related list before drafting. With `--no-code`, Radar doesn't know which items touch code, so nothing is `no_code`.
+`--all` shows the hidden states too, and `--state gap,covered` picks states. A `gap` is still a guess. In a hand-checked sample, the queue showed 20 items as gaps: 8 were real gaps, 8 needed no provider work, and 4 were already implemented or tracked. 2 of those 4 had the covering issue or PR in the related list. Check the related list before drafting. An item is `no_code` only when its model loaded and the code search ran, so with `--no-code`, or when either fails, nothing is hidden as `no_code`; the row's reason says why. The queue needs the target's checkout for its service map.
 
 The queue runs 4 items at a time (`--jobs`); 30 days, about 180 items, takes about 15 seconds.
 
