@@ -1,6 +1,6 @@
 # Radar: design notes
 
-Status: milestone 1 (index and reconcile) implemented. See [Milestone 1 notes](#milestone-1-notes).
+Status: milestones 1 (index and reconcile) and 2 (evaluation) implemented. See [Milestone 1 notes](#milestone-1-notes) and [Milestone 2 notes](#milestone-2-notes).
 
 ## Problem
 
@@ -301,6 +301,13 @@ What was built, and where it differs from the design above:
 - **Service inference**: from `service/*` labels, Terraform name prefixes, and case-sensitive service names from `names_data.hcl`.
 - **Not yet**: the agent evaluation stage, the evaluation corpus (milestone 2), and recorded checkout branch handling beyond reporting `branch@sha` in the result.
 
+## Milestone 2 notes
+
+- **Corpus and runner**: [`eval/tfaws.hcl`](../../eval/tfaws.hcl) has 55 cases labeled from repository history, and `radar eval` scores them. See [`eval/README.md`](../../eval/README.md) for the format, label sources, and baseline.
+- **Point-in-time reconciliation**: without it, labels leak (a duplicate's original shows as closed, the implementing PR appears before the request). The index now records when each signal's text was posted and when PRs merged (schema v2), and `index.Store.AsOf` hides later records and rewinds closed and merged state. `radar candidates --as-of` exposes it.
+- **Sync fix**: GitHub's repository comments endpoint stops returning next links after 300 pages, so the first sync silently stopped at 30,000 comments. Listing now restarts from the latest update time when a pass ends on a full page.
+- **Baseline**: hit@5 90%, category accuracy 37%. Retrieval finds the answer, but categorization labels most answers "related", because duplicates and reworded requests share no exact anchor. The next improvements to measure are following tracker-to-PR links, narrowing broad strong signals (multi-feature blog posts, shared operation names, SDK docs URLs), and an agent stage that evaluates top candidates.
+
 ## Open questions
 
 - **Item granularity**: is one item per service per SDK release right, or do multi-feature releases need splitting?
@@ -308,5 +315,6 @@ What was built, and where it differs from the design above:
 - **Agent evaluation contract**: what input and output format should the stage-2 agent use so its justifications are checkable?
 - **Announcement-only changes**: how often does provider work come from announcements with no SDK model change? The corpus should answer whether the What's New source is worth adding.
 - **Checkout branch**: code matches reflect whatever branch the checkout is on. Should Radar require or verify `main`?
-- **Common-signal threshold**: 40 records is a guess from one dataset. The corpus should tune it.
+- **Common-signal threshold**: 40 records is a guess from one dataset. The corpus can now test changes to it.
+- **Corpus growth**: dispositions recorded in milestone 4 are natural new cases. How should they be added without tuning labels to Radar's output?
 - **Bootstrapping dispositions**: should past provider issues that link SDK releases or announcements be imported as historical dispositions?

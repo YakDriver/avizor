@@ -4,7 +4,7 @@ Radar finds what is already known about new information, gathers supporting evid
 
 The first target is the [Terraform AWS Provider](https://github.com/hashicorp/terraform-provider-aws). See [docs/design/radar.md](docs/design/radar.md) for the design and roadmap.
 
-Status: milestone 1 (index and reconcile).
+Status: milestone 2 (evaluation).
 
 ## Install
 
@@ -50,6 +50,7 @@ radar candidates 45362
 radar candidates https://github.com/hashicorp/terraform-provider-aws/issues/45362
 radar candidates https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/
 radar candidates --text "FSx S3 access point support"
+radar candidates --as-of 2025-12-02 45362
 ```
 
 Output is JSON by default, for agents. Use `--format text` for people. Other flags:
@@ -59,6 +60,7 @@ Output is JSON by default, for agents. Use `--format text` for people. Other fla
 | `--no-fetch` | Don't fetch a URL input to read its page title. |
 | `--no-code` | Don't search the checkout. |
 | `--related N` | Show up to N related candidates (default 10). |
+| `--as-of T` | Reconcile against the index as it was at a date (end of day, UTC) or RFC 3339 time. |
 
 An issue that isn't in the index is fetched from GitHub. Its comment signals are unavailable in that case.
 
@@ -91,6 +93,10 @@ Weak signals are keywords in titles, shared `service/*` labels, cross-references
 Signals found in more than 40 records (contributing guide links, boilerplate) are skipped and listed under `warnings`.
 
 `summary.unmatched` is true when no candidate is better than `related`.
+
+## Evaluate
+
+`radar eval` measures reconciliation against a labeled corpus of provider history. See [eval/README.md](eval/README.md) for the corpus, metrics, and current baseline.
 
 ## Develop
 

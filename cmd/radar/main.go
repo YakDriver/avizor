@@ -32,6 +32,7 @@ Usage:
   radar sync [flags]                         Refresh the local index from GitHub.
   radar candidates [flags] <issue|url>       Reconcile an issue number, issue URL, or other URL.
   radar candidates [flags] --text "..."      Reconcile a free-text description.
+  radar eval [flags] [case...]               Run the evaluation corpus.
   radar version
 
 Common flags:
@@ -68,6 +69,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return cmdSync(ctx, args[1:], stdout, stderr)
 	case "candidates":
 		return cmdCandidates(ctx, args[1:], stdout, stderr)
+	case "eval":
+		return cmdEval(ctx, args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, "radar", version)
 		return nil
@@ -234,6 +237,7 @@ func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer)
 	noFetch := fs.Bool("no-fetch", false, "don't fetch URL inputs to read their title")
 	noCode := fs.Bool("no-code", false, "don't search the target checkout")
 	related := fs.Int("related", 0, "maximum related candidates (default 10)")
+	asOfFlag := fs.String("as-of", "", "reconcile against the index as it was at a date (2026-01-02, end of day) or RFC 3339 time")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errUsage, err)
@@ -245,6 +249,12 @@ func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if len(pos) == 1 {
 		arg = pos[0]
 	}
+	var asOf time.Time
+	if *asOfFlag != "" {
+		if asOf, err = parseAsOf(*asOfFlag); err != nil {
+			return fmt.Errorf("%w: %v", errUsage, err)
+		}
+	}
 
 	t, st, err := c.open()
 	if err != nil {
@@ -253,22 +263,17 @@ func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer)
 	defer st.Close()
 
 	r := &reconcile.Reconciler{
-		Store:  st,
-		Target: t,
-		HTTP:   &http.Client{Timeout: 15 * time.Second},
+		Store:    st,
+		Target:   t,
+		Services: loadServices(t, stderr),
+		HTTP:     defaultHTTP(),
+		AsOf:     asOf,
 		Options: reconcile.Options{
 			NoFetch:      *noFetch,
 			NoCode:       *noCode,
 			RelatedLimit: *related,
 			Version:      version,
 		},
-	}
-	if p := t.NamesDataPath(); p != "" {
-		if svcs, err := services.Load(p); err != nil {
-			fmt.Fprintf(stderr, "radar: warning: service map unavailable: %v\n", err)
-		} else {
-			r.Services = svcs
-		}
 	}
 	if gh, err := github.NewClient(ctx); err == nil {
 		r.Issues = fetcher{gh}
@@ -282,6 +287,33 @@ func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer)
 		return writeText(stdout, res)
 	}
 	return writeJSON(stdout, res)
+}
+
+func defaultHTTP() *http.Client {
+	return &http.Client{Timeout: 15 * time.Second}
+}
+
+func loadServices(t *config.Target, stderr io.Writer) *services.Map {
+	p := t.NamesDataPath()
+	if p == "" {
+		return nil
+	}
+	svcs, err := services.Load(p)
+	if err != nil {
+		fmt.Fprintf(stderr, "radar: warning: service map unavailable: %v\n", err)
+		return nil
+	}
+	return svcs
+}
+
+func parseAsOf(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse(time.DateOnly, s); err == nil {
+		return t.Add(24*time.Hour - time.Second), nil
+	}
+	return time.Time{}, fmt.Errorf("invalid --as-of %q: use a date (2026-01-02) or RFC 3339 time", s)
 }
 
 // fetcher adapts the GitHub client to reconcile.IssueFetcher.
