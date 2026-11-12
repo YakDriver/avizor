@@ -367,6 +367,14 @@ A look back after milestone 3 changed the order of milestone 4.
 
 Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hurt in practice.
 
+**Step 1 result** (the gap sample, 30 items; see [eval/README.md](../../eval/README.md)):
+
+- **"No existing work" is right for 26 of 30 (87%).** The 4 misses are covered work shown as "related" or not at all: 2 implemented by new members that code search doesn't look for (it covers new operations only), and 2 tracked by an issue and an open PR at rank 4.
+- **8 of 30 deserve an issue; 18 need no provider work.** Most no-work items touch APIs the provider doesn't call: jobs, runs, contacts, health checks, and resources the provider doesn't have.
+- **A queue filter suggests itself.** 10 of the 18 no-work items have no inferred work in code the provider has (no `used_by`) and no new resource. All 8 gaps and all 4 covered items have one or the other. Hiding the first group by default drops more than half the noise and loses no gap in the sample.
+- **Draft warnings miss PRs.** The draft's "possibly related" list includes the CloudWatch issue but not the Cognito PR, since it lists only issues. The queue should show weak PR matches too.
+- **Next experiment, not yet built:** search the files that call an item's operations for its new members' snake_case names, to catch "already implemented". Generic names like `tags` or `routing` are a precision risk, so measure before trusting it.
+
 ## Open questions
 
 - **Item granularity**: is one item per service per SDK release right, or do multi-feature releases need splitting?
