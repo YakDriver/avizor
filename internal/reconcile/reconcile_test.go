@@ -518,3 +518,73 @@ func TestRunFollowsReferences(t *testing.T) {
 		}
 	}
 }
+
+func TestRunItem(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := seed(t)
+
+	// The release commit, cited by #45362 (fsx), #45361 (s3tables), and the bump PR #45358 (no service label).
+	r := reconciler(t, st, "")
+	res, err := r.RunItem(ctx, &Item{
+		ID: "sdk/fsx/release-1", Title: "FSx: S3 Access Points support for FSx for NetApp ONTAP", Text: "S3 Access Points support for FSx for NetApp ONTAP",
+		Package: "fsx", Operations: []string{"CreateAndAttachS3AccessPoint"},
+		ReleaseCommitURL: "https://github.com/aws/aws-sdk-go-v2/commit/abc123",
+		Request:          RequestChange, RequestBasis: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Input.Kind != InputItem || res.Input.Ref != "sdk/fsx/release-1" {
+		t.Errorf("input = %+v", res.Input)
+	}
+	if c := find(t, res.Candidates, 45362, ""); c.Category != CategoryTracked || !hasSignal(c, "url", "https://github.com/aws/aws-sdk-go-v2/commit/abc123") {
+		t.Errorf("#45362 = %s %+v, want already_tracked by the release commit", c.Category, c.Signals)
+	}
+	for _, c := range res.Candidates {
+		switch c.Number {
+		case 45361, 45358, 45400:
+			// Another service's tracker, the bump PR, and a PR matched only by an existing operation.
+			if c.Category != CategoryRelated && !(c.Number == 45400 && hasSignal(c, matchReferencesCandidate, "#45362")) {
+				t.Errorf("#%d category = %s, want related: %+v", c.Number, c.Category, c.Signals)
+			}
+		}
+	}
+	if i := slices.IndexFunc(res.Inferences, func(in Inference) bool { return in.Type == "request" }); i < 0 || res.Inferences[i].Value != RequestChange {
+		t.Errorf("inferences = %+v", res.Inferences)
+	}
+
+	// A new operation is strong only with the item's service label.
+	item := &Item{ID: "sdk/x/release-1", Title: "X", NewOperations: []string{"DetachAndDeleteS3AccessPoint"}, Request: RequestNewType}
+	for pkg, want := range map[string]string{"fsx": CategoryConsidered, "s3control": CategoryRelated, "": CategoryRelated} {
+		item.Package = pkg
+		res, err := r.RunItem(ctx, item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c := find(t, res.Candidates, 40000, ""); c.Category != want {
+			t.Errorf("package %q: #40000 category = %s, want %s", pkg, c.Category, want)
+		}
+	}
+}
+
+func TestRunItemCode(t *testing.T) {
+	t.Parallel()
+	r := reconciler(t, seed(t), checkout(t))
+	item := &Item{ID: "sdk/fsx/release-1", Title: "FSx", Package: "fsx", NewOperations: []string{"CreateAndAttachS3AccessPoint"}, Request: RequestNewType}
+	res, err := r.RunItem(context.Background(), item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res.Candidates, 0, "internal/service/fsx/s3_access_point_attachment.go"); c.Category != CategoryImplemented {
+		t.Errorf("code category = %s", c.Category)
+	}
+	// Without a package, code isn't searched: other services may have an operation of the same name.
+	item.Package = ""
+	if res, err = r.RunItem(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(res.Candidates, func(c Candidate) bool { return c.Path != "" }) {
+		t.Errorf("code searched without a package: %v", summarizeCandidates(res.Candidates))
+	}
+}

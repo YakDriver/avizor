@@ -79,6 +79,7 @@ func cmdPull(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		Source:   src,
 		Models:   &awssdk.ModelsRepo{Dir: src.ModelsPath(dir), URL: src.ModelsURL, Branch: src.ModelsBranch},
 		Releases: gh,
+		Tags:     awssdk.GitTags{},
 		Store:    st,
 		Version:  version,
 		Log:      logf,
@@ -319,6 +320,9 @@ func writeItemText(w io.Writer, it *awssdk.Item) error {
 	p("module:\t%s", mod)
 	p("release:\t%s (%s)", it.Release.Tag, it.Release.PublishedAt.Format(time.RFC3339))
 	p("release url:\t%s", it.Release.URL)
+	if it.Release.CommitURL != "" {
+		p("release commit:\t%s", it.Release.CommitURL)
+	}
 	for _, n := range it.Notes {
 		p("note:\t%s: %s", n.Kind, n.Text)
 	}

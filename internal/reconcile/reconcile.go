@@ -80,18 +80,27 @@ func (r *Reconciler) warnf(format string, args ...any) {
 
 // Run reconciles arg (an issue number, issue URL, or other URL) or free text.
 func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error) {
+	r.begin()
+	in, err := r.resolve(ctx, arg, text)
+	if err != nil {
+		return nil, err
+	}
+	return r.run(ctx, in)
+}
+
+// begin resets per-run state.
+func (r *Reconciler) begin() {
 	r.warnings = nil
 	r.view = r.Store
 	if !r.AsOf.IsZero() {
 		r.view = r.Store.AsOf(r.AsOf)
 	}
+}
+
+// run reconciles a resolved input. Call begin first.
+func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 	relatedLimit := cmp.Or(r.Options.RelatedLimit, defaultRelatedLimit)
 	commonThreshold := cmp.Or(r.Options.CommonThreshold, defaultCommonThreshold)
-
-	in, err := r.resolve(ctx, arg, text)
-	if err != nil {
-		return nil, err
-	}
 
 	res := &Result{
 		Input:      in.info,
@@ -110,7 +119,13 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 		focus[sg] = true
 	}
 	pkgs := r.inferServices(in, sigs, focus, res)
-	request := inferRequest(in.focusText, res)
+	var request string
+	if in.item != nil && in.item.Request != "" {
+		request = in.item.Request
+		res.Inferences = append(res.Inferences, Inference{Type: "request", Value: request, Basis: in.item.RequestBasis})
+	} else {
+		request = inferRequest(in.focusText, res)
+	}
 
 	res.Input.Keywords = signal.Keywords(in.focusText, keywordLimit)
 	if res.Input.Keywords == nil {
@@ -144,7 +159,9 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 		if err != nil {
 			return nil, err
 		}
-		if count > commonThreshold {
+		// A release commit is cited across the release's services; the service label makes it specific.
+		releaseCommit := in.item != nil && in.item.isReleaseCommit(sg)
+		if count > commonThreshold && !releaseCommit {
 			common = append(common, fmt.Sprintf("%s:%s (%d)", sg.Kind, sg.Value, count))
 			markCommon(res.Evidence, sg)
 			continue
@@ -157,7 +174,11 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 			if h.Number == in.info.Number {
 				continue
 			}
-			get(h.Number).addSignal(Match{Type: h.Kind, Value: h.Value, Where: h.Where, Strength: signalStrength(h, focus, request)})
+			strength := signalStrength(h, focus, request)
+			if in.item != nil {
+				strength = in.item.strength(h.Kind, h.Value, h.Where)
+			}
+			get(h.Number).addSignal(Match{Type: h.Kind, Value: h.Value, Where: h.Where, Strength: strength})
 		}
 	}
 	if len(common) > 0 {
@@ -255,6 +276,9 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 				labelMatch = true
 			}
 		}
+		if in.item != nil {
+			requireLabel(c, len(in.info.Labels) > 0 && slices.Contains(is.Labels, in.info.Labels[0]))
+		}
 
 		rank, fromFTS := ftsRank[n]
 		if fromFTS {
@@ -277,7 +301,20 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 		return nil, err
 	}
 
-	if !r.Options.NoCode {
+	if !r.Options.NoCode && in.item != nil {
+		// Only new operations: code calling an operation the change merely touches is the existing feature, not this one.
+		// Only in the item's own package: other services have operations of the same name.
+		var code []Candidate
+		if in.item.Package != "" {
+			code = r.searchCode(ctx, in.item.NewOperations, nil, []string{in.item.Package})
+		}
+		if request != RequestNewType {
+			for i := range code {
+				code[i].Category = CategoryRelated
+			}
+		}
+		out = append(out, code...)
+	} else if !r.Options.NoCode {
 		var tfNames, ops []string
 		for _, sg := range sigs {
 			if sg.Kind == signal.KindTFName && focus[sg] {
@@ -369,6 +406,11 @@ func (r *Reconciler) inputSignals(in *input, res *Result) []signal.Signal {
 	}
 	for _, sg := range signal.Extract(in.signalText, r.Target.Repo) {
 		add(sg, source)
+	}
+	if in.item != nil {
+		for _, sg := range in.item.signals() {
+			add(sg, "input.item")
+		}
 	}
 	for _, h := range in.indexed {
 		if h.Where == index.WhereComment {

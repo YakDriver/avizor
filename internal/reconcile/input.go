@@ -36,6 +36,8 @@ type input struct {
 	indexed []index.SignalHit
 	// pageTitle is set when a URL's page was fetched.
 	pageTitle string
+	// item is set for item inputs.
+	item *Item
 }
 
 var (

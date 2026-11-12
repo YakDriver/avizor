@@ -12,10 +12,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"time"
 
 	"github.com/YakDriver/radar/internal/awssdk"
 	"github.com/YakDriver/radar/internal/config"
+	"github.com/YakDriver/radar/internal/enrich"
 	"github.com/YakDriver/radar/internal/github"
 	"github.com/YakDriver/radar/internal/index"
 	"github.com/YakDriver/radar/internal/reconcile"
@@ -319,6 +321,11 @@ func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer)
 		r.Issues = fetcher{gh}
 	}
 
+	// An item ID ("<source>/<module>/<release>") reconciles a pulled item.
+	if *text == "" && itemIDRE.MatchString(arg) {
+		return c.candidatesItem(ctx, r, arg, *noCode, stdout, stderr)
+	}
+
 	res, err := r.Run(ctx, arg, *text)
 	if err != nil {
 		return err
@@ -327,6 +334,53 @@ func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer)
 		return writeText(stdout, res)
 	}
 	return writeJSON(stdout, res)
+}
+
+var itemIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*/[^/\s]+/[^/\s]+$`)
+
+// itemResult is an item's reconciliation with the enrichment it was built from.
+type itemResult struct {
+	*reconcile.Result
+	Enrichment *enrich.Result `json:"enrichment"`
+}
+
+func (c *common) candidatesItem(ctx context.Context, r *reconcile.Reconciler, id string, noCode bool, stdout, stderr io.Writer) error {
+	it, en, err := c.enrichedItem(ctx, r.Target, id, noCode, stderr)
+	if err != nil {
+		return err
+	}
+	res, err := r.RunItem(ctx, enrich.ReconcileItem(it, en))
+	if err != nil {
+		return err
+	}
+	if c.format == "text" {
+		if err := writeText(stdout, res); err != nil {
+			return err
+		}
+		return writeEnrichmentText(stdout, en)
+	}
+	return writeJSON(stdout, itemResult{Result: res, Enrichment: en})
+}
+
+// enrichedItem loads a pulled item and enriches it for t. Call after open.
+func (c *common) enrichedItem(ctx context.Context, t *config.Target, id string, noCode bool, stderr io.Writer) (*awssdk.Item, *enrich.Result, error) {
+	st, err := openItems(c.dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer st.Close()
+	rec, err := st.Get(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if rec == nil {
+		return nil, nil, fmt.Errorf("no item %q; list items with `radar items`", id)
+	}
+	it, err := decodeItem(*rec)
+	if err != nil {
+		return nil, nil, err
+	}
+	return it, newEnricher(c.cfg, c.dir, t, it, noCode, stderr).Enrich(ctx, it), nil
 }
 
 func defaultHTTP() *http.Client {

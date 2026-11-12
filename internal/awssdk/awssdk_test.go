@@ -158,7 +158,8 @@ func TestPull(t *testing.T) {
 	fetch := false
 	src := &config.Source{Name: "sdk", Type: config.SourceAWSSDKGoV2, ReleasesRepo: "aws/aws-sdk-go-v2", ModelsURL: "file://x",
 		ModelsBranch: "main", Fetch: &fetch, Start: "2026-01-01"}
-	p := &Puller{Source: src, Models: &ModelsRepo{Dir: repo, Branch: "main"}, Releases: rels, Store: st, Version: "test"}
+	tags := fakeTags{"release-2026-01-02": "abc123"}
+	p := &Puller{Source: src, Models: &ModelsRepo{Dir: repo, Branch: "main"}, Releases: rels, Tags: tags, Store: st, Version: "test"}
 
 	res, err := p.Pull(ctx, PullOptions{})
 	if err != nil {
@@ -183,6 +184,9 @@ func TestPull(t *testing.T) {
 	}
 
 	w := get("sdk/widgetctl/release-2026-01-02")
+	if w.Release.Commit != "abc123" || w.Release.CommitURL != "https://github.com/aws/aws-sdk-go-v2/commit/abc123" {
+		t.Errorf("release = %+v", w.Release)
+	}
 	if w.Status != items.StatusNew || strings.Join(w.Diff.AddedOperations, ",") != "TagWidget,UntagWidget" {
 		t.Errorf("widget = %+v %+v", w, w.Diff)
 	}
@@ -384,5 +388,20 @@ func TestOperations(t *testing.T) {
 	}
 	if ops, err = repo.Operations(ctx, cache); err != nil || !ops.Has("FromCache") {
 		t.Errorf("cached operations = %+v, %v", ops, err)
+	}
+}
+
+type fakeTags map[string]string
+
+func (f fakeTags) TagCommits(context.Context, string, string) (map[string]string, error) {
+	return f, nil
+}
+
+func TestParseLsRemote(t *testing.T) {
+	t.Parallel()
+
+	got := parseLsRemote("aaa\trefs/tags/release-1\nbbb\trefs/tags/release-1^{}\nccc\trefs/tags/release-2\nddd\trefs/heads/main\n")
+	if len(got) != 2 || got["release-1"] != "bbb" || got["release-2"] != "ccc" {
+		t.Errorf("parseLsRemote = %v", got)
 	}
 }
