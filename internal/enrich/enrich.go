@@ -260,11 +260,37 @@ func (e *Enricher) bump(ctx context.Context, head string, it *awssdk.Item) (*Bum
 	return nil, nil
 }
 
-// requiredVersion returns the version go.mod requires for path, or "".
+// requiredVersion returns the version a require directive in go.mod gives path, or "". Lines in exclude, replace, and
+// retract directives are ignored.
 func requiredVersion(gomod, path string) string {
+	block := "" // the directive of the enclosing ( ... ) block
 	for line := range strings.Lines(gomod) {
-		f := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "require "))
-		if len(f) >= 2 && f[0] == path {
+		line, _, _ = strings.Cut(line, "//")
+		f := strings.Fields(line)
+		switch {
+		case len(f) == 0:
+			continue
+		case block != "":
+			if f[0] == ")" {
+				block = ""
+				continue
+			}
+		case len(f) == 2 && f[1] == "(":
+			block = f[0]
+			continue
+		default:
+			// A single-line directive: "require path version".
+			if f[0] != "require" {
+				continue
+			}
+			f = f[1:]
+			block = ""
+			if len(f) >= 2 && f[0] == path {
+				return f[1]
+			}
+			continue
+		}
+		if block == "require" && len(f) >= 2 && f[0] == path {
 			return f[1]
 		}
 	}

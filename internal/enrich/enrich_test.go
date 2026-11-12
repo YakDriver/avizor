@@ -230,9 +230,95 @@ func TestSingular(t *testing.T) {
 	for in, want := range map[string]string{
 		"Widgets": "Widget", "Policies": "Policy", "Aliases": "Alias", "Statuses": "Status", "Addresses": "Address",
 		"Responses": "Response", "Boxes": "Box", "Status": "Status", "Access": "Access", "Analyses": "Analysis",
+		"Alias": "Alias", "Analysis": "Analysis",
 	} {
 		if got := singular(in); got != want {
 			t.Errorf("singular(%s) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+// TestWorkExistingOperations checks that members and enum values are classified by operations that existed before the
+// change, and that removals carry the operations still affected.
+func TestWorkExistingOperations(t *testing.T) {
+	t.Parallel()
+
+	d := &smithy.Diff{
+		AddedOperations:   []string{"CreateWidget"},
+		AddedMembers:      []smithy.MemberChange{{Shape: "Widget", Member: "Size"}},
+		RemovedMembers:    []smithy.MemberChange{{Shape: "Widget", Member: "Legacy"}},
+		RemovedEnumValues: []smithy.MemberChange{{Shape: "Color", Member: "RED", Value: "red"}},
+	}
+	usages := map[string]*smithy.Usage{
+		// The new CreateWidget takes Widget as input; the existing GetWidget returns it.
+		"Widget": {Input: []string{"CreateWidget"}, Output: []string{"GetWidget"}},
+		"Color":  {Input: []string{"UpdateWidget"}},
+	}
+	ws := work(d, usages)
+	get := func(kind, subject string) *Work {
+		for i := range ws {
+			if ws[i].Kind == kind && ws[i].Subject == subject {
+				return &ws[i]
+			}
+		}
+		t.Fatalf("no %s %s in %+v", kind, subject, ws)
+		return nil
+	}
+	if w := get(WorkNewAttribute, "Widget.Size"); !slices.Equal(w.Operations, []string{"GetWidget"}) {
+		t.Errorf("Widget.Size operations = %v", w.Operations)
+	}
+	if w := get(WorkRemoval, "Widget.Legacy"); !slices.Equal(w.Operations, []string{"GetWidget"}) {
+		t.Errorf("Widget.Legacy operations = %v", w.Operations)
+	}
+	if w := get(WorkRemoval, "Color"); !slices.Equal(w.Operations, []string{"UpdateWidget"}) {
+		t.Errorf("Color operations = %v", w.Operations)
+	}
+}
+
+func TestOperationWorkPlurals(t *testing.T) {
+	t.Parallel()
+
+	ws := operationWork([]string{"CreateAlias", "DeleteAlias", "ListAliases", "CreateSchema", "DeleteSchema", "ListSchemas", "GetAnalysis", "ListAnalyses"})
+	var got []string
+	for _, w := range ws {
+		got = append(got, w.Kind+":"+w.Subject)
+	}
+	want := []string{WorkNewResource + ":Alias", WorkNewResource + ":Schema", WorkNewDataSource + ":Analysis"}
+	if !slices.Equal(got, want) {
+		t.Errorf("work = %v, want %v", got, want)
+	}
+}
+
+func TestRequiredVersion(t *testing.T) {
+	t.Parallel()
+
+	gomod := `module x
+
+go 1.27
+
+require github.com/a/single v1.0.0 // indirect
+
+require (
+	github.com/a/b v1.2.0
+	github.com/a/c v1.3.0 // indirect
+)
+
+exclude (
+	github.com/a/excluded v9.0.0
+)
+
+replace github.com/a/b v1.1.0 => github.com/fork/b v1.1.1
+
+replace (
+	github.com/a/replaced v1.0.0 => ../replaced
+)
+`
+	for path, want := range map[string]string{
+		"github.com/a/single": "v1.0.0", "github.com/a/b": "v1.2.0", "github.com/a/c": "v1.3.0",
+		"github.com/a/excluded": "", "github.com/a/replaced": "", "github.com/a/none": "",
+	} {
+		if got := requiredVersion(gomod, path); got != want {
+			t.Errorf("requiredVersion(%s) = %q, want %q", path, got, want)
 		}
 	}
 }

@@ -26,9 +26,34 @@ func work(d *smithy.Diff, usages map[string]*smithy.Usage) []Work {
 	}
 	out = append(out, operationWork(d.AddedOperations)...)
 
+	// existing returns the shape's usages by operations that existed before the change. A shape reached only by new
+	// operations is part of their work.
+	existing := func(shape string) *smithy.Usage {
+		u := usages[shape]
+		if u == nil {
+			return nil
+		}
+		keep := func(ops []string) []string {
+			return slices.DeleteFunc(slices.Clone(ops), func(op string) bool { return slices.Contains(d.AddedOperations, op) })
+		}
+		e := &smithy.Usage{Input: keep(u.Input), Output: keep(u.Output)}
+		if len(e.Input)+len(e.Output) == 0 {
+			return nil
+		}
+		return e
+	}
+	all := func(u *smithy.Usage) []string {
+		if u == nil {
+			return nil
+		}
+		ops := slices.Concat(u.Input, u.Output)
+		slices.Sort(ops)
+		return slices.Compact(ops)
+	}
+
 	for _, m := range d.AddedMembers {
 		w := Work{Subject: m.Shape + "." + m.Member}
-		u := usages[m.Shape]
+		u := existing(m.Shape)
 		switch {
 		case usages == nil:
 			w.Kind, w.Basis = WorkNewArgument, "new member of an existing shape; the model wasn't loaded, so argument vs. attribute is unknown"
@@ -42,9 +67,7 @@ func work(d *smithy.Diff, usages map[string]*smithy.Usage) []Work {
 			w.Kind, w.Operations = WorkNewAttribute, u.Output
 			w.Basis = "new member of a shape only in the output of " + list(u.Output)
 		}
-		if w.Kind != "" && !newOnly(w.Operations, d.AddedOperations) {
-			out = append(out, w)
-		}
+		out = append(out, w)
 	}
 
 	// Enum values are grouped by enum: the provider validates or documents the set, not each value.
@@ -59,57 +82,60 @@ func work(d *smithy.Diff, usages map[string]*smithy.Usage) []Work {
 	for _, e := range enums {
 		w := Work{Kind: WorkNewEnumValue, Subject: e,
 			Basis: fmt.Sprintf("new values %s; usually no change if the provider validates with the SDK's enum type", list(byEnum[e]))}
-		if u := usages[e]; u != nil {
-			w.Operations = slices.Concat(u.Input, u.Output)
-			slices.Sort(w.Operations)
-			w.Operations = slices.Compact(w.Operations)
-		} else if usages != nil {
+		u := existing(e)
+		if u == nil && usages != nil {
 			continue
 		}
-		if !newOnly(w.Operations, d.AddedOperations) {
-			out = append(out, w)
-		}
+		w.Operations = all(u)
+		out = append(out, w)
 	}
 
 	for _, m := range d.ChangedMembers {
 		w := Work{Kind: WorkTypeChange, Subject: m.Shape + "." + m.Member,
 			Basis: fmt.Sprintf("member type changed from %s to %s", m.OldValue, m.Value)}
-		if u := usages[m.Shape]; u != nil {
-			w.Operations = slices.Concat(u.Input, u.Output)
-			slices.Sort(w.Operations)
-			w.Operations = slices.Compact(w.Operations)
-		}
+		w.Operations = all(existing(m.Shape))
 		out = append(out, w)
 	}
 	for _, op := range d.RemovedOperations {
 		out = append(out, Work{Kind: WorkRemoval, Subject: op, Operations: []string{op}, Basis: "operation removed"})
 	}
+	// Removed members and enum values: the shape is in the new model only if it survived, so its usages there are the
+	// operations still affected.
 	for _, m := range d.RemovedMembers {
-		out = append(out, Work{Kind: WorkRemoval, Subject: m.Shape + "." + m.Member, Basis: "member removed"})
+		out = append(out, Work{Kind: WorkRemoval, Subject: m.Shape + "." + m.Member, Operations: all(existing(m.Shape)), Basis: "member removed"})
+	}
+	byEnum, enums = map[string][]string{}, nil
+	for _, m := range d.RemovedEnumValues {
+		if _, ok := byEnum[m.Shape]; !ok {
+			enums = append(enums, m.Shape)
+		}
+		byEnum[m.Shape] = append(byEnum[m.Shape], m.Value)
+	}
+	for _, e := range enums {
+		out = append(out, Work{Kind: WorkRemoval, Subject: e, Operations: all(existing(e)), Basis: "enum values removed: " + list(byEnum[e])})
 	}
 	return out
 }
 
-// newOnly reports whether every operation is new, so the member or value is part of new operations' work.
-func newOnly(ops, added []string) bool {
-	if len(ops) == 0 {
-		return false
-	}
-	for _, op := range ops {
-		if !slices.Contains(added, op) {
-			return false
-		}
-	}
-	return true
-}
+// pluralVerbs take a plural noun: ListWidgets, BatchGetWidgets.
+var pluralVerbs = []string{"List", "Describe", "BatchGet", "Search"}
 
 // operationWork groups new operations by noun and infers a resource, data source, or other operation for each group.
 func operationWork(ops []string) []Work {
+	// Nouns of operations that take a singular noun, so a plural can be matched to one of them exactly.
+	singulars := map[string]bool{}
+	for _, op := range ops {
+		if v, noun := splitVerb(op); !slices.Contains(pluralVerbs, v) {
+			singulars[noun] = true
+		}
+	}
 	groups := map[string][]string{}
 	var nouns []string
 	for _, op := range ops {
-		_, noun := splitVerb(op)
-		noun = singular(noun)
+		v, noun := splitVerb(op)
+		if slices.Contains(pluralVerbs, v) {
+			noun = singularOf(noun, singulars)
+		}
 		if _, ok := groups[noun]; !ok {
 			nouns = append(nouns, noun)
 		}
@@ -153,7 +179,30 @@ func splitVerb(op string) (string, string) {
 	return op, ""
 }
 
-// singular strips a plural "s" so ListWidgets groups with CreateWidget. Names ending in "ss" or "us" are kept.
+// singularOf returns the singular of a plural noun: the matching noun of another new operation if there is one
+// (ListAliases with CreateAlias, ListSchemas with CreateSchema), otherwise a guess.
+func singularOf(noun string, singulars map[string]bool) string {
+	cands := []string{noun}
+	if base, ok := strings.CutSuffix(noun, "ies"); ok {
+		cands = append(cands, base+"y")
+	}
+	if base, ok := strings.CutSuffix(noun, "es"); ok {
+		cands = append(cands, base)
+	}
+	if base, ok := strings.CutSuffix(noun, "s"); ok {
+		cands = append(cands, base)
+	}
+	for _, c := range cands {
+		if singulars[c] {
+			return c
+		}
+	}
+	return singular(noun)
+}
+
+// singular guesses the singular of a plural noun, for read operations with no singular counterpart. Names ending in
+// "ss", "us", "is", or "as" are kept: Access, Status, Analysis, Alias. That leaves some plurals (Schemas) unchanged,
+// which is better than mangling a singular.
 func singular(noun string) string {
 	if before, ok := strings.CutSuffix(noun, "ies"); ok {
 		return before + "y"
@@ -169,7 +218,7 @@ func singular(noun string) string {
 			}
 		}
 	}
-	if strings.HasSuffix(noun, "s") && !strings.HasSuffix(noun, "ss") && !strings.HasSuffix(noun, "us") {
+	if strings.HasSuffix(noun, "s") && !strings.HasSuffix(noun, "ss") && !strings.HasSuffix(noun, "us") && !strings.HasSuffix(noun, "is") && !strings.HasSuffix(noun, "as") {
 		return strings.TrimSuffix(noun, "s")
 	}
 	return noun
