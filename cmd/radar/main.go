@@ -32,6 +32,9 @@ Usage:
   radar candidates [flags] <issue|url>       Reconcile an issue number, issue URL, or other URL.
   radar candidates [flags] --text "..."      Reconcile a free-text description.
   radar eval [flags] [case...]               Run the evaluation corpus.
+  radar pull [flags] [source]                Pull new items from a source (default: aws-sdk-go-v2).
+  radar items [flags]                        List pulled items.
+  radar inspect [flags] <item-id>            Show an item's evidence.
   radar version
 
 Common flags:
@@ -70,6 +73,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return cmdCandidates(ctx, args[1:], stdout, stderr)
 	case "eval":
 		return cmdEval(ctx, args[1:], stdout, stderr)
+	case "pull":
+		return cmdPull(ctx, args[1:], stdout, stderr)
+	case "items":
+		return cmdItems(ctx, args[1:], stdout, stderr)
+	case "inspect":
+		return cmdInspect(ctx, args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, "radar", version)
 		return nil
