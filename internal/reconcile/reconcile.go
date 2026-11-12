@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -315,7 +317,14 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 		// Only in the item's own package: other services have operations of the same name.
 		var code []Candidate
 		if in.item.Package != "" {
-			code = r.searchCode(ctx, in.item.NewOperations, nil, []string{in.item.Package})
+			dir := filepath.Join("internal", "service", in.item.Package)
+			if fi, err := os.Stat(filepath.Join(r.Target.Checkout, dir)); err == nil && fi.IsDir() {
+				code = r.searchCode(ctx, in.item.NewOperations, nil, []string{in.item.Package})
+				// searchCode falls back to all services when a package's directory is missing; keep only this one.
+				code = slices.DeleteFunc(code, func(c Candidate) bool { return !strings.HasPrefix(c.Path, filepath.ToSlash(dir)+"/") })
+			} else if r.Target.Checkout != "" {
+				r.warnf("skipped code search: %s isn't in the checkout", dir)
+			}
 		}
 		if request != RequestNewType {
 			for i := range code {

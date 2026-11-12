@@ -599,3 +599,22 @@ func TestRunItemCode(t *testing.T) {
 		t.Errorf("code searched without a package: %v", summarizeCandidates(res.Candidates))
 	}
 }
+
+// TestRunItemCodeMissingPackage checks that an item's code search doesn't fall back to other services when its package
+// isn't in the checkout.
+func TestRunItemCodeMissingPackage(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler(t, seed(t), checkout(t))
+	item := &Item{ID: "sdk/s3control/release-1", Title: "S3 Control", Package: "s3control", NewOperations: []string{"CreateAndAttachS3AccessPoint"}, Request: RequestNewType}
+	res, err := r.RunItem(context.Background(), item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(res.Candidates, func(c Candidate) bool { return c.Path != "" }) {
+		t.Errorf("code from another package: %v", summarizeCandidates(res.Candidates))
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "internal/service/s3control") }) {
+		t.Errorf("warnings = %q", res.Warnings)
+	}
+}
