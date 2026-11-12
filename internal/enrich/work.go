@@ -117,11 +117,23 @@ func work(d *smithy.Diff, usages map[string]*smithy.Usage) []Work {
 	return out
 }
 
+// taggingOperations are the standard AWS tagging operations.
+var taggingOperations = []string{"TagResource", "UntagResource", "ListTagsForResource", "TagResources", "UntagResources", "ListTagsForResources"}
+
 // pluralVerbs take a plural noun: ListWidgets, BatchGetWidgets.
 var pluralVerbs = []string{"List", "Describe", "BatchGet", "Search"}
 
 // operationWork groups new operations by noun and infers a resource, data source, or other operation for each group.
 func operationWork(ops []string) []Work {
+	// Tagging operations add tag support to the service's resources, not a new type.
+	var tagging []string
+	ops = slices.DeleteFunc(slices.Clone(ops), func(op string) bool {
+		if slices.Contains(taggingOperations, op) {
+			tagging = append(tagging, op)
+			return true
+		}
+		return false
+	})
 	// Nouns of operations that take a singular noun, so a plural can be matched to one of them exactly.
 	singulars := map[string]bool{}
 	for _, op := range ops {
@@ -142,6 +154,9 @@ func operationWork(ops []string) []Work {
 		groups[noun] = append(groups[noun], op)
 	}
 	var out []Work
+	if len(tagging) > 0 {
+		out = append(out, Work{Kind: WorkTagging, Subject: "tags", Operations: tagging, Basis: "new tagging operations"})
+	}
 	for _, noun := range nouns {
 		g := groups[noun]
 		has := func(verbs []string) bool {

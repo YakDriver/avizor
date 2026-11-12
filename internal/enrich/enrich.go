@@ -52,6 +52,7 @@ const (
 	WorkNewEnumValue  = "new_enum_value"
 	WorkTypeChange    = "type_change"
 	WorkRemoval       = "removal"
+	WorkTagging       = "tagging"
 )
 
 // Result is an item's enrichment for one target.

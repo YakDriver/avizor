@@ -38,7 +38,8 @@ func ReconcileItem(it *awssdk.Item, res *Result) *reconcile.Item {
 		ri.BumpPR = res.Availability.Bump.PR
 	}
 	if it.Diff != nil {
-		ri.NewOperations = slices.Clone(it.Diff.AddedOperations)
+		// Tagging operations are shared by every service, so they aren't specific to this change.
+		ri.NewOperations = slices.DeleteFunc(slices.Clone(it.Diff.AddedOperations), func(op string) bool { return slices.Contains(taggingOperations, op) })
 	}
 
 	ri.Request, ri.RequestBasis = reconcile.RequestChange, "the model change has no new operations"
@@ -46,6 +47,8 @@ func ReconcileItem(it *awssdk.Item, res *Result) *reconcile.Item {
 		var kinds []string
 		for _, w := range res.Work {
 			switch w.Kind {
+			case WorkTagging:
+				continue
 			case WorkNewResource, WorkNewDataSource, WorkNewOperation:
 				if !slices.Contains(kinds, w.Kind) {
 					kinds = append(kinds, w.Kind)

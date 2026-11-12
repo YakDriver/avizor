@@ -322,3 +322,16 @@ replace (
 		}
 	}
 }
+
+func TestOperationWorkTagging(t *testing.T) {
+	t.Parallel()
+
+	ws := operationWork([]string{"TagResource", "UntagResource", "ListTagsForResource", "CreateWidget"})
+	if len(ws) != 2 || ws[0].Kind != WorkTagging || ws[1].Kind != WorkNewResource || ws[1].Subject != "Widget" {
+		t.Errorf("work = %+v", ws)
+	}
+	ri := ReconcileItem(&awssdk.Item{ID: "x", Diff: &smithy.Diff{AddedOperations: []string{"TagResource", "CreateWidget"}}}, &Result{Work: ws})
+	if !slices.Equal(ri.NewOperations, []string{"CreateWidget"}) {
+		t.Errorf("new operations = %v", ri.NewOperations)
+	}
+}
