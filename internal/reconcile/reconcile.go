@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -46,6 +48,11 @@ const (
 	keywordLimit           = 10
 )
 
+// OperationSet reports whether a name is a real API operation.
+type OperationSet interface {
+	Has(name string) bool
+}
+
 // Reconciler matches inputs against a target's index and checkout.
 type Reconciler struct {
 	Store    *index.Store
@@ -54,6 +61,11 @@ type Reconciler struct {
 	Issues   IssueFetcher
 	HTTP     *http.Client
 	Options  Options
+	// Operations, if set, limits operation signals to real operation names. Text extraction only sees a verb-prefixed
+	// PascalCase word, so without it field names like StartTime count as operations. OperationsSource describes where
+	// the names came from, for provenance.
+	Operations       OperationSet
+	OperationsSource string
 	// AsOf, if set, reconciles against the index as it was at that time. See index.Store.AsOf. Code search reflects
 	// the checkout as it is now, so callers usually set Options.NoCode with it.
 	AsOf time.Time
@@ -70,25 +82,34 @@ func (r *Reconciler) warnf(format string, args ...any) {
 
 // Run reconciles arg (an issue number, issue URL, or other URL) or free text.
 func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error) {
+	r.begin()
+	in, err := r.resolve(ctx, arg, text)
+	if err != nil {
+		return nil, err
+	}
+	return r.run(ctx, in)
+}
+
+// begin resets per-run state.
+func (r *Reconciler) begin() {
 	r.warnings = nil
 	r.view = r.Store
 	if !r.AsOf.IsZero() {
 		r.view = r.Store.AsOf(r.AsOf)
 	}
+}
+
+// run reconciles a resolved input. Call begin first.
+func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 	relatedLimit := cmp.Or(r.Options.RelatedLimit, defaultRelatedLimit)
 	commonThreshold := cmp.Or(r.Options.CommonThreshold, defaultCommonThreshold)
-
-	in, err := r.resolve(ctx, arg, text)
-	if err != nil {
-		return nil, err
-	}
 
 	res := &Result{
 		Input:      in.info,
 		Evidence:   []Evidence{},
 		Inferences: []Inference{},
 		Candidates: []Candidate{},
-		Provenance: Provenance{Tool: "radar", Version: r.Options.Version, GeneratedAt: time.Now().UTC()},
+		Provenance: Provenance{Tool: "radar", Version: r.Options.Version, GeneratedAt: time.Now().UTC(), Operations: r.OperationsSource},
 	}
 	if err := r.fillTarget(ctx, &res.Target); err != nil {
 		return nil, err
@@ -100,7 +121,13 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 		focus[sg] = true
 	}
 	pkgs := r.inferServices(in, sigs, focus, res)
-	request := inferRequest(in.focusText, res)
+	var request string
+	if in.item != nil && in.item.Request != "" {
+		request = in.item.Request
+		res.Inferences = append(res.Inferences, Inference{Type: "request", Value: request, Basis: in.item.RequestBasis})
+	} else {
+		request = inferRequest(in.focusText, res)
+	}
 
 	res.Input.Keywords = signal.Keywords(in.focusText, keywordLimit)
 	if res.Input.Keywords == nil {
@@ -134,7 +161,9 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 		if err != nil {
 			return nil, err
 		}
-		if count > commonThreshold {
+		// A release commit is cited across the release's services; the service label makes it specific.
+		releaseCommit := in.item != nil && in.item.isReleaseCommit(sg)
+		if count > commonThreshold && !releaseCommit {
 			common = append(common, fmt.Sprintf("%s:%s (%d)", sg.Kind, sg.Value, count))
 			markCommon(res.Evidence, sg)
 			continue
@@ -147,7 +176,11 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 			if h.Number == in.info.Number {
 				continue
 			}
-			get(h.Number).addSignal(Match{Type: h.Kind, Value: h.Value, Where: h.Where, Strength: signalStrength(h, focus, request)})
+			strength := signalStrength(h, focus, request)
+			if in.item != nil {
+				strength = in.item.strength(h.Kind, h.Value, h.Where)
+			}
+			get(h.Number).addSignal(Match{Type: h.Kind, Value: h.Value, Where: h.Where, Strength: strength})
 		}
 	}
 	if len(common) > 0 {
@@ -245,6 +278,9 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 				labelMatch = true
 			}
 		}
+		if in.item != nil {
+			requireLabel(c, len(in.info.Labels) > 0 && slices.Contains(is.Labels, in.info.Labels[0]))
+		}
 
 		rank, fromFTS := ftsRank[n]
 		if fromFTS {
@@ -266,8 +302,37 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 	if out, err = r.followReferences(ctx, out, commonThreshold); err != nil {
 		return nil, err
 	}
+	// After following references, which can add a strong match to the bump PR.
+	if in.item != nil && in.item.BumpPR != 0 {
+		for i := range out {
+			if out[i].Number == in.item.BumpPR && out[i].Kind == KindPR {
+				demoteBump(&out[i])
+				out[i].Category = CategoryRelated
+			}
+		}
+	}
 
-	if !r.Options.NoCode {
+	if !r.Options.NoCode && in.item != nil {
+		// Only new operations: code calling an operation the change merely touches is the existing feature, not this one.
+		// Only in the item's own package: other services have operations of the same name.
+		var code []Candidate
+		if in.item.Package != "" {
+			dir := filepath.Join("internal", "service", in.item.Package)
+			if fi, err := os.Stat(filepath.Join(r.Target.Checkout, dir)); err == nil && fi.IsDir() {
+				code = r.searchCode(ctx, in.item.NewOperations, nil, []string{in.item.Package})
+				// searchCode falls back to all services when a package's directory is missing; keep only this one.
+				code = slices.DeleteFunc(code, func(c Candidate) bool { return !strings.HasPrefix(c.Path, filepath.ToSlash(dir)+"/") })
+			} else if r.Target.Checkout != "" {
+				r.warnf("skipped code search: %s isn't in the checkout", dir)
+			}
+		}
+		if request != RequestNewType {
+			for i := range code {
+				code[i].Category = CategoryRelated
+			}
+		}
+		out = append(out, code...)
+	} else if !r.Options.NoCode {
 		var tfNames, ops []string
 		for _, sg := range sigs {
 			if sg.Kind == signal.KindTFName && focus[sg] {
@@ -326,11 +391,21 @@ func (r *Reconciler) fillTarget(ctx context.Context, t *TargetInfo) error {
 func (r *Reconciler) inputSignals(in *input, res *Result) []signal.Signal {
 	var out []signal.Signal
 	seen := map[signal.Signal]bool{}
+	var notOps []string
+	defer func() {
+		if len(notOps) > 0 {
+			r.warnf("ignored operation-like names that aren't operations in the API models: %s", strings.Join(notOps, ", "))
+		}
+	}()
 	add := func(sg signal.Signal, source string) {
 		if seen[sg] {
 			return
 		}
 		seen[sg] = true
+		if sg.Kind == signal.KindOp && r.Operations != nil && !r.Operations.Has(sg.Value) {
+			notOps = append(notOps, sg.Value)
+			return
+		}
 		out = append(out, sg)
 		res.Evidence = append(res.Evidence, Evidence{Type: sg.Kind, Value: sg.Value, Source: source})
 	}
@@ -349,6 +424,11 @@ func (r *Reconciler) inputSignals(in *input, res *Result) []signal.Signal {
 	}
 	for _, sg := range signal.Extract(in.signalText, r.Target.Repo) {
 		add(sg, source)
+	}
+	if in.item != nil {
+		for _, sg := range in.item.signals() {
+			add(sg, "input.item")
+		}
 	}
 	for _, h := range in.indexed {
 		if h.Where == index.WhereComment {

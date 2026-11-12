@@ -158,7 +158,8 @@ func TestPull(t *testing.T) {
 	fetch := false
 	src := &config.Source{Name: "sdk", Type: config.SourceAWSSDKGoV2, ReleasesRepo: "aws/aws-sdk-go-v2", ModelsURL: "file://x",
 		ModelsBranch: "main", Fetch: &fetch, Start: "2026-01-01"}
-	p := &Puller{Source: src, Models: &ModelsRepo{Dir: repo, Branch: "main"}, Releases: rels, Store: st, Version: "test"}
+	tags := fakeTags{"release-2026-01-02": "abc123"}
+	p := &Puller{Source: src, Models: &ModelsRepo{Dir: repo, Branch: "main"}, Releases: rels, Tags: tags, Store: st, Version: "test"}
 
 	res, err := p.Pull(ctx, PullOptions{})
 	if err != nil {
@@ -183,6 +184,9 @@ func TestPull(t *testing.T) {
 	}
 
 	w := get("sdk/widgetctl/release-2026-01-02")
+	if w.Release.Commit != "abc123" || w.Release.CommitURL != "https://github.com/aws/aws-sdk-go-v2/commit/abc123" {
+		t.Errorf("release = %+v", w.Release)
+	}
 	if w.Status != items.StatusNew || strings.Join(w.Diff.AddedOperations, ",") != "TagWidget,UntagWidget" {
 		t.Errorf("widget = %+v %+v", w, w.Diff)
 	}
@@ -344,5 +348,89 @@ func TestPullSinceInclusive(t *testing.T) {
 	}
 	if res.Releases != 0 {
 		t.Errorf("resume from checkpoint repeated a release: %+v", res)
+	}
+}
+
+func TestOperations(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	day := func(d int) time.Time { return time.Date(2026, 1, d, 19, 0, 0, 0, time.UTC) }
+	widget := "models/widget/service/2020-01-01/widget-2020-01-01.json"
+	gadget := "models/gadget/service/2020-01-01/gadget-2020-01-01.json"
+	dir := gitRepo(t, []commitSpec{
+		{day(1), map[string]string{widget: model("Widget", "CreateWidget"), gadget: model("Gadget", "GetGadget")}},
+	})
+	repo := &ModelsRepo{Dir: dir, Branch: "main"}
+	cache := filepath.Join(t.TempDir(), "ops.json")
+
+	ops, err := repo.Operations(ctx, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ops.Names, []string{"CreateWidget", "GetGadget"}) || !ops.Has("GetGadget") || ops.Has("StartTime") {
+		t.Errorf("operations = %+v", ops)
+	}
+
+	// The cache is used while the tip is unchanged.
+	b, err := os.ReadFile(cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cached Operations
+	if err := json.Unmarshal(b, &cached); err != nil {
+		t.Fatal(err)
+	}
+	cached.Names = append(cached.Names, "FromCache")
+	b, _ = json.Marshal(cached)
+	if err := os.WriteFile(cache, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ops, err = repo.Operations(ctx, cache); err != nil || !ops.Has("FromCache") {
+		t.Errorf("cached operations = %+v, %v", ops, err)
+	}
+}
+
+type fakeTags map[string]string
+
+func (f fakeTags) TagCommits(context.Context, string, string) (map[string]string, error) {
+	return f, nil
+}
+
+func TestParseLsRemote(t *testing.T) {
+	t.Parallel()
+
+	got := parseLsRemote("aaa\trefs/tags/release-1\nbbb\trefs/tags/release-1^{}\nccc\trefs/tags/release-2\nddd\trefs/heads/main\n")
+	if len(got) != 2 || got["release-1"] != "bbb" || got["release-2"] != "ccc" {
+		t.Errorf("parseLsRemote = %v", got)
+	}
+}
+
+// TestWriteFileAtomicConcurrent checks that concurrent writers of one cache file all succeed and leave no temporary
+// files. A shared temporary name made all but one writer's rename fail.
+func TestWriteFileAtomicConcurrent(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ops.json")
+	const n = 50
+	errs := make(chan error, n)
+	start := make(chan struct{})
+	for i := range n {
+		go func() {
+			<-start
+			errs <- writeFileAtomic(path, []byte(strings.Repeat("x", 1<<16+i)))
+		}()
+	}
+	close(start)
+	for range n {
+		if err := <-errs; err != nil {
+			t.Error(err)
+		}
+	}
+	if m, _ := filepath.Glob(path + ".*.tmp"); len(m) > 0 {
+		t.Errorf("leftover temporary files: %v", m)
+	}
+	if b, err := os.ReadFile(path); err != nil || len(b) < 1<<16 || strings.Trim(string(b), "x") != "" {
+		t.Errorf("final file: %d bytes, %v", len(b), err)
 	}
 }

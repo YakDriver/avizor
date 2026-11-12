@@ -30,7 +30,7 @@ func TestLoadErrors(t *testing.T) {
 
 	for name, tc := range map[string]struct{ body, want string }{
 		"no cases":     {`target = "t"`, "no cases"},
-		"both inputs":  {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `text = "x"` + "\n" + `kind = "k"` + "\n" + `unmatched = true` + "\n}", "exactly one of input and text"},
+		"both inputs":  {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `text = "x"` + "\n" + `kind = "k"` + "\n" + `unmatched = true` + "\n}", "exactly one of input, text, and item"},
 		"no labels":    {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n}", "at least one of"},
 		"bad category": {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n" + `expect {` + "\n" + `number = 2` + "\n" + `category = "dup"` + "\n}\n}", "unknown category"},
 		"path no code": {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n" + `expect {` + "\n" + `path = "x.go"` + "\n}\n}", "needs code = true"},

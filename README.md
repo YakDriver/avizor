@@ -51,6 +51,7 @@ radar candidates https://github.com/hashicorp/terraform-provider-aws/issues/4536
 radar candidates https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/
 radar candidates --text "FSx S3 access point support"
 radar candidates --as-of 2025-12-02 45362
+radar candidates aws-sdk-go-v2/fsx/release-2025-12-02   # a pulled item; see Pull SDK changes
 ```
 
 Output is JSON by default, for agents. Use `--format text` for people. Other flags:
@@ -84,7 +85,7 @@ Categories are provisional. Check the signals before acting on them.
 Strong signals are specific anchors that rarely match by coincidence:
 
 - A non-GitHub URL, such as an announcement or API reference page.
-- An AWS API operation name, such as `CreateAndAttachS3AccessPoint`.
+- An AWS API operation name, such as `CreateAndAttachS3AccessPoint`. Only names that are operations in the API models count, so a field name like `StartTime` doesn't. This uses the models clone from `radar pull`; without one, any verb-prefixed PascalCase word counts, with a warning.
 - A Terraform name in both the input's title and the candidate's title, when the input asks for a new type.
 - For code and docs: a type registration, a docs page, or an operation call in non-test code. Existing code is only `related` when the input asks to change a type.
 
@@ -121,6 +122,23 @@ If the models clone isn't fetched (`--no-fetch` or `fetch = false`), it may not 
 Pulling the 230 releases from 2025-11-30 to 2026-11-11 took about 2.5 minutes and produced 1,487 items with API changes and 2,215 skipped.
 
 All source settings have defaults and can be changed in the config. See [radar.example.hcl](radar.example.hcl).
+
+### Relate items to the target
+
+`radar inspect` also relates the item to the target (`--no-enrich` skips this):
+
+- **Service**: the provider package that uses the item's SDK module, from `names_data.hcl`. It may also be a service marked not implemented, or none.
+- **Availability**: the module version the target's `go.mod` requires, at the checkout's `ref` (default `HEAD`), compared with the item's version. When the target already has it, the commit and PR that brought it in.
+- **Work**, as inferences: new operations grouped by noun into a likely new resource, data source, or other operation; new members as arguments (an existing operation's input reaches the shape) or attributes (only outputs do); new enum values; type changes; removals. Each lists the provider files that call the operations involved.
+
+`radar candidates <item-id>` reconciles the item. Its signals differ from an issue's:
+
+- **Strong, with the item's service label**: a new operation name, and the release commit (`https://github.com/aws/aws-sdk-go-v2/commit/...`) in a title or body. Maintainers cite the release commit in trackers. Without the label, both are weak: other services have operations of the same name, and one release covers many services.
+- **Weak**: existing operations the change touches, and keywords from the release notes.
+- **The bump PR** that brought the SDK version into the target is only related, with an `sdk_bump` match, however strongly it matches. It makes the change available without implementing it.
+- **Code** is searched only for new operations, in the item's package.
+
+For `aws-sdk-go-v2/fsx/release-2025-12-02`, the ONTAP tracker #45362 is already tracked, and the open PR #50917 that references it follows.
 
 ## Evaluate
 

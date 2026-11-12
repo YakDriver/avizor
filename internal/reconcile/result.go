@@ -133,6 +133,8 @@ type Provenance struct {
 	Tool        string    `json:"tool"`
 	Version     string    `json:"version"`
 	GeneratedAt time.Time `json:"generated_at"`
+	// Operations is where operation names were checked against, if anywhere.
+	Operations string `json:"operations,omitempty"`
 }
 
 func (c *Candidate) strongCount() int {

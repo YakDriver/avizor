@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -267,6 +268,44 @@ func TestRunOpInText(t *testing.T) {
 	}
 }
 
+type opSet map[string]bool
+
+func (o opSet) Has(name string) bool { return o[name] }
+
+// TestRunOperationsFilter checks that with a set of real operation names, an operation-like word that isn't one doesn't
+// count as an operation signal.
+func TestRunOperationsFilter(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler(t, seed(t), "")
+	r.Operations = opSet{"CreateAndAttachS3AccessPoint": true}
+	res, err := r.Run(context.Background(), "", "Does the provider support DetachAndDeleteS3AccessPoint?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(res.Evidence, func(e Evidence) bool { return e.Type == "op" }) {
+		t.Errorf("evidence has an op signal for a name not in the operation set: %+v", res.Evidence)
+	}
+	for _, c := range res.Candidates {
+		if c.Number == 40000 && c.Category != CategoryRelated {
+			t.Errorf("#40000 category = %s, want related without the op signal", c.Category)
+		}
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "DetachAndDeleteS3AccessPoint") }) {
+		t.Errorf("warnings = %q, want the ignored name", res.Warnings)
+	}
+
+	// A real operation still counts.
+	r.Operations = opSet{"DetachAndDeleteS3AccessPoint": true}
+	res, err = r.Run(context.Background(), "", "Does the provider support DetachAndDeleteS3AccessPoint?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res.Candidates, 40000, ""); c.Category != CategoryConsidered {
+		t.Errorf("#40000 category = %s, want previously_considered", c.Category)
+	}
+}
+
 func TestRunChangeRequest(t *testing.T) {
 	t.Parallel()
 
@@ -477,5 +516,105 @@ func TestRunFollowsReferences(t *testing.T) {
 		if c.Number == 46000 || c.Number == 46001 {
 			t.Errorf("#%d returned before it was created", c.Number)
 		}
+	}
+}
+
+func TestRunItem(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := seed(t)
+
+	// The release commit, cited by #45362 (fsx), #45361 (s3tables), and the bump PR #45358 (no service label).
+	r := reconciler(t, st, "")
+	res, err := r.RunItem(ctx, &Item{
+		ID: "sdk/fsx/release-1", Title: "FSx: S3 Access Points support for FSx for NetApp ONTAP", Text: "S3 Access Points support for FSx for NetApp ONTAP",
+		Package: "fsx", Operations: []string{"CreateAndAttachS3AccessPoint"},
+		ReleaseCommitURL: "https://github.com/aws/aws-sdk-go-v2/commit/abc123",
+		Request:          RequestChange, RequestBasis: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Input.Kind != InputItem || res.Input.Ref != "sdk/fsx/release-1" {
+		t.Errorf("input = %+v", res.Input)
+	}
+	if c := find(t, res.Candidates, 45362, ""); c.Category != CategoryTracked || !hasSignal(c, "url", "https://github.com/aws/aws-sdk-go-v2/commit/abc123") {
+		t.Errorf("#45362 = %s %+v, want already_tracked by the release commit", c.Category, c.Signals)
+	}
+	for _, c := range res.Candidates {
+		switch c.Number {
+		case 45361, 45358, 45400:
+			// Another service's tracker, the bump PR, and a PR matched only by an existing operation.
+			if c.Category != CategoryRelated && !(c.Number == 45400 && hasSignal(c, matchReferencesCandidate, "#45362")) {
+				t.Errorf("#%d category = %s, want related: %+v", c.Number, c.Category, c.Signals)
+			}
+		}
+	}
+	if i := slices.IndexFunc(res.Inferences, func(in Inference) bool { return in.Type == "request" }); i < 0 || res.Inferences[i].Value != RequestChange {
+		t.Errorf("inferences = %+v", res.Inferences)
+	}
+
+	// The bump PR is only related, even with the label and release commit.
+	r2 := reconciler(t, st, "")
+	bump := &Item{ID: "sdk/fsx/release-1", Title: "FSx", Package: "fsx", ReleaseCommitURL: "https://github.com/aws/aws-sdk-go-v2/commit/abc123", BumpPR: 45400, NewOperations: []string{"CreateAndAttachS3AccessPoint"}, Request: RequestNewType}
+	res, err = r2.RunItem(ctx, bump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res.Candidates, 45400, ""); c.Category != CategoryRelated || !hasSignal(c, matchBump, "brings in the SDK version; doesn't implement the change") {
+		t.Errorf("bump PR #45400 = %s %+v, want related", c.Category, c.Signals)
+	}
+
+	// A new operation is strong only with the item's service label.
+	item := &Item{ID: "sdk/x/release-1", Title: "X", NewOperations: []string{"DetachAndDeleteS3AccessPoint"}, Request: RequestNewType}
+	for pkg, want := range map[string]string{"fsx": CategoryConsidered, "s3control": CategoryRelated, "": CategoryRelated} {
+		item.Package = pkg
+		res, err := r.RunItem(ctx, item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c := find(t, res.Candidates, 40000, ""); c.Category != want {
+			t.Errorf("package %q: #40000 category = %s, want %s", pkg, c.Category, want)
+		}
+	}
+}
+
+func TestRunItemCode(t *testing.T) {
+	t.Parallel()
+	r := reconciler(t, seed(t), checkout(t))
+	item := &Item{ID: "sdk/fsx/release-1", Title: "FSx", Package: "fsx", NewOperations: []string{"CreateAndAttachS3AccessPoint"}, Request: RequestNewType}
+	res, err := r.RunItem(context.Background(), item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res.Candidates, 0, "internal/service/fsx/s3_access_point_attachment.go"); c.Category != CategoryImplemented {
+		t.Errorf("code category = %s", c.Category)
+	}
+	// Without a package, code isn't searched: other services may have an operation of the same name.
+	item.Package = ""
+	if res, err = r.RunItem(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(res.Candidates, func(c Candidate) bool { return c.Path != "" }) {
+		t.Errorf("code searched without a package: %v", summarizeCandidates(res.Candidates))
+	}
+}
+
+// TestRunItemCodeMissingPackage checks that an item's code search doesn't fall back to other services when its package
+// isn't in the checkout.
+func TestRunItemCodeMissingPackage(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler(t, seed(t), checkout(t))
+	item := &Item{ID: "sdk/s3control/release-1", Title: "S3 Control", Package: "s3control", NewOperations: []string{"CreateAndAttachS3AccessPoint"}, Request: RequestNewType}
+	res, err := r.RunItem(context.Background(), item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(res.Candidates, func(c Candidate) bool { return c.Path != "" }) {
+		t.Errorf("code from another package: %v", summarizeCandidates(res.Candidates))
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "internal/service/s3control") }) {
+		t.Errorf("warnings = %q", res.Warnings)
 	}
 }

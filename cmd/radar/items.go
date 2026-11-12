@@ -1,16 +1,20 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/YakDriver/radar/internal/awssdk"
 	"github.com/YakDriver/radar/internal/config"
+	"github.com/YakDriver/radar/internal/enrich"
 	"github.com/YakDriver/radar/internal/github"
 	"github.com/YakDriver/radar/internal/items"
 	"github.com/YakDriver/radar/internal/smithy"
@@ -75,6 +79,7 @@ func cmdPull(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		Source:   src,
 		Models:   &awssdk.ModelsRepo{Dir: src.ModelsPath(dir), URL: src.ModelsURL, Branch: src.ModelsBranch},
 		Releases: gh,
+		Tags:     awssdk.GitTags{},
 		Store:    st,
 		Version:  version,
 		Log:      logf,
@@ -169,6 +174,8 @@ func cmdInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	fs.SetOutput(stderr)
 	var c common
 	c.register(fs)
+	noEnrich := fs.Bool("no-enrich", false, "show only the item, without relating it to the target")
+	noCode := fs.Bool("no-code", false, "don't search the target checkout for operation calls")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errUsage, err)
@@ -177,7 +184,7 @@ func cmdInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		return fmt.Errorf("%w: inspect takes one item ID", errUsage)
 	}
 
-	_, dir, err := c.load()
+	cfg, dir, err := c.load()
 	if err != nil {
 		return err
 	}
@@ -198,10 +205,91 @@ func cmdInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	if err != nil {
 		return err
 	}
-	if c.format != "text" {
-		return writeJSON(stdout, it)
+	out := inspected{Item: it}
+	if !*noEnrich {
+		t, err := cfg.Target(c.target)
+		if err != nil {
+			return err
+		}
+		out.Enrichment = newEnricher(cfg, dir, t, it, *noCode, stderr).Enrich(ctx, it)
 	}
-	return writeItemText(stdout, it)
+	if c.format != "text" {
+		return writeJSON(stdout, out)
+	}
+	if err := writeItemText(stdout, it); err != nil {
+		return err
+	}
+	if out.Enrichment != nil {
+		return writeEnrichmentText(stdout, out.Enrichment)
+	}
+	return nil
+}
+
+// inspected is an item and, optionally, its enrichment for a target.
+type inspected struct {
+	*awssdk.Item
+	Enrichment *enrich.Result `json:"enrichment,omitempty"`
+}
+
+// newEnricher builds an enricher for t, reading models from the item's source clone if it exists.
+func newEnricher(cfg *config.Config, dir string, t *config.Target, it *awssdk.Item, noCode bool, stderr io.Writer) *enrich.Enricher {
+	e := &enrich.Enricher{
+		Target:      t.Name,
+		Services:    loadServices(t, stderr),
+		LabelPrefix: t.ServiceLabelPrefix,
+		Checkout:    t.Checkout,
+		Ref:         t.Ref,
+		NoCode:      noCode,
+	}
+	if src, err := cfg.Source(it.Source); err == nil {
+		if p := src.ModelsPath(dir); dirExists(p) {
+			e.Models = &awssdk.ModelsRepo{Dir: p, URL: src.ModelsURL, Branch: src.ModelsBranch}
+		}
+	}
+	return e
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
+
+func writeEnrichmentText(w io.Writer, e *enrich.Result) error {
+	fmt.Fprintf(w, "\ntarget %s\n", e.Target)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	p := func(format string, args ...any) { fmt.Fprintf(tw, "  "+format+"\n", args...) }
+	svc := e.Service.Status
+	if e.Service.Package != "" {
+		svc = fmt.Sprintf("%s %s", e.Service.Package, e.Service.Status)
+	}
+	p("service:\t%s (%s)", svc, e.Service.Basis)
+	if a := e.Availability; a != nil {
+		p("availability:\t%s: item %s, provider %s", a.Status, cmp.Or(a.ItemVersion, "?"), cmp.Or(a.ProviderVersion, "none"))
+		p("go.mod:\t%s", a.Source)
+		if b := a.Bump; b != nil {
+			pr := ""
+			if b.PR != 0 {
+				pr = fmt.Sprintf("#%d ", b.PR)
+			}
+			p("bumped by:\t%s%s %s (%s, %s)", pr, short(b.Commit), b.Subject, b.Version, b.Time.Format(time.DateOnly))
+		}
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if len(e.Work) > 0 {
+		fmt.Fprintf(w, "\n  work (inferred)\n")
+		for _, wk := range e.Work {
+			fmt.Fprintf(w, "    %s: %s (%s)\n", wk.Kind, wk.Subject, wk.Basis)
+			if len(wk.UsedBy) > 0 {
+				fmt.Fprintf(w, "      provider calls these operations in: %s\n", strings.Join(wk.UsedBy, ", "))
+			}
+		}
+	}
+	for _, warn := range e.Warnings {
+		fmt.Fprintf(w, "  warning: %s\n", warn)
+	}
+	return nil
 }
 
 func decodeItem(r items.Record) (*awssdk.Item, error) {
@@ -232,6 +320,9 @@ func writeItemText(w io.Writer, it *awssdk.Item) error {
 	p("module:\t%s", mod)
 	p("release:\t%s (%s)", it.Release.Tag, it.Release.PublishedAt.Format(time.RFC3339))
 	p("release url:\t%s", it.Release.URL)
+	if it.Release.CommitURL != "" {
+		p("release commit:\t%s", it.Release.CommitURL)
+	}
 	for _, n := range it.Notes {
 		p("note:\t%s: %s", n.Kind, n.Text)
 	}

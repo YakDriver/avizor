@@ -6,11 +6,20 @@ target "tfaws" {
   # Optional local clone, used for code and docs searches and the service map.
   checkout = "~/go/src/github.com/hashicorp/terraform-provider-aws"
 
+  # Checkout ref whose go.mod and first-parent history show which AWS SDK module versions the target uses and which
+  # commit brought each in. The default is HEAD; set it to "main" if you work on other branches in this checkout.
+  # ref = "HEAD"
+
   # Relative to checkout. This is the default.
   # names_data = "names/data/names_data.hcl"
 
   # Prefix of per-service labels. This is the default.
   # service_label_prefix = "service/"
+
+  # Source whose API models define real operation names. Only those count as operation signals, so field names like
+  # StartTime don't. Defaults to the first aws-sdk-go-v2 source; "none" turns the check off. The names are read from
+  # the source's models clone (created by `radar pull`) and cached next to it.
+  # operations = "aws-sdk-go-v2"
 
   index {
     # "urls-and-identifiers" (default) scans comments for URLs, API operation names, Terraform names, and issue

@@ -169,13 +169,22 @@ type Target struct {
 	Repo string `hcl:"repo"`
 	// Checkout is an optional local clone used for code and docs searches.
 	Checkout string `hcl:"checkout,optional"`
+	// Ref is the checkout ref whose go.mod and history show which SDK module versions the target uses. Empty means
+	// HEAD.
+	Ref string `hcl:"ref,optional"`
 	// NamesData is the provider's service metadata file, relative to Checkout.
 	NamesData string `hcl:"names_data,optional"`
 	// ServiceLabelPrefix is the prefix of per-service labels.
 	ServiceLabelPrefix string `hcl:"service_label_prefix,optional"`
+	// Operations names the source whose API models define real operation names, so only those count as operation
+	// signals. It defaults to the first aws-sdk-go-v2 source; "none" turns the check off.
+	Operations string `hcl:"operations,optional"`
 
 	Index *Index `hcl:"index,block"`
 }
+
+// OperationsNone turns off checking operation names against API models.
+const OperationsNone = "none"
 
 // Index controls what the sync stores.
 type Index struct {
@@ -246,6 +255,25 @@ func Load(path string) (*Config, error) {
 		}
 		if err := s.setDefaults(); err != nil {
 			return nil, fmt.Errorf("config %s: %w", path, err)
+		}
+	}
+
+	for i := range cfg.Targets {
+		t := &cfg.Targets[i]
+		switch {
+		case t.Operations == OperationsNone:
+		case t.Operations == "":
+			for _, s := range cfg.Sources {
+				if s.Type == SourceAWSSDKGoV2 {
+					t.Operations = s.Name
+					break
+				}
+			}
+			if t.Operations == "" {
+				t.Operations = OperationsNone
+			}
+		case !seenSources[t.Operations]:
+			return nil, fmt.Errorf("target %q: operations names unknown source %q", t.Name, t.Operations)
 		}
 	}
 

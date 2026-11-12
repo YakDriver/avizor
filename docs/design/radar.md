@@ -94,7 +94,7 @@ One SDK release can contain several independent features for one service, and se
 An enricher adds findings to an item. This is where AWS and provider knowledge lives.
 
 - **SDK model diff**: evidence of new operations, shapes, members, and enum values.
-- **Service mapping**: SDK service ID → provider package and `service/*` labels, from the provider's `names/data/names_data.hcl`.
+- **Service mapping**: SDK service module → provider package and `service/*` labels, from the provider's `names/data/names_data.hcl`.
 - **Provider availability**: whether the provider's `go.mod` includes the SDK version, and which bump PR brought it in. This sets the item's status to "in SDK" or "in provider".
 - **Announcement link**: matching What's New entries and AWS News Blog posts, joined on service and a date window around the release. AWS sometimes updates APIs well before announcing them, so the window is configurable and a missing match is recorded as "no announcement found", not as an error.
 - **Shape classification**: inference only. New `Create*`/`Delete*` operations suggest a new resource; new members on existing inputs suggest a new argument. API changes don't map cleanly onto Terraform resources (a new `Create*` operation can back an existing resource, and a new member can need a standalone resource), so this is always labeled as a guess.
@@ -321,13 +321,24 @@ PR 1 (SDK source):
 - **Skipping** is based on the model diff, not on release-note text. A trait-only change (a new protocol, `jsonName`, length constraints) is skipped as "no API change". This drops CBOR and serialization notes without a phrase list.
 - **Configuration.** Every source setting has a default and can be overridden: releases repo, models URL, clone location, branch, fetch, start, and service filters. The state directory is configurable too.
 
+PR 2 (enrich and reconcile items):
+
+- **Operation names come from the models.** A verb-prefixed PascalCase word counts as an operation only if some model at the clone's tip defines it. The 15,364 names are cached next to the clone. This removed the 6 wrong labels caused by `StartTime` and lost nothing.
+- **Service mapping is by Go module, not SDK ID.** `sdk.id` in `names_data.hcl` doesn't always match the model's (`ODB` vs `odb`), so the item's module is matched to `go_packages.v2_package`, or the block label when that's unset. The block label is the provider package: `provider_package_correct` is only the preferred name (`es` for `elasticsearch`), and labels and directories use the label.
+- **Availability and the bump PR come from the checkout's history**, not the index: the first first-parent commit at or after the release whose `go.mod` requires the item's version. Every one of the 1,086 available items in the year's data found one, with a PR number. Bump PRs are mostly Dependabot group PRs, which the index has but which don't name every module.
+- **Work kinds are inferences** from the diff and the model: new operations grouped by noun (create, or paired verbs like register and deregister, mean a resource; reads only, a data source), and new members as arguments or attributes by whether an existing operation's input reaches the shape.
+- **Item reconciliation uses item-specific signals.** New operations and the release commit are strong only with the item's service label. The bump PR is demoted to related. Code search is limited to new operations in the item's package.
+- **Pull records release commits** from `git ls-remote`, so items carry the commit URL maintainers cite.
+- **Eval.** 73 item cases, labeled from trackers that cite release commits. Because Radar uses the same signal, they measure precision more than retrieval. Item-level no-work cases are hard to label from history: an item no tracker cites may still need work. The corpus has one.
+
 ## Open questions
 
 - **Item granularity**: is one item per service per SDK release right, or do multi-feature releases need splitting?
 - **Comment indexing**: is extracting URLs and identifiers enough, or does full comment text improve recall enough to justify the cost?
 - **Agent evaluation contract**: what input and output format should the stage-2 agent use so its justifications are checkable?
 - **Announcement-only changes**: how often does provider work come from announcements with no SDK model change? The corpus should answer whether the What's New source is worth adding.
-- **Checkout branch**: code matches reflect whatever branch the checkout is on. Should Radar require or verify `main`?
+- **Checkout branch**: code matches and availability reflect whatever the checkout's `ref` points to (default `HEAD`). Should Radar default to `main`, or verify it?
+- **Item labels without release commits**: trackers that cite only an announcement can't be tied to an item from history alone. Joining announcements to items (the announcement-link enricher) would add them as cases.
 - **Common-signal threshold**: 40 records is a guess from one dataset. The corpus can now test changes to it.
 - **Corpus growth**: dispositions recorded in milestone 4 are natural new cases. How should they be added without tuning labels to Radar's output?
 - **Constraint changes**: skipped SDK items include length, range, and pattern changes, which can affect provider validation. Should they be a separate, lower-priority status instead of skipped?

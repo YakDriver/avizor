@@ -71,6 +71,33 @@ service "gone" {
   }
   not_implemented = true
 }
+
+service "elasticsearch" {
+  go_packages {
+    v1_package = "elasticsearchservice"
+    v2_package = "elasticsearchservice"
+  }
+  names {
+    provider_name_upper = "Elasticsearch"
+    human_friendly      = "OpenSearch"
+  }
+  resource_prefix {
+    actual  = "aws_elasticsearch_"
+    correct = "aws_es_"
+  }
+  provider_package_correct = "es"
+}
+
+service "simpledb" {
+  go_packages {
+    v1_package = "simpledb"
+    v2_package = ""
+  }
+  names {
+    provider_name_upper = "SimpleDB"
+    human_friendly      = "SDB (SimpleDB)"
+  }
+}
 `
 
 func load(t *testing.T) *Map {
@@ -90,8 +117,8 @@ func TestLoad(t *testing.T) {
 	t.Parallel()
 
 	m := load(t)
-	if m.Len() != 4 {
-		t.Errorf("Len = %d, want 4 (not_implemented skipped)", m.Len())
+	if m.Len() != 6 {
+		t.Errorf("Len = %d, want 6 (not_implemented skipped)", m.Len())
 	}
 	for name, want := range map[string]string{
 		"aws_fsx_file_system":        "fsx",
@@ -149,5 +176,40 @@ func TestLoadProvider(t *testing.T) {
 	}
 	if s := m.ByTFName("aws_fsx_s3_access_point_attachment"); s == nil || s.Package != "fsx" {
 		t.Errorf("ByTFName(aws_fsx_s3_access_point_attachment) = %v", s)
+	}
+}
+
+func TestByModule(t *testing.T) {
+	t.Parallel()
+
+	m := load(t)
+	for module, want := range map[string]struct {
+		pkg            string
+		notImplemented bool
+	}{
+		// The block label is the package, even with provider_package_correct.
+		"elasticsearchservice": {pkg: "elasticsearch"},
+		"fsx":                  {pkg: "fsx"},
+		"gone":                 {pkg: "gone", notImplemented: true},
+		// An empty v2_package means no v2 module.
+		"simpledb": {},
+		"unknown":  {},
+	} {
+		s := m.ByModule(module)
+		if want.pkg == "" {
+			if s != nil {
+				t.Errorf("ByModule(%s) = %s, want nil", module, s.Package)
+			}
+			continue
+		}
+		if s == nil || s.Package != want.pkg || s.NotImplemented != want.notImplemented {
+			t.Errorf("ByModule(%s) = %+v, want %+v", module, s, want)
+		}
+	}
+	if m.ByPackage("gone") != nil {
+		t.Error("not-implemented service is in ByPackage")
+	}
+	if s := m.ByTFName("aws_elasticsearch_domain"); s == nil || s.Package != "elasticsearch" {
+		t.Errorf("ByTFName(aws_elasticsearch_domain) = %+v", s)
 	}
 }

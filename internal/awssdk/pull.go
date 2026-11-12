@@ -56,6 +56,10 @@ type Release struct {
 	Tag         string    `json:"tag"`
 	URL         string    `json:"url"`
 	PublishedAt time.Time `json:"published_at"`
+	// Commit is the commit the release tag points to, and CommitURL its GitHub page. Maintainers cite it in tracking
+	// issues. Empty if the tags couldn't be listed.
+	Commit    string `json:"commit,omitempty"`
+	CommitURL string `json:"commit_url,omitempty"`
 }
 
 // Provenance records where an item's facts came from.
@@ -76,17 +80,59 @@ type Releases interface {
 	ListReleases(ctx context.Context, repo string, since time.Time) ([]github.Release, error)
 }
 
+// TagCommits lists the commits a repo's tags point to, peeling annotated tags.
+type TagCommits interface {
+	TagCommits(ctx context.Context, repo, pattern string) (map[string]string, error)
+}
+
+// GitTags implements TagCommits with git ls-remote against GitHub.
+type GitTags struct{}
+
+// TagCommits runs git ls-remote for tags matching pattern (such as "release-*") in the GitHub repo.
+func (GitTags) TagCommits(ctx context.Context, repo, pattern string) (map[string]string, error) {
+	out, err := run(ctx, "", "ls-remote", "--tags", "https://github.com/"+repo+".git", "refs/tags/"+pattern)
+	if err != nil {
+		return nil, err
+	}
+	return parseLsRemote(out), nil
+}
+
+// parseLsRemote maps tag names to commits. A peeled entry ("<tag>^{}") is the commit an annotated tag points to, and
+// wins over the tag object.
+func parseLsRemote(out string) map[string]string {
+	tags := map[string]string{}
+	for line := range strings.Lines(out) {
+		sha, ref, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		if !ok {
+			continue
+		}
+		name, ok := strings.CutPrefix(ref, "refs/tags/")
+		if !ok {
+			continue
+		}
+		if base, peeled := strings.CutSuffix(name, "^{}"); peeled {
+			tags[base] = sha
+		} else if _, seen := tags[name]; !seen {
+			tags[name] = sha
+		}
+	}
+	return tags
+}
+
 // Puller turns SDK releases into items.
 type Puller struct {
 	Source   *config.Source
 	Models   *ModelsRepo
 	Releases Releases
-	Store    *items.Store
+	// Tags, if set, resolves release tags to commits.
+	Tags  TagCommits
+	Store *items.Store
 	// Version is recorded in provenance.
 	Version string
 	Log     func(format string, args ...any)
 
-	cache map[string]*smithy.Model
+	cache   map[string]*smithy.Model
+	commits map[string]string
 }
 
 // PullOptions control one pull.
@@ -155,6 +201,11 @@ func (p *Puller) Pull(ctx context.Context, opts PullOptions) (*PullResult, error
 	slices.Reverse(rels)
 
 	p.cache = map[string]*smithy.Model{}
+	if p.Tags != nil {
+		if p.commits, err = p.Tags.TagCommits(ctx, p.Source.ReleasesRepo, "release-*"); err != nil {
+			res.Warnings = append(res.Warnings, fmt.Sprintf("release commits unavailable: %v", err))
+		}
+	}
 	for i, rel := range rels {
 		if rel.PublishedAt.Before(since) || (!inclusive && rel.PublishedAt.Equal(since)) {
 			continue
@@ -249,6 +300,10 @@ func (p *Puller) pullRelease(ctx context.Context, prev, rel github.Release) ([]i
 		PulledBy:     "radar " + p.Version,
 	}
 	release := Release{Tag: rel.TagName, URL: rel.HTMLURL, PublishedAt: rel.PublishedAt.UTC()}
+	if sha := p.commits[rel.TagName]; sha != "" {
+		release.Commit = sha
+		release.CommitURL = "https://github.com/" + p.Source.ReleasesRepo + "/commit/" + sha
+	}
 
 	byModule := map[string]*Item{}
 	nextCache := map[string]*smithy.Model{}

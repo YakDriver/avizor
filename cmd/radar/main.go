@@ -12,9 +12,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"time"
 
+	"github.com/YakDriver/radar/internal/awssdk"
 	"github.com/YakDriver/radar/internal/config"
+	"github.com/YakDriver/radar/internal/enrich"
 	"github.com/YakDriver/radar/internal/github"
 	"github.com/YakDriver/radar/internal/index"
 	"github.com/YakDriver/radar/internal/reconcile"
@@ -96,6 +99,10 @@ type common struct {
 	stateDir   string
 	target     string
 	format     string
+
+	// Set by open.
+	cfg *config.Config
+	dir string
 }
 
 func (c *common) register(fs *flag.FlagSet) {
@@ -148,7 +155,34 @@ func (c *common) open() (*config.Target, *index.Store, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	c.cfg, c.dir = cfg, dir
 	return t, st, nil
+}
+
+// operations sets r's operation names from the target's models source, if it has one and its clone exists. Without
+// them, any verb-prefixed PascalCase word counts as an operation, so a missing clone is a warning.
+func (c *common) operations(ctx context.Context, t *config.Target, r *reconcile.Reconciler, stderr io.Writer) {
+	if t.Operations == config.OperationsNone {
+		return
+	}
+	src, err := c.cfg.Source(t.Operations)
+	if err != nil {
+		fmt.Fprintf(stderr, "radar: warning: operation names unavailable: %v\n", err)
+		return
+	}
+	dir := src.ModelsPath(c.dir)
+	if _, err := os.Stat(dir); err != nil {
+		fmt.Fprintf(stderr, "radar: warning: operation names unavailable: no models clone at %s; run `radar pull %s`\n", dir, src.Name)
+		return
+	}
+	repo := &awssdk.ModelsRepo{Dir: dir, URL: src.ModelsURL, Branch: src.ModelsBranch}
+	ops, err := repo.Operations(ctx, dir+".operations.json")
+	if err != nil {
+		fmt.Fprintf(stderr, "radar: warning: operation names unavailable: %v\n", err)
+		return
+	}
+	r.Operations = ops
+	r.OperationsSource = fmt.Sprintf("%s@%s (%d operations)", src.ModelsURL, ops.Commit, len(ops.Names))
 }
 
 // parseInterspersed parses flags that may appear before or after positional arguments.
@@ -282,8 +316,14 @@ func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer)
 			Version:      version,
 		},
 	}
+	c.operations(ctx, t, r, stderr)
 	if gh, err := github.NewClient(ctx); err == nil {
 		r.Issues = fetcher{gh}
+	}
+
+	// An item ID ("<source>/<module>/<release>") reconciles a pulled item.
+	if *text == "" && itemIDRE.MatchString(arg) {
+		return c.candidatesItem(ctx, r, arg, *noCode, stdout, stderr)
 	}
 
 	res, err := r.Run(ctx, arg, *text)
@@ -294,6 +334,53 @@ func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer)
 		return writeText(stdout, res)
 	}
 	return writeJSON(stdout, res)
+}
+
+var itemIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*/[^/\s]+/[^/\s]+$`)
+
+// itemResult is an item's reconciliation with the enrichment it was built from.
+type itemResult struct {
+	*reconcile.Result
+	Enrichment *enrich.Result `json:"enrichment"`
+}
+
+func (c *common) candidatesItem(ctx context.Context, r *reconcile.Reconciler, id string, noCode bool, stdout, stderr io.Writer) error {
+	it, en, err := c.enrichedItem(ctx, r.Target, id, noCode, stderr)
+	if err != nil {
+		return err
+	}
+	res, err := r.RunItem(ctx, enrich.ReconcileItem(it, en))
+	if err != nil {
+		return err
+	}
+	if c.format == "text" {
+		if err := writeText(stdout, res); err != nil {
+			return err
+		}
+		return writeEnrichmentText(stdout, en)
+	}
+	return writeJSON(stdout, itemResult{Result: res, Enrichment: en})
+}
+
+// enrichedItem loads a pulled item and enriches it for t. Call after open.
+func (c *common) enrichedItem(ctx context.Context, t *config.Target, id string, noCode bool, stderr io.Writer) (*awssdk.Item, *enrich.Result, error) {
+	st, err := openItems(c.dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer st.Close()
+	rec, err := st.Get(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if rec == nil {
+		return nil, nil, fmt.Errorf("no item %q; list items with `radar items`", id)
+	}
+	it, err := decodeItem(*rec)
+	if err != nil {
+		return nil, nil, err
+	}
+	return it, newEnricher(c.cfg, c.dir, t, it, noCode, stderr).Enrich(ctx, it), nil
 }
 
 func defaultHTTP() *http.Client {

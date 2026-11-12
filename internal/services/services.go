@@ -22,6 +22,10 @@ type Service struct {
 	SDKID string `json:"sdk_id,omitempty"`
 	// ResourcePrefixes are Terraform type prefixes, e.g. "aws_fsx_".
 	ResourcePrefixes []string `json:"resource_prefixes"`
+	// Module is the AWS SDK for Go v2 service module the package uses, e.g. "fsx", or "" if it uses none.
+	Module string `json:"module,omitempty"`
+	// NotImplemented is set for services the provider lists but doesn't implement.
+	NotImplemented bool `json:"not_implemented,omitempty"`
 	// Names are the strings matched in free text.
 	Names []string `json:"-"`
 }
@@ -29,6 +33,8 @@ type Service struct {
 // Map is the set of known services.
 type Map struct {
 	byPackage map[string]*Service
+	// byModule includes not-implemented services.
+	byModule map[string]*Service
 	// prefixes sorted longest first so aws_s3control_ wins over aws_s3_.
 	prefixes []prefixEntry
 	names    []nameEntry
@@ -53,9 +59,9 @@ type namesFile struct {
 type serviceBlock struct {
 	Label          string               `hcl:"name,label"`
 	SDK            *sdkBlock            `hcl:"sdk,block"`
+	GoPackages     *goPackagesBlock     `hcl:"go_packages,block"`
 	Names          *namesBlock          `hcl:"names,block"`
 	ResourcePrefix *resourcePrefixBlock `hcl:"resource_prefix,block"`
-	PackageCorrect string               `hcl:"provider_package_correct,optional"`
 	NotImplemented bool                 `hcl:"not_implemented,optional"`
 	Remain         hcl.Body             `hcl:",remain"`
 }
@@ -63,6 +69,11 @@ type serviceBlock struct {
 type sdkBlock struct {
 	ID     string   `hcl:"id,optional"`
 	Remain hcl.Body `hcl:",remain"`
+}
+
+type goPackagesBlock struct {
+	V2Package *string  `hcl:"v2_package,optional"`
+	Remain    hcl.Body `hcl:",remain"`
 }
 
 type namesBlock struct {
@@ -78,21 +89,27 @@ type resourcePrefixBlock struct {
 	Remain  hcl.Body `hcl:",remain"`
 }
 
-// Load parses a names_data.hcl file. Services marked not_implemented are skipped.
+// Load parses a names_data.hcl file. Services marked not_implemented are only found by ByModule.
 func Load(path string) (*Map, error) {
 	var f namesFile
 	if err := hclsimple.DecodeFile(path, nil, &f); err != nil {
 		return nil, fmt.Errorf("loading service names %s: %w", path, err)
 	}
 
-	m := &Map{byPackage: map[string]*Service{}}
+	m := &Map{byPackage: map[string]*Service{}, byModule: map[string]*Service{}}
 	for _, b := range f.Services {
-		if b.NotImplemented {
-			continue
+		// The block label is the provider package, its directory, and its label suffix. provider_package_correct is
+		// only the preferred name (for example "es" for "elasticsearch"), so it isn't used.
+		svc := &Service{Package: b.Label, Module: b.Label, NotImplemented: b.NotImplemented}
+		// go_packages.v2_package overrides the module; an empty one means the service has no v2 module.
+		if b.GoPackages != nil && b.GoPackages.V2Package != nil {
+			svc.Module = *b.GoPackages.V2Package
 		}
-		svc := &Service{Package: b.PackageCorrect}
-		if svc.Package == "" {
-			svc.Package = b.Label
+		if b.NotImplemented {
+			if svc.Module != "" {
+				m.byModule[svc.Module] = svc
+			}
+			continue
 		}
 
 		var names []string
@@ -128,7 +145,7 @@ func Load(path string) (*Map, error) {
 
 // New builds a map directly; used by tests.
 func New(svcs ...*Service) *Map {
-	m := &Map{byPackage: map[string]*Service{}}
+	m := &Map{byPackage: map[string]*Service{}, byModule: map[string]*Service{}}
 	for _, s := range svcs {
 		m.add(s)
 	}
@@ -137,6 +154,12 @@ func New(svcs ...*Service) *Map {
 }
 
 func (m *Map) add(svc *Service) {
+	if svc.Module != "" {
+		m.byModule[svc.Module] = svc
+	}
+	if svc.NotImplemented {
+		return
+	}
 	m.byPackage[svc.Package] = svc
 	for _, p := range svc.ResourcePrefixes {
 		m.prefixes = append(m.prefixes, prefixEntry{prefix: p, svc: svc})
@@ -168,6 +191,12 @@ func splitHumanFriendly(s string) []string {
 // ByPackage returns the service for a provider package, or nil.
 func (m *Map) ByPackage(pkg string) *Service {
 	return m.byPackage[pkg]
+}
+
+// ByModule returns the service using an AWS SDK for Go v2 service module, including services marked not implemented,
+// or nil.
+func (m *Map) ByModule(module string) *Service {
+	return m.byModule[module]
 }
 
 // ByTFName returns the service owning a Terraform type name such as aws_fsx_file_system, or nil.
