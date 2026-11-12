@@ -331,6 +331,22 @@ PR 2 (enrich and reconcile items):
 - **Pull records release commits** from `git ls-remote`, so items carry the commit URL maintainers cite.
 - **Eval.** 73 item cases, labeled from trackers that cite release commits. Because Radar uses the same signal, they measure precision more than retrieval. Item-level no-work cases are hard to label from history: an item no tracker cites may still need work. The corpus has one.
 
+PR 3 (draft):
+
+- **`radar draft <item-id>`** renders the title, labels, body, and `gh issue create` arguments. Radar doesn't run `gh`.
+- **The body holds only what the item shows**: the release notes quoted and the required SDK release with its bump PR. Inferred values (title, Terraform names, labels, headline) are listed with their basis in the JSON and the text reviewer section, not in the body, so the body can be filed as is.
+- **`Relates` is a suggestion, not body text.** Related candidates are weak matches, so writing them into the issue would state a relation Radar hasn't established.
+- **Existing work is a warning.** A confident candidate means the item may already be tracked or implemented. Radar fills gaps, so it doesn't draft comments on existing issues.
+- **No announcement source yet.** The headline is the release note's first sentence, which the reviewer can replace; milestone 4's announcement source will supply it.
+- **Tagging operations** (`TagResource` and its family) are inferred as tagging support, not a new resource, and aren't strong signals in reconciliation: every service has them.
+- **Measured against history.** Drafts for the 37 items with maintainer trackers (39 tracker pairs):
+  - The drafted service label is on the tracker in all 39.
+  - `new-resource`: 9 agree, 8 drafted without it on the tracker, 1 on the tracker only. Several of the 8 (ECS Managed Daemons, S3 object annotations, Lambda Core network connectors) are new resources the tracker didn't label.
+  - `new-service`: 3 agree, 1 drafted only, 1 on the tracker only.
+  - Of the 5 trackers that name a Terraform type, 3 drafts name the same type: `aws_kinesis_channel` (new resource), and `aws_fsx_s3_access_point_attachment` and `aws_grafana_workspace` (`r/` titles). The S3 ones get service titles, since their new members reach operations several resources call.
+  - Every draft warns that its tracker already tracks the item, which is what the warning is for when drafting after the fact.
+  - I dropped the `new-data-source` label: new read-only operations were mostly statuses and sub-resource listings (14 drafted, 0 on trackers).
+
 ## Open questions
 
 - **Item granularity**: is one item per service per SDK release right, or do multi-feature releases need splitting?
