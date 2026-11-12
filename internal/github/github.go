@@ -104,6 +104,41 @@ func (c *Comment) IssueNumber() (int, error) {
 	return strconv.Atoi(m[1])
 }
 
+// Release is a GitHub release.
+type Release struct {
+	TagName     string    `json:"tag_name"`
+	Name        string    `json:"name"`
+	Body        string    `json:"body"`
+	HTMLURL     string    `json:"html_url"`
+	Draft       bool      `json:"draft"`
+	Prerelease  bool      `json:"prerelease"`
+	PublishedAt time.Time `json:"published_at"`
+}
+
+// ListReleases returns published releases newest first, stopping after the first one published before since, so the
+// caller also gets the release that precedes the window. A zero since lists all releases.
+func (c *Client) ListReleases(ctx context.Context, repo string, since time.Time) ([]Release, error) {
+	var out []Release
+	done := errors.New("done")
+	q := url.Values{"per_page": {strconv.Itoa(perPage)}}
+	err := paginate(ctx, c, fmt.Sprintf("%s/repos/%s/releases?%s", c.BaseURL, repo, q.Encode()), func(page []Release) error {
+		for _, r := range page {
+			if r.Draft || r.PublishedAt.IsZero() {
+				continue
+			}
+			out = append(out, r)
+			if !since.IsZero() && r.PublishedAt.Before(since) {
+				return done
+			}
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, done) {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GetIssue fetches one issue or PR.
 func (c *Client) GetIssue(ctx context.Context, repo string, number int) (*Issue, error) {
 	var is Issue
