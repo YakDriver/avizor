@@ -64,18 +64,34 @@ func (r *ModelsRepo) Operations(ctx context.Context, cachePath string) (*Operati
 		if err != nil {
 			return nil, err
 		}
-		if err := os.MkdirAll(filepath.Dir(cachePath), 0o700); err != nil {
-			return nil, err
-		}
-		tmp := cachePath + ".tmp"
-		if err := os.WriteFile(tmp, b, 0o600); err != nil {
-			return nil, err
-		}
-		if err := os.Rename(tmp, cachePath); err != nil {
+		if err := writeFileAtomic(cachePath, b); err != nil {
 			return nil, err
 		}
 	}
 	return ops, nil
+}
+
+// writeFileAtomic writes data to path through a unique temporary file in the same directory, so concurrent writers
+// don't rename each other's file away and readers never see a partial file.
+func writeFileAtomic(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(f.Name(), path)
+	}
+	if err != nil {
+		os.Remove(f.Name())
+	}
+	return err
 }
 
 // operationsAt parses every service model at commit, streaming blobs through one git cat-file process.

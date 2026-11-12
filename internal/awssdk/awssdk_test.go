@@ -405,3 +405,32 @@ func TestParseLsRemote(t *testing.T) {
 		t.Errorf("parseLsRemote = %v", got)
 	}
 }
+
+// TestWriteFileAtomicConcurrent checks that concurrent writers of one cache file all succeed and leave no temporary
+// files. A shared temporary name made all but one writer's rename fail.
+func TestWriteFileAtomicConcurrent(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ops.json")
+	const n = 50
+	errs := make(chan error, n)
+	start := make(chan struct{})
+	for i := range n {
+		go func() {
+			<-start
+			errs <- writeFileAtomic(path, []byte(strings.Repeat("x", 1<<16+i)))
+		}()
+	}
+	close(start)
+	for range n {
+		if err := <-errs; err != nil {
+			t.Error(err)
+		}
+	}
+	if m, _ := filepath.Glob(path + ".*.tmp"); len(m) > 0 {
+		t.Errorf("leftover temporary files: %v", m)
+	}
+	if b, err := os.ReadFile(path); err != nil || len(b) < 1<<16 || strings.Trim(string(b), "x") != "" {
+		t.Errorf("final file: %d bytes, %v", len(b), err)
+	}
+}
