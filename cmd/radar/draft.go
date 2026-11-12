@@ -18,7 +18,7 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	var c common
 	c.register(fs)
 	noCode := fs.Bool("no-code", false, "don't search the target checkout")
-	relates := fs.Int("relates", 3, "maximum related issues to suggest")
+	relates := fs.Int("relates", 3, "maximum related issues and PRs to suggest")
 	bodyOnly := fs.Bool("body", false, "print only the issue body, for piping to `gh issue create --body-file -`")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -103,7 +103,7 @@ func writeDraftText(w io.Writer, d *draft.Draft, regen []string) error {
 	if len(d.Relates) > 0 {
 		fmt.Fprintln(w, "\npossibly related (add \"Relates <url>.\" if so):")
 		for _, r := range d.Relates {
-			fmt.Fprintf(w, "  #%d %s (%s)\n", r.Number, r.Title, r.Basis)
+			fmt.Fprintf(w, "  #%d%s %s (%s)\n", r.Number, prTag(r.Kind), r.Title, r.Basis)
 		}
 	}
 	fmt.Fprintf(w, "\nto file it:\n  %s | gh %s\n", shellJoin(regen), shellJoin(d.GHArgs))
@@ -123,4 +123,12 @@ func shellJoin(args []string) string {
 		out[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
 	}
 	return strings.Join(out, " ")
+}
+
+// prTag marks a pull request in a list of issue numbers.
+func prTag(kind string) string {
+	if kind == reconcile.KindPR {
+		return " (PR)"
+	}
+	return ""
 }

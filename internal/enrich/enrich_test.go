@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,8 +172,9 @@ func TestEnrich(t *testing.T) {
 	if av == nil || av.Status != Available || av.ProviderVersion != "v1.3.0" || av.Bump == nil || av.Bump.PR != 10 || av.Bump.Version != "v1.2.0" {
 		t.Errorf("availability = %+v, bump %+v", av, av.Bump)
 	}
-	if len(res.Warnings) > 0 {
-		t.Errorf("warnings = %q", res.Warnings)
+	// Without a models clone, member work has no operations, so the code search is incomplete.
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "no model") || res.CodeSearched {
+		t.Errorf("warnings = %q, code searched %v", res.Warnings, res.CodeSearched)
 	}
 
 	// The (#N) form is recognized too.

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -382,7 +383,7 @@ func TestOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 	cached.Names = append(cached.Names, "FromCache")
-	b, _ = json.Marshal(cached)
+	b, _ = json.Marshal(&cached)
 	if err := os.WriteFile(cache, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -433,4 +434,19 @@ func TestWriteFileAtomicConcurrent(t *testing.T) {
 	if b, err := os.ReadFile(path); err != nil || len(b) < 1<<16 || strings.Trim(string(b), "x") != "" {
 		t.Errorf("final file: %d bytes, %v", len(b), err)
 	}
+}
+
+func TestOperationsHasConcurrent(t *testing.T) {
+	t.Parallel()
+
+	ops := &Operations{Names: []string{"CreateWidget", "DeleteWidget"}}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			if !ops.Has("CreateWidget") || ops.Has("StartTime") {
+				t.Error("Has is wrong")
+			}
+		})
+	}
+	wg.Wait()
 }

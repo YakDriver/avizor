@@ -375,6 +375,18 @@ Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hu
 - **Draft warnings miss PRs.** The draft's "possibly related" list includes the CloudWatch issue but not the Cognito PR, since it lists only issues. The queue should show weak PR matches too.
 - **Next experiment, not yet built:** search the files that call an item's operations for its new members' snake_case names, to catch "already implemented". Generic names like `tags` or `routing` are a precision risk, so measure before trusting it.
 
+**Step 2: `radar queue`.** It classifies each new item from the last 30 days and shows `gap`, `pending`, and `new_service` items by default. `covered`, `no_code`, `unimplemented`, and `no_work` are hidden.
+
+- **The default hides the gap sample's no-work items with no code.** On all 1,487 items, the queue's states agree with the gap sample labels:
+  - all 38 `item-tracked` items are `covered`;
+  - 10 of 18 `item-no-work` items are `no_code` (hidden) and 8 are `gap`;
+  - all 8 `item-gap` items are `gap`;
+  - all 4 `item-covered` items are `gap`, since Radar has no confident candidate. 2 of the 4 have the covering work in the related list: #48548, and #48670 now that related lists include PRs.
+- **Related lists include PRs** in the queue and in drafts. The SDK bump PR is left out, since every item in a release shares it.
+- **Unimplemented services are hidden unless the item is a new SDK module.** The gap sample didn't cover them. Most are services the provider has chosen not to implement or AWS-internal APIs, and a new module is the clearest sign of a service worth a look.
+- **`pending` comes after `no_code`.** An item with nothing in code the target has stays hidden even if its SDK version isn't available yet.
+- **Over all items:** 638 gap, 59 pending, 19 new service, 99 covered, 374 no code, 272 unimplemented, and 26 no work. 59 of the 95 shown in the last 30 days are pending, because the provider's AWS SDK versions predate the 2026-10-29 releases.
+
 ## Open questions
 
 - **Item granularity**: is one item per service per SDK release right, or do multi-feature releases need splitting?

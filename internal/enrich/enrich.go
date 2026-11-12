@@ -61,8 +61,11 @@ type Result struct {
 	Service      ServiceMatch  `json:"service"`
 	Availability *Availability `json:"availability,omitempty"`
 	// Work lists inferred kinds of provider work, one per operation group or changed shape member.
-	Work     []Work   `json:"work"`
-	Warnings []string `json:"warnings,omitempty"`
+	Work []Work `json:"work"`
+	// CodeSearched is true when the model loaded and the code search ran without error, so work with no UsedBy is
+	// known not to touch the target's code. It's false when either was skipped or failed.
+	CodeSearched bool     `json:"code_searched"`
+	Warnings     []string `json:"warnings,omitempty"`
 }
 
 // ServiceMatch is the provider service package for the item's module. It's evidence from names_data.hcl.
@@ -141,19 +144,26 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 	}
 
 	var usages map[string]*smithy.Usage
-	if it.Diff != nil && e.Models != nil && it.Provenance.ModelPath != "" && it.Provenance.Head.SHA != "" {
+	modelOK := it.Diff == nil
+	switch {
+	case it.Diff == nil:
+	case e.Models != nil && it.Provenance.ModelPath != "" && it.Provenance.Head.SHA != "":
 		m, err := e.model(ctx, it)
 		if err != nil {
 			warnf("loading model: %v", err)
 		} else {
-			usages = m.Usages()
+			usages, modelOK = m.Usages(), true
 		}
+	default:
+		warnf("no model to find which operations changed members reach; run `radar pull` to clone the models")
 	}
 	res.Work = work(it.Diff, usages)
 
 	if !e.NoCode && e.Checkout != "" && res.Service.Status == ServiceImplemented {
 		if err := e.usedBy(ctx, res.Service.Package, res.Work); err != nil {
 			warnf("code search: %v", err)
+		} else {
+			res.CodeSearched = modelOK
 		}
 	}
 	return res

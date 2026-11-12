@@ -50,6 +50,7 @@ type Inferred struct {
 // Relate is a candidate the reviewer may link with "Relates".
 type Relate struct {
 	Number int    `json:"number"`
+	Kind   string `json:"kind"`
 	URL    string `json:"url"`
 	Title  string `json:"title"`
 	Basis  string `json:"basis"`
@@ -114,7 +115,7 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 		data.ReleaseURL = it.Release.URL
 	}
 	for _, n := range it.Notes {
-		if n.Text != newModuleNote {
+		if n.Text != NewModuleNote {
 			data.Notes = append(data.Notes, n.Text)
 		}
 	}
@@ -160,7 +161,7 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	return d, nil
 }
 
-const newModuleNote = "New AWS service client module"
+const NewModuleNote = "New AWS service client module"
 
 // titleAndLabels infers the title and labels from the work.
 func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Options, infer func(field, value, basis string)) (string, []string) {
@@ -171,8 +172,8 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 			infer("label", l, basis)
 		}
 	}
-	if slices.ContainsFunc(it.Notes, func(n awssdk.Note) bool { return n.Text == newModuleNote }) {
-		addLabel("new-service", "the release notes say \""+newModuleNote+"\"")
+	if slices.ContainsFunc(it.Notes, func(n awssdk.Note) bool { return n.Text == NewModuleNote }) {
+		addLabel("new-service", "the release notes say \""+NewModuleNote+"\"")
 	}
 	pkg := en.Service.Package
 	switch en.Service.Status {
@@ -296,8 +297,9 @@ func existingWork(rec *reconcile.Result, d *Draft) {
 	}
 }
 
-// relates suggests related issues in the item's service that share title keywords. Bug reports are skipped: they
-// share words like a service's resource names without being about a capability.
+// relates suggests related issues and PRs in the item's service that share title keywords. The SDK bump PR is skipped,
+// since every item in its release shares it. Bug reports are skipped: they share words like a service's resource
+// names without being about a capability.
 func relates(rec *reconcile.Result, en *enrich.Result, d *Draft, limit int) {
 	if limit <= 0 {
 		limit = 3
@@ -306,7 +308,7 @@ func relates(rec *reconcile.Result, en *enrich.Result, d *Draft, limit int) {
 		if len(d.Relates) == limit {
 			break
 		}
-		if c.Category != reconcile.CategoryRelated || c.Number == 0 || c.Kind != reconcile.KindIssue || isBug(c) {
+		if c.Category != reconcile.CategoryRelated || c.Number == 0 || isBug(c) || isBump(c) {
 			continue
 		}
 		var label bool
@@ -322,9 +324,14 @@ func relates(rec *reconcile.Result, en *enrich.Result, d *Draft, limit int) {
 		if !label || len(kws) < 2 {
 			continue
 		}
-		d.Relates = append(d.Relates, Relate{Number: c.Number, URL: c.URL, Title: c.Title,
+		d.Relates = append(d.Relates, Relate{Number: c.Number, Kind: c.Kind, URL: c.URL, Title: c.Title,
 			Basis: fmt.Sprintf("service label and title keywords %s", strings.Join(kws, ", "))})
 	}
+}
+
+// isBump reports whether c is the SDK bump PR, which every item in a release shares.
+func isBump(c reconcile.Candidate) bool {
+	return slices.ContainsFunc(c.Signals, func(m reconcile.Match) bool { return m.Type == reconcile.MatchBump })
 }
 
 func isBug(c reconcile.Candidate) bool {

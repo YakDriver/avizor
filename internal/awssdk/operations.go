@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/YakDriver/radar/internal/smithy"
 )
@@ -22,17 +23,18 @@ type Operations struct {
 	Commit string   `json:"commit"`
 	Names  []string `json:"names"`
 
-	set map[string]bool
+	once sync.Once
+	set  map[string]bool
 }
 
-// Has reports whether name is an operation in some model.
+// Has reports whether name is an operation in some model. It's safe for concurrent use.
 func (o *Operations) Has(name string) bool {
-	if o.set == nil {
+	o.once.Do(func() {
 		o.set = make(map[string]bool, len(o.Names))
 		for _, n := range o.Names {
 			o.set[n] = true
 		}
-	}
+	})
 	return o.set[name]
 }
 
