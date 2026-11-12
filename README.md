@@ -140,6 +140,29 @@ All source settings have defaults and can be changed in the config. See [radar.e
 
 For `aws-sdk-go-v2/fsx/release-2025-12-02`, the ONTAP tracker #45362 is already tracked, and the open PR #50917 that references it follows.
 
+### Review the queue
+
+```
+radar queue --format text
+radar queue --since 90d --service s3 --all --format text
+```
+
+`radar queue` enriches and reconciles every new item from the last 30 days (`--since`) and lists the ones that need a decision, newest first, with the work Radar inferred, the draft title, and possibly related issues and PRs. Each item gets a state:
+
+| State | Shown | Meaning |
+|---|---|---|
+| `gap` | yes | The work touches code the target has, or adds a new resource, and nothing confidently covers it. |
+| `pending` | yes | A gap whose SDK version the target doesn't require yet. |
+| `new_service` | yes | A new SDK module for a service the target doesn't implement. |
+| `covered` | no | A confident candidate (already tracked, implemented, or previously considered) matches it. |
+| `no_code` | no | The work touches no code the target has and adds no new resource. |
+| `unimplemented` | no | The service isn't one the target implements, and it isn't a new SDK module. |
+| `no_work` | no | Radar inferred no work, as for documentation-only model changes. |
+
+`--all` shows the hidden states too, and `--state gap,covered` picks states. A `gap` is still a guess. In a hand-checked sample, the queue showed 20 items as gaps: 8 were real gaps, 8 needed no provider work, and 4 were already implemented or tracked. 2 of those 4 had the covering issue or PR in the related list. Check the related list before drafting. With `--no-code`, Radar doesn't know which items touch code, so nothing is `no_code`.
+
+The queue runs 4 items at a time (`--jobs`); 30 days, about 180 items, takes about 15 seconds.
+
 ### Draft an issue
 
 ```
@@ -158,7 +181,7 @@ Everything Radar guessed is listed for the reviewer, with its basis, in a review
 The reviewer section also has:
 
 - **Warnings**: existing work Radar matched with a confident category (`already tracked`, `already implemented`), a Terraform name that already has docs, an SDK version the target doesn't have yet, and skipped items. A draft with an "already tracked" warning probably shouldn't be filed.
-- **Possibly related** issues: weak matches in the same service that share title keywords, for a `Relates` line if they fit. Bug reports are left out.
+- **Possibly related** issues and PRs: weak matches in the same service that share title keywords, for a `Relates` line if they fit. Bug reports and the SDK bump PR are left out.
 
 A target can replace the body template with `draft_template`. See [radar.example.hcl](radar.example.hcl).
 
