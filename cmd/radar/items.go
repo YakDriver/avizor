@@ -6,20 +6,18 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"path/filepath"
 	"text/tabwriter"
 	"time"
 
 	"github.com/YakDriver/radar/internal/awssdk"
+	"github.com/YakDriver/radar/internal/config"
 	"github.com/YakDriver/radar/internal/github"
 	"github.com/YakDriver/radar/internal/items"
 	"github.com/YakDriver/radar/internal/smithy"
 )
 
-const itemsDBName = "items.db"
-
 func openItems(dir string) (*items.Store, error) {
-	return items.Open(filepath.Join(dir, itemsDBName))
+	return items.Open(config.ItemsPath(dir))
 }
 
 func cmdPull(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -266,8 +264,11 @@ func writeItemText(w io.Writer, it *awssdk.Item) error {
 	section("removed members", members(d.RemovedMembers))
 	section("new enum values", members(d.AddedEnumValues))
 	section("removed enum values", members(d.RemovedEnumValues))
+	section("changed members (new type)", changes(d.ChangedMembers))
+	section("changed enum values", changes(d.ChangedEnumValues))
 	section("new shapes", shapes(d.AddedShapes))
 	section("removed shapes", shapes(d.RemovedShapes))
+	section("retargeted members (same type, not counted as API changes)", changes(d.RetargetedMembers))
 	return nil
 }
 
@@ -279,6 +280,14 @@ func members(ms []smithy.MemberChange) []string {
 			line += " (" + m.Value + ")"
 		}
 		out = append(out, line)
+	}
+	return out
+}
+
+func changes(ms []smithy.MemberChange) []string {
+	out := make([]string, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, fmt.Sprintf("%s.%s: %s -> %s", m.Shape, m.Member, m.OldValue, m.Value))
 	}
 	return out
 }

@@ -24,29 +24,37 @@ type ModelsRepo struct {
 	Branch string
 }
 
-// Ensure clones the repository if Dir doesn't exist, and otherwise fetches Branch if fetch is set.
-func (r *ModelsRepo) Ensure(ctx context.Context, fetch bool, logf func(string, ...any)) error {
+// Ensure clones the repository if Dir doesn't exist, and otherwise fetches Branch if fetch is set. It reports whether
+// the clone is current: freshly cloned or fetched.
+func (r *ModelsRepo) Ensure(ctx context.Context, fetch bool, logf func(string, ...any)) (bool, error) {
 	if _, err := os.Stat(r.Dir); errors.Is(err, os.ErrNotExist) {
 		if r.URL == "" {
-			return fmt.Errorf("models repository %s doesn't exist and no URL is configured", r.Dir)
+			return false, fmt.Errorf("models repository %s doesn't exist and no URL is configured", r.Dir)
 		}
 		if err := os.MkdirAll(filepath.Dir(r.Dir), 0o700); err != nil {
-			return fmt.Errorf("creating %s: %w", filepath.Dir(r.Dir), err)
+			return false, fmt.Errorf("creating %s: %w", filepath.Dir(r.Dir), err)
 		}
 		logf("cloning %s into %s", r.URL, r.Dir)
 		if _, err := run(ctx, "", "clone", "--quiet", "--bare", "--single-branch", "--branch", r.Branch, "--", r.URL, r.Dir); err != nil {
-			return err
+			return false, err
 		}
-		return nil
+		return true, nil
 	} else if err != nil {
-		return err
+		return false, err
 	}
 	if !fetch {
-		return nil
+		return false, nil
 	}
 	logf("fetching %s", r.URL)
-	_, err := r.git(ctx, "fetch", "--quiet", "--", r.URL, "+refs/heads/"+r.Branch+":refs/heads/"+r.Branch)
-	return err
+	if _, err := r.git(ctx, "fetch", "--quiet", "--", r.URL, "+refs/heads/"+r.Branch+":refs/heads/"+r.Branch); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Tip returns the newest commit on Branch.
+func (r *ModelsRepo) Tip(ctx context.Context) (Commit, error) {
+	return r.CommitAt(ctx, time.Now().Add(24*time.Hour))
 }
 
 // Commit is a commit and its committer time.

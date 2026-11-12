@@ -126,14 +126,25 @@ func (p *Puller) Pull(ctx context.Context, opts PullOptions) (*PullResult, error
 	start := time.Now()
 	res := &PullResult{Source: p.Source.Name}
 
-	since, err := p.since(ctx, opts.Since)
+	since, inclusive, err := p.since(ctx, opts.Since)
 	if err != nil {
 		return nil, err
 	}
 	res.Since = since.UTC().Format(time.RFC3339)
 
-	if err := p.Models.Ensure(ctx, p.Source.FetchModels() && !opts.NoFetch, p.logf); err != nil {
+	current, err := p.Models.Ensure(ctx, p.Source.FetchModels() && !opts.NoFetch, p.logf)
+	if err != nil {
 		return nil, err
+	}
+	// Without a fetch, the clone may be missing models for recent releases, and their changes would look like no change.
+	// Only releases the clone provably covers, those published before its newest commit, are pulled then.
+	var coveredUntil time.Time
+	if !current {
+		tip, err := p.Models.Tip(ctx)
+		if err != nil {
+			return nil, err
+		}
+		coveredUntil = tip.Time
 	}
 
 	rels, err := p.Releases.ListReleases(ctx, p.Source.ReleasesRepo, since)
@@ -145,12 +156,18 @@ func (p *Puller) Pull(ctx context.Context, opts PullOptions) (*PullResult, error
 
 	p.cache = map[string]*smithy.Model{}
 	for i, rel := range rels {
-		if !rel.PublishedAt.After(since) {
+		if rel.PublishedAt.Before(since) || (!inclusive && rel.PublishedAt.Equal(since)) {
 			continue
 		}
 		if i == 0 {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("%s: no earlier release to compare with; skipped", rel.TagName))
 			continue
+		}
+		if !coveredUntil.IsZero() && !rel.PublishedAt.Before(coveredUntil) {
+			res.Warnings = append(res.Warnings, fmt.Sprintf(
+				"stopped before %s: the models clone wasn't fetched and its newest commit (%s) may predate this release's models; pull again with fetch enabled",
+				rel.TagName, coveredUntil.Format(time.RFC3339)))
+			break
 		}
 		recs, warn, err := p.pullRelease(ctx, rels[i-1], rel)
 		if err != nil {
@@ -182,24 +199,26 @@ func (p *Puller) Pull(ctx context.Context, opts PullOptions) (*PullResult, error
 	return res, nil
 }
 
-// since returns where the pull starts: the override, the checkpoint, or the source's start. Releases published after it
-// are pulled.
-func (p *Puller) since(ctx context.Context, override time.Time) (time.Time, error) {
+// since returns where the pull starts: the override, the checkpoint, or the source's start. It reports whether a
+// release published exactly at that time is included: yes for an override or start, no for the checkpoint, which is
+// the last release already pulled.
+func (p *Puller) since(ctx context.Context, override time.Time) (time.Time, bool, error) {
 	if !override.IsZero() {
-		return override, nil
+		return override, true, nil
 	}
 	v, err := p.Store.Meta(ctx, p.checkpointKey())
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, false, err
 	}
 	if v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			return time.Time{}, fmt.Errorf("invalid checkpoint %q: %w", v, err)
+			return time.Time{}, false, fmt.Errorf("invalid checkpoint %q: %w", v, err)
 		}
-		return t, nil
+		return t, false, nil
 	}
-	return config.ParseSince(p.Source.Start, time.Now())
+	t, err := config.ParseSince(p.Source.Start, time.Now())
+	return t, true, err
 }
 
 func (p *Puller) pullRelease(ctx context.Context, prev, rel github.Release) ([]items.Record, string, error) {
@@ -307,7 +326,11 @@ func (p *Puller) modelItem(ctx context.Context, ch ModelChange, base, head strin
 	d := smithy.Compare(oldM, newM)
 	it := &Item{Status: items.StatusNew, Diff: d, Service: Service{SDKID: newM.SDKID, Module: ModuleName(newM.SDKID)}}
 	if d.Empty() {
-		it.Status, it.SkipReason, it.Diff = items.StatusSkipped, SkipNoAPIChange, nil
+		it.Status, it.SkipReason = items.StatusSkipped, SkipNoAPIChange
+		// Keep retargeted members as evidence: they can carry constraint changes.
+		if len(d.RetargetedMembers) == 0 {
+			it.Diff = nil
+		}
 	}
 	return it, nil
 }
@@ -361,6 +384,7 @@ func (it *Item) Summary() string {
 	add(len(d.AddedMembers), "new members")
 	add(len(d.AddedEnumValues), "new enum values")
 	add(len(d.AddedShapes), "new shapes")
+	add(len(d.ChangedMembers)+len(d.ChangedEnumValues), "changed members")
 	add(len(d.RemovedOperations)+len(d.RemovedMembers)+len(d.RemovedEnumValues)+len(d.RemovedShapes), "removals")
 	return strings.Join(parts, ", ")
 }

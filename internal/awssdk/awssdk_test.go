@@ -136,6 +136,8 @@ func TestPull(t *testing.T) {
 		{day(2, 19).Add(30 * time.Minute), map[string]string{widget: model("Widget Ctl", "CreateWidget", "TagWidget", "UntagWidget")}},
 		// Day 3, after the day-2 release: belongs to day 3.
 		{day(3, 19), map[string]string{gadget: model("Gadget", "GetGadget", "PutGadget")}},
+		// Day 4's models, so the clone provably covers the day-3 release.
+		{day(4, 19), map[string]string{widget: model("Widget Ctl", "CreateWidget", "TagWidget", "UntagWidget", "ListWidgets")}},
 	})
 
 	rels := fakeReleases{
@@ -231,5 +233,116 @@ func TestPull(t *testing.T) {
 	}
 	if len(recs) != 2 {
 		t.Errorf("filtered pull stored %d items, want 2", len(recs))
+	}
+}
+
+// TestPullStaleClone checks that without a fetch, releases the clone may not cover aren't pulled, so their changes
+// aren't stored as "no change", and the checkpoint stays put until a pull with a current clone.
+func TestPullStaleClone(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	day := func(d, h int) time.Time { return time.Date(2026, 1, d, h, 0, 0, 0, time.UTC) }
+	widget := "models/widget/service/2020-01-01/widget-2020-01-01.json"
+	upstream := gitRepo(t, []commitSpec{
+		{day(1, 19), map[string]string{widget: model("Widget", "CreateWidget")}},
+		{day(2, 19), map[string]string{widget: model("Widget", "CreateWidget", "TagWidget")}},
+	})
+	// The local clone is a copy of upstream as it was on day 1.
+	stale := filepath.Join(t.TempDir(), "stale.git")
+	if out, err := exec.Command("git", "clone", "-q", "--bare", upstream, stale).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", stale, "update-ref", "refs/heads/main", "main~1").CombinedOutput(); err != nil {
+		t.Fatalf("rewind: %v: %s", err, out)
+	}
+
+	rels := fakeReleases{
+		{TagName: "release-2026-01-01", PublishedAt: day(1, 20)},
+		{TagName: "release-2026-01-02", PublishedAt: day(2, 20)},
+	}
+	st, err := items.Open(filepath.Join(t.TempDir(), "items.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	noFetch := false
+	src := &config.Source{Name: "sdk", Type: config.SourceAWSSDKGoV2, ModelsURL: upstream, ModelsBranch: "main", Fetch: &noFetch, Start: "2026-01-01"}
+	p := &Puller{Source: src, Models: &ModelsRepo{Dir: stale, URL: upstream, Branch: "main"}, Releases: rels, Store: st}
+
+	res, err := p.Pull(ctx, PullOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Releases != 0 || !strings.Contains(strings.Join(res.Warnings, "\n"), "stopped before release-2026-01-02") {
+		t.Errorf("stale pull = %+v", res)
+	}
+	if r, _ := st.Get(ctx, "sdk/widget/release-2026-01-02"); r != nil {
+		t.Errorf("stale pull stored %s", r.ID)
+	}
+	if v, _ := st.Meta(ctx, p.checkpointKey()); v != "" {
+		t.Errorf("stale pull moved the checkpoint to %s", v)
+	}
+
+	// With a fetch, the release is pulled and its new operation is found.
+	fetch := true
+	src.Fetch = &fetch
+	res, err = p.Pull(ctx, PullOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Releases != 1 {
+		t.Fatalf("fetched pull = %+v", res)
+	}
+	r, err := st.Get(ctx, "sdk/widget/release-2026-01-02")
+	if err != nil || r == nil || r.Status != items.StatusNew {
+		t.Errorf("fetched item = %+v, %v", r, err)
+	}
+}
+
+// TestPullSinceInclusive checks that an explicit --since includes a release published exactly then, while resuming
+// from the checkpoint doesn't repeat the last release.
+func TestPullSinceInclusive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	day := func(d, h int) time.Time { return time.Date(2026, 1, d, h, 0, 0, 0, time.UTC) }
+	widget := "models/widget/service/2020-01-01/widget-2020-01-01.json"
+	repo := gitRepo(t, []commitSpec{
+		{day(1, 19), map[string]string{widget: model("Widget", "CreateWidget")}},
+		{day(2, 19), map[string]string{widget: model("Widget", "CreateWidget", "TagWidget")}},
+		{day(3, 19), map[string]string{widget: model("Widget", "CreateWidget", "TagWidget", "UntagWidget")}},
+	})
+	rels := fakeReleases{
+		{TagName: "release-2026-01-01", PublishedAt: day(1, 20)},
+		{TagName: "release-2026-01-02", PublishedAt: day(2, 20)},
+	}
+	st, err := items.Open(filepath.Join(t.TempDir(), "items.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	noFetch := false
+	src := &config.Source{Name: "sdk", Type: config.SourceAWSSDKGoV2, ModelsBranch: "main", Fetch: &noFetch, Start: "2026-01-01"}
+	p := &Puller{Source: src, Models: &ModelsRepo{Dir: repo, Branch: "main"}, Releases: rels, Store: st}
+
+	res, err := p.Pull(ctx, PullOptions{Since: day(2, 20)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Releases != 1 || res.Latest != "release-2026-01-02" {
+		t.Errorf("--since at a release's publication time = %+v", res)
+	}
+
+	if _, err := p.Pull(ctx, PullOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	res, err = p.Pull(ctx, PullOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Releases != 0 {
+		t.Errorf("resume from checkpoint repeated a release: %+v", res)
 	}
 }
