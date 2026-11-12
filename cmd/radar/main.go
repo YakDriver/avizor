@@ -38,6 +38,7 @@ Usage:
   radar items [flags]                        List pulled items.
   radar inspect [flags] <item-id>            Show an item's evidence.
   radar draft [flags] <item-id>              Draft a new issue for an item.
+  radar queue [flags]                        List recent items that need a decision.
   radar version
 
 Common flags:
@@ -80,6 +81,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return cmdPull(ctx, args[1:], stdout, stderr)
 	case "items":
 		return cmdItems(ctx, args[1:], stdout, stderr)
+	case "queue":
+		return cmdQueue(ctx, args[1:], stdout, stderr)
 	case "draft":
 		return cmdDraft(ctx, args[1:], stdout, stderr)
 	case "inspect":
