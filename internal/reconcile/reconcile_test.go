@@ -59,7 +59,7 @@ func seed(t *testing.T) *index.Store {
 		}
 	}
 	// A comment on #43195 pastes the announcement.
-	if err := tx.ReplaceCommentSignals(ctx, 43195, 9, "AWS announced https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/"); err != nil {
+	if err := tx.ReplaceCommentSignals(ctx, 43195, 9, ts.Add(time.Hour), "AWS announced https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

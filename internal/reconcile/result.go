@@ -67,6 +67,8 @@ type TargetInfo struct {
 	Name        string `json:"name"`
 	Repo        string `json:"repo"`
 	IndexSynced string `json:"index_synced_at,omitempty"`
+	// AsOf is set when the index was viewed as of an earlier time.
+	AsOf        string `json:"as_of,omitempty"`
 	Issues      int    `json:"indexed_issues"`
 	PRs         int    `json:"indexed_prs"`
 	Checkout    string `json:"checkout,omitempty"`

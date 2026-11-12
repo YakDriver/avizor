@@ -54,7 +54,12 @@ type Reconciler struct {
 	Issues   IssueFetcher
 	HTTP     *http.Client
 	Options  Options
+	// AsOf, if set, reconciles against the index as it was at that time. See index.Store.AsOf. Code search reflects
+	// the checkout as it is now, so callers usually set Options.NoCode with it.
+	AsOf time.Time
 
+	// view is Store, or Store.AsOf(AsOf), for the current run.
+	view     *index.Store
 	warnings []string
 	rgPath   string
 }
@@ -66,6 +71,10 @@ func (r *Reconciler) warnf(format string, args ...any) {
 // Run reconciles arg (an issue number, issue URL, or other URL) or free text.
 func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error) {
 	r.warnings = nil
+	r.view = r.Store
+	if !r.AsOf.IsZero() {
+		r.view = r.Store.AsOf(r.AsOf)
+	}
 	relatedLimit := cmp.Or(r.Options.RelatedLimit, defaultRelatedLimit)
 	commonThreshold := cmp.Or(r.Options.CommonThreshold, defaultCommonThreshold)
 
@@ -121,7 +130,7 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 		default:
 			continue
 		}
-		count, err := r.Store.SignalCount(ctx, sg.Kind, sg.Value)
+		count, err := r.view.SignalCount(ctx, sg.Kind, sg.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +139,7 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 			markCommon(res.Evidence, sg)
 			continue
 		}
-		hits, err := r.Store.SignalHits(ctx, sg.Kind, sg.Value)
+		hits, err := r.view.SignalHits(ctx, sg.Kind, sg.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +156,7 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 
 	// Records that reference the input issue.
 	if in.info.Number != 0 {
-		hits, err := r.Store.SignalHits(ctx, signal.KindIssueRef, strconv.Itoa(in.info.Number))
+		hits, err := r.view.SignalHits(ctx, signal.KindIssueRef, strconv.Itoa(in.info.Number))
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +168,7 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 	}
 
 	// Full-text retrieval on keywords.
-	searchHits, err := r.Store.Search(ctx, res.Input.Keywords, searchLimit)
+	searchHits, err := r.view.Search(ctx, res.Input.Keywords, searchLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +189,7 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 			numbers = append(numbers, n)
 		}
 	}
-	records, err := r.Store.Issues(ctx, numbers)
+	records, err := r.view.Issues(ctx, numbers)
 	if err != nil {
 		return nil, err
 	}
@@ -279,6 +288,9 @@ func (r *Reconciler) fillTarget(ctx context.Context, t *TargetInfo) error {
 		return err
 	}
 	t.Issues, t.PRs = st.Issues, st.PRs
+	if !r.AsOf.IsZero() {
+		t.AsOf = r.AsOf.UTC().Format(time.RFC3339)
+	}
 	if t.Checkout != "" && !r.Options.NoCode {
 		t.CheckoutRef = checkoutRef(ctx, t.Checkout)
 	}

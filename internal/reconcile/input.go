@@ -105,7 +105,9 @@ func (r *Reconciler) resolveIssue(ctx context.Context, ref string, n int) (*inpu
 		signalText: is.Title + "\n" + is.Body,
 		focusText:  is.Title,
 	}
-	if in.indexed, err = r.Store.Signals(ctx, n); err != nil {
+	// The input is resolved from the full index so a case can be evaluated as of a time before it was filed, but its
+	// comment signals come from the point-in-time view.
+	if in.indexed, err = r.view.Signals(ctx, n); err != nil {
 		return nil, err
 	}
 	return in, nil

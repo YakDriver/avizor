@@ -29,7 +29,7 @@ const (
 	WhereComment = "comment"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS issues (
 	state        TEXT NOT NULL,
 	state_reason TEXT NOT NULL DEFAULT '',
 	merged       INTEGER NOT NULL DEFAULT 0,
+	merged_at    TEXT NOT NULL DEFAULT '',
 	title        TEXT NOT NULL,
 	body         TEXT NOT NULL,
 	labels       TEXT NOT NULL,
@@ -71,13 +72,15 @@ CREATE TRIGGER IF NOT EXISTS issues_au AFTER UPDATE OF title, body, labels ON is
 	INSERT INTO issues_fts(rowid, title, body, labels) VALUES (new.number, new.title, new.body, new.labels);
 END;
 
--- Exact-match anchors. comment_id is 0 for title and body signals.
+-- Exact-match anchors. comment_id is 0 for title and body signals. created_at is when the text containing the signal
+-- was first posted: the issue's creation time for titles and bodies, or the comment's. Edits aren't tracked.
 CREATE TABLE IF NOT EXISTS signals (
 	number     INTEGER NOT NULL,
 	kind       TEXT NOT NULL,
 	value      TEXT NOT NULL,
 	where_     TEXT NOT NULL,
-	comment_id INTEGER NOT NULL DEFAULT 0
+	comment_id INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS signals_kind_value ON signals(kind, value);
 CREATE INDEX IF NOT EXISTS signals_number ON signals(number);
@@ -91,6 +94,7 @@ type Issue struct {
 	State       string    `json:"state"`
 	StateReason string    `json:"state_reason,omitempty"`
 	Merged      bool      `json:"merged,omitempty"`
+	MergedAt    time.Time `json:"merged_at,omitzero"`
 	Title       string    `json:"title"`
 	Body        string    `json:"-"`
 	Labels      []string  `json:"labels"`
@@ -104,6 +108,40 @@ type Issue struct {
 // Store is an open index database.
 type Store struct {
 	db *sql.DB
+	// before, if set, limits queries to records and signals created at or before it. See AsOf.
+	before string
+}
+
+// AsOf returns a view of the store as it would have looked at t: issues created after t are hidden, signals from text
+// posted after t are ignored, and issues closed or merged after t are reported open or unmerged.
+//
+// Reconstruction is approximate. Titles, bodies, and labels are their current versions, and edits aren't tracked.
+func (s *Store) AsOf(t time.Time) *Store {
+	v := *s
+	v.before = formatTime(t)
+	return &v
+}
+
+// asOf returns the SQL fragment and arguments that filter column by the view's time, or "" if there is none.
+func (s *Store) asOf(column string) (string, []any) {
+	if s.before == "" {
+		return "", nil
+	}
+	return " AND " + column + " <= ?", []any{s.before}
+}
+
+// rewind reports an issue's state as of the view's time.
+func (s *Store) rewind(is *Issue) {
+	if s.before == "" {
+		return
+	}
+	t := parseTime(s.before)
+	if is.Merged && is.MergedAt.After(t) {
+		is.Merged, is.MergedAt = false, time.Time{}
+	}
+	if is.State == "closed" && is.ClosedAt.After(t) {
+		is.State, is.StateReason, is.ClosedAt = "open", "", time.Time{}
+	}
 }
 
 // Open opens or creates the index at path.
@@ -197,14 +235,15 @@ func (t *Tx) Rollback() {
 // UpsertIssue inserts or replaces an issue and its title and body signals.
 func (t *Tx) UpsertIssue(ctx context.Context, is *Issue, gen int64) error {
 	_, err := t.tx.ExecContext(ctx, `
-INSERT INTO issues(number, kind, state, state_reason, merged, title, body, labels, author, url, created_at, updated_at, closed_at, sync_gen)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO issues(number, kind, state, state_reason, merged, merged_at, title, body, labels, author, url, created_at, updated_at, closed_at, sync_gen)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(number) DO UPDATE SET
 	kind = excluded.kind, state = excluded.state, state_reason = excluded.state_reason, merged = excluded.merged,
+	merged_at = excluded.merged_at,
 	title = excluded.title, body = excluded.body, labels = excluded.labels, author = excluded.author, url = excluded.url,
 	created_at = excluded.created_at, updated_at = excluded.updated_at, closed_at = excluded.closed_at,
 	sync_gen = excluded.sync_gen`,
-		is.Number, is.Kind, is.State, is.StateReason, is.Merged, is.Title, is.Body, strings.Join(is.Labels, "\n"),
+		is.Number, is.Kind, is.State, is.StateReason, is.Merged, formatTime(is.MergedAt), is.Title, is.Body, strings.Join(is.Labels, "\n"),
 		is.Author, is.URL, formatTime(is.CreatedAt), formatTime(is.UpdatedAt), formatTime(is.ClosedAt), gen)
 	if err != nil {
 		return fmt.Errorf("upserting #%d: %w", is.Number, err)
@@ -213,28 +252,29 @@ ON CONFLICT(number) DO UPDATE SET
 	if _, err := t.tx.ExecContext(ctx, `DELETE FROM signals WHERE number = ? AND comment_id = 0`, is.Number); err != nil {
 		return fmt.Errorf("clearing signals for #%d: %w", is.Number, err)
 	}
-	if err := t.insertSignals(ctx, is.Number, 0, WhereTitle, signal.Extract(is.Title, t.repo)); err != nil {
+	created := formatTime(is.CreatedAt)
+	if err := t.insertSignals(ctx, is.Number, 0, WhereTitle, created, signal.Extract(is.Title, t.repo)); err != nil {
 		return err
 	}
-	return t.insertSignals(ctx, is.Number, 0, WhereBody, signal.Extract(is.Body, t.repo))
+	return t.insertSignals(ctx, is.Number, 0, WhereBody, created, signal.Extract(is.Body, t.repo))
 }
 
 // ReplaceCommentSignals replaces the signals extracted from one comment.
-func (t *Tx) ReplaceCommentSignals(ctx context.Context, number int, commentID int64, body string) error {
+func (t *Tx) ReplaceCommentSignals(ctx context.Context, number int, commentID int64, createdAt time.Time, body string) error {
 	if _, err := t.tx.ExecContext(ctx, `DELETE FROM signals WHERE comment_id = ?`, commentID); err != nil {
 		return fmt.Errorf("clearing signals for comment %d: %w", commentID, err)
 	}
-	return t.insertSignals(ctx, number, commentID, WhereComment, signal.Extract(body, t.repo))
+	return t.insertSignals(ctx, number, commentID, WhereComment, formatTime(createdAt), signal.Extract(body, t.repo))
 }
 
-func (t *Tx) insertSignals(ctx context.Context, number int, commentID int64, where string, sigs []signal.Signal) error {
+func (t *Tx) insertSignals(ctx context.Context, number int, commentID int64, where, created string, sigs []signal.Signal) error {
 	for _, sg := range sigs {
 		// Self-references (a PR body linking its own URL) carry no information.
 		if sg.Kind == signal.KindIssueRef && sg.Value == fmt.Sprint(number) {
 			continue
 		}
-		if _, err := t.tx.ExecContext(ctx, `INSERT INTO signals(number, kind, value, where_, comment_id) VALUES (?, ?, ?, ?, ?)`,
-			number, sg.Kind, sg.Value, where, commentID); err != nil {
+		if _, err := t.tx.ExecContext(ctx, `INSERT INTO signals(number, kind, value, where_, comment_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			number, sg.Kind, sg.Value, where, commentID, created); err != nil {
 			return fmt.Errorf("inserting signal for #%d: %w", number, err)
 		}
 	}
@@ -253,21 +293,22 @@ func (t *Tx) DeleteNotSeen(ctx context.Context, gen int64) (int64, error) {
 	return res.RowsAffected()
 }
 
-const issueColumns = `number, kind, state, state_reason, merged, title, body, labels, author, url, created_at, updated_at, closed_at`
+const issueColumns = `number, kind, state, state_reason, merged, merged_at, title, body, labels, author, url, created_at, updated_at, closed_at`
 
 func scanIssue(sc interface{ Scan(...any) error }) (*Issue, error) {
 	var (
-		is                       Issue
-		labels                   string
-		created, updated, closed string
+		is                               Issue
+		labels                           string
+		merged, created, updated, closed string
 	)
-	if err := sc.Scan(&is.Number, &is.Kind, &is.State, &is.StateReason, &is.Merged, &is.Title, &is.Body, &labels,
+	if err := sc.Scan(&is.Number, &is.Kind, &is.State, &is.StateReason, &is.Merged, &merged, &is.Title, &is.Body, &labels,
 		&is.Author, &is.URL, &created, &updated, &closed); err != nil {
 		return nil, err
 	}
 	if labels != "" {
 		is.Labels = strings.Split(labels, "\n")
 	}
+	is.MergedAt = parseTime(merged)
 	is.CreatedAt = parseTime(created)
 	is.UpdatedAt = parseTime(updated)
 	is.ClosedAt = parseTime(closed)
@@ -276,13 +317,15 @@ func scanIssue(sc interface{ Scan(...any) error }) (*Issue, error) {
 
 // Issue returns one issue, or nil if it isn't indexed.
 func (s *Store) Issue(ctx context.Context, number int) (*Issue, error) {
-	is, err := scanIssue(s.db.QueryRowContext(ctx, `SELECT `+issueColumns+` FROM issues WHERE number = ?`, number))
+	cond, args := s.asOf("created_at")
+	is, err := scanIssue(s.db.QueryRowContext(ctx, `SELECT `+issueColumns+` FROM issues WHERE number = ?`+cond, append([]any{number}, args...)...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading #%d: %w", number, err)
 	}
+	s.rewind(is)
 	return is, nil
 }
 
@@ -296,7 +339,8 @@ func (s *Store) Issues(ctx context.Context, numbers []int) (map[int]*Issue, erro
 	for i, n := range numbers {
 		args[i] = n
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+issueColumns+` FROM issues WHERE number IN (`+placeholders(len(numbers))+`)`, args...)
+	cond, cargs := s.asOf("created_at")
+	rows, err := s.db.QueryContext(ctx, `SELECT `+issueColumns+` FROM issues WHERE number IN (`+placeholders(len(numbers))+`)`+cond, append(args, cargs...)...)
 	if err != nil {
 		return nil, fmt.Errorf("reading issues: %w", err)
 	}
@@ -306,6 +350,7 @@ func (s *Store) Issues(ctx context.Context, numbers []int) (map[int]*Issue, erro
 		if err != nil {
 			return nil, fmt.Errorf("scanning issue: %w", err)
 		}
+		s.rewind(is)
 		out[is.Number] = is
 	}
 	return out, rows.Err()
@@ -322,7 +367,8 @@ type SignalHit struct {
 // SignalCount returns how many distinct issues contain the signal.
 func (s *Store) SignalCount(ctx context.Context, kind, value string) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT number) FROM signals WHERE kind = ? AND value = ?`, kind, value).Scan(&n)
+	cond, args := s.asOf("created_at")
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT number) FROM signals WHERE kind = ? AND value = ?`+cond, append([]any{kind, value}, args...)...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("counting signal %s:%s: %w", kind, value, err)
 	}
@@ -331,7 +377,8 @@ func (s *Store) SignalCount(ctx context.Context, kind, value string) (int, error
 
 // SignalHits returns the issues containing a signal, one row per distinct (number, where).
 func (s *Store) SignalHits(ctx context.Context, kind, value string) ([]SignalHit, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT number, where_ FROM signals WHERE kind = ? AND value = ? ORDER BY number`, kind, value)
+	cond, args := s.asOf("created_at")
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT number, where_ FROM signals WHERE kind = ? AND value = ?`+cond+` ORDER BY number`, append([]any{kind, value}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("finding signal %s:%s: %w", kind, value, err)
 	}
@@ -349,7 +396,8 @@ func (s *Store) SignalHits(ctx context.Context, kind, value string) ([]SignalHit
 
 // Signals returns all signals recorded for an issue, including comment signals.
 func (s *Store) Signals(ctx context.Context, number int) ([]SignalHit, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT kind, value, where_ FROM signals WHERE number = ? ORDER BY kind, value`, number)
+	cond, args := s.asOf("created_at")
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT kind, value, where_ FROM signals WHERE number = ?`+cond+` ORDER BY kind, value`, append([]any{number}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("reading signals for #%d: %w", number, err)
 	}
@@ -378,10 +426,12 @@ func (s *Store) Search(ctx context.Context, terms []string, limit int) ([]Search
 	if q == "" {
 		return nil, nil
 	}
+	cond, args := s.asOf("i.created_at")
 	rows, err := s.db.QueryContext(ctx, `
-SELECT rowid, bm25(issues_fts, 10.0, 1.0, 3.0) AS rank
-FROM issues_fts WHERE issues_fts MATCH ?
-ORDER BY rank LIMIT ?`, q, limit)
+SELECT issues_fts.rowid, bm25(issues_fts, 10.0, 1.0, 3.0) AS rank
+FROM issues_fts JOIN issues i ON i.number = issues_fts.rowid
+WHERE issues_fts MATCH ?`+cond+`
+ORDER BY rank LIMIT ?`, append(append([]any{q}, args...), limit)...)
 	if err != nil {
 		return nil, fmt.Errorf("searching %q: %w", q, err)
 	}

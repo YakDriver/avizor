@@ -136,7 +136,7 @@ func Run(ctx context.Context, gh *github.Client, st *index.Store, t *config.Targ
 				if err != nil {
 					return err
 				}
-				if err := tx.ReplaceCommentSignals(ctx, n, c.ID, c.Body); err != nil {
+				if err := tx.ReplaceCommentSignals(ctx, n, c.ID, c.CreatedAt, c.Body); err != nil {
 					return err
 				}
 				latest = maxTime(latest, c.UpdatedAt)
@@ -230,7 +230,10 @@ func Convert(g *github.Issue) *index.Issue {
 	}
 	if g.PullRequest != nil {
 		is.Kind = index.KindPR
-		is.Merged = g.PullRequest.MergedAt != nil
+		if g.PullRequest.MergedAt != nil {
+			is.Merged = true
+			is.MergedAt = *g.PullRequest.MergedAt
+		}
 	}
 	for _, l := range g.Labels {
 		is.Labels = append(is.Labels, l.Name)
