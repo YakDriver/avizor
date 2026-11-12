@@ -10,6 +10,17 @@
 #   related            Trackers whose "Relates" link is a similar but different feature.
 #   new                Headlines reconciled a minute before their tracker was filed, when nothing tracked them yet.
 #   no-work            SDK release notes that need no provider work.
+#   item-tracked       Pulled SDK items whose release commit a maintainer tracker (or PR) with the item's service label
+#                      cites, reconciled 30 minutes after the later of the release and the last such tracker. Every
+#                      such item in releases from 2025-12-01 to 2026-11-11, except ec2/release-2026-09-04, which only
+#                      the bump PR cites. Radar matches on the same release commit, so these mostly measure precision
+#                      on the other candidates, not retrieval.
+#   item-new           The same items reconciled a minute before their first tracker was filed, when it was filed
+#                      after the release.
+#
+#   item-no-work       Pulled SDK items that need no provider work.
+#
+# Item cases need pulled items: run `radar pull --since 2025-11-30` first.
 #
 # same and different judge other candidates Radar returns with a confident category (anything above "related"): same
 # is the same work as the input, such as a second duplicate or the implementing PR; different is not. Judgments come
@@ -594,4 +605,726 @@ case "dev-text-fsx" {
     number   = 45362
     category = "related"
   }
+}
+
+# --- item-tracked and item-new
+
+case "item-tracked-acm-2026-06-30" {
+  item  = "aws-sdk-go-v2/acm/release-2026-06-30"
+  as_of = "2026-07-01T16:43:19Z"
+  kind  = "item-tracked"
+  note  = "ACM release-2026-06-30: #48727 cite the release commit"
+  expect {
+    number   = 48727
+    category = "already_tracked"
+  }
+}
+
+case "item-new-acm-2026-06-30" {
+  item      = "aws-sdk-go-v2/acm/release-2026-06-30"
+  as_of     = "2026-07-01T16:12:19Z"
+  kind      = "item-new"
+  note      = "tracker #48727 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-agentregistrycontrol-2026-08-06" {
+  item  = "aws-sdk-go-v2/agentregistrycontrol/release-2026-08-06"
+  as_of = "2026-08-06T19:32:15Z"
+  kind  = "item-tracked"
+  note  = "Agent Registry Control release-2026-08-06: #48694 cite the release commit"
+  expect {
+    number   = 48694
+    category = "already_tracked"
+  }
+  different = [48693]
+}
+
+case "item-tracked-bedrockagentcorecontrol-2026-08-06" {
+  item  = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-08-06"
+  as_of = "2026-08-07T16:05:46Z"
+  kind  = "item-tracked"
+  note  = "Bedrock AgentCore Control release-2026-08-06: #48694, #49352 cite the release commit"
+  expect {
+    number   = 48694
+    category = "already_tracked"
+  }
+  expect {
+    number   = 49352
+    category = "already_tracked"
+  }
+  same      = [49344]
+  different = [48693]
+}
+
+case "item-tracked-cloudformation-2026-06-30" {
+  item  = "aws-sdk-go-v2/cloudformation/release-2026-06-30"
+  as_of = "2026-07-01T16:48:40Z"
+  kind  = "item-tracked"
+  note  = "CloudFormation release-2026-06-30: #48728 cite the release commit"
+  expect {
+    number   = 48728
+    category = "already_tracked"
+  }
+}
+
+case "item-new-cloudformation-2026-06-30" {
+  item      = "aws-sdk-go-v2/cloudformation/release-2026-06-30"
+  as_of     = "2026-07-01T16:17:40Z"
+  kind      = "item-new"
+  note      = "tracker #48728 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-cloudwatchlogs-2026-06-22" {
+  item  = "aws-sdk-go-v2/cloudwatchlogs/release-2026-06-22"
+  as_of = "2026-06-24T14:03:32Z"
+  kind  = "item-tracked"
+  note  = "CloudWatch Logs release-2026-06-22: #48547 cite the release commit"
+  expect {
+    number   = 48547
+    category = "already_tracked"
+  }
+}
+
+case "item-new-cloudwatchlogs-2026-06-22" {
+  item      = "aws-sdk-go-v2/cloudwatchlogs/release-2026-06-22"
+  as_of     = "2026-06-24T13:32:32Z"
+  kind      = "item-new"
+  note      = "tracker #48547 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-dynamodb-2026-08-04" {
+  item  = "aws-sdk-go-v2/dynamodb/release-2026-08-04"
+  as_of = "2026-08-07T15:52:22Z"
+  kind  = "item-tracked"
+  note  = "DynamoDB release-2026-08-04: #49350 cite the release commit"
+  expect {
+    number   = 49350
+    category = "already_tracked"
+  }
+}
+
+case "item-new-dynamodb-2026-08-04" {
+  item      = "aws-sdk-go-v2/dynamodb/release-2026-08-04"
+  as_of     = "2026-08-07T15:21:22Z"
+  kind      = "item-new"
+  note      = "tracker #49350 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-ec2-2025-12-18" {
+  item  = "aws-sdk-go-v2/ec2/release-2025-12-18"
+  as_of = "2025-12-19T14:03:58Z"
+  kind  = "item-tracked"
+  note  = "EC2 release-2025-12-18: #45665 cite the release commit"
+  expect {
+    number   = 45665
+    category = "already_tracked"
+  }
+}
+
+case "item-new-ec2-2025-12-18" {
+  item      = "aws-sdk-go-v2/ec2/release-2025-12-18"
+  as_of     = "2025-12-19T13:32:58Z"
+  kind      = "item-new"
+  note      = "tracker #45665 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-ec2-2026-02-12" {
+  item  = "aws-sdk-go-v2/ec2/release-2026-02-12"
+  as_of = "2026-02-18T03:20:52Z"
+  kind  = "item-tracked"
+  note  = "EC2 release-2026-02-12: #46533 cite the release commit"
+  expect {
+    number   = 46533
+    category = "already_tracked"
+  }
+}
+
+case "item-new-ec2-2026-02-12" {
+  item      = "aws-sdk-go-v2/ec2/release-2026-02-12"
+  as_of     = "2026-02-18T02:49:52Z"
+  kind      = "item-new"
+  note      = "tracker #46533 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-ec2-2026-04-22" {
+  item  = "aws-sdk-go-v2/ec2/release-2026-04-22"
+  as_of = "2026-04-23T18:29:47Z"
+  kind  = "item-tracked"
+  note  = "EC2 release-2026-04-22: #47609 cite the release commit"
+  expect {
+    number   = 47609
+    category = "already_tracked"
+  }
+}
+
+case "item-new-ec2-2026-04-22" {
+  item      = "aws-sdk-go-v2/ec2/release-2026-04-22"
+  as_of     = "2026-04-23T17:58:47Z"
+  kind      = "item-new"
+  note      = "tracker #47609 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-ecs-2026-04-01" {
+  item  = "aws-sdk-go-v2/ecs/release-2026-04-01"
+  as_of = "2026-04-02T12:36:04Z"
+  kind  = "item-tracked"
+  note  = "ECS release-2026-04-01: #47200 cite the release commit"
+  expect {
+    number   = 47200
+    category = "already_tracked"
+  }
+}
+
+case "item-new-ecs-2026-04-01" {
+  item      = "aws-sdk-go-v2/ecs/release-2026-04-01"
+  as_of     = "2026-04-02T12:05:04Z"
+  kind      = "item-new"
+  note      = "tracker #47200 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-eks-2025-12-01" {
+  item  = "aws-sdk-go-v2/eks/release-2025-12-01"
+  as_of = "2025-12-01T07:21:34Z"
+  kind  = "item-tracked"
+  note  = "EKS release-2025-12-01: #45324 cite the release commit"
+  expect {
+    number   = 45324
+    category = "already_tracked"
+  }
+  same = [45326]
+}
+
+case "item-new-eks-2025-12-01" {
+  item      = "aws-sdk-go-v2/eks/release-2025-12-01"
+  as_of     = "2025-12-01T06:50:34Z"
+  kind      = "item-new"
+  note      = "tracker #45324 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-eks-2026-04-07" {
+  item  = "aws-sdk-go-v2/eks/release-2026-04-07"
+  as_of = "2026-04-09T21:15:30Z"
+  kind  = "item-tracked"
+  note  = "EKS release-2026-04-07: #47389 cite the release commit"
+  expect {
+    number   = 47389
+    category = "already_tracked"
+  }
+}
+
+case "item-new-eks-2026-04-07" {
+  item      = "aws-sdk-go-v2/eks/release-2026-04-07"
+  as_of     = "2026-04-09T20:44:30Z"
+  kind      = "item-new"
+  note      = "tracker #47389 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-eks-2026-06-18" {
+  item  = "aws-sdk-go-v2/eks/release-2026-06-18"
+  as_of = "2026-06-20T12:35:01Z"
+  kind  = "item-tracked"
+  note  = "EKS release-2026-06-18: #48470, #48497 cite the release commit"
+  expect {
+    number   = 48470
+    category = "already_tracked"
+  }
+  expect {
+    number   = 48497
+    category = "already_tracked"
+  }
+}
+
+case "item-new-eks-2026-06-18" {
+  item      = "aws-sdk-go-v2/eks/release-2026-06-18"
+  as_of     = "2026-06-19T00:00:07Z"
+  kind      = "item-new"
+  note      = "tracker #48470 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-eks-2026-06-30" {
+  item  = "aws-sdk-go-v2/eks/release-2026-06-30"
+  as_of = "2026-07-02T14:17:44Z"
+  kind  = "item-tracked"
+  note  = "EKS release-2026-06-30: #48751 cite the release commit"
+  expect {
+    number   = 48751
+    category = "already_tracked"
+  }
+}
+
+case "item-new-eks-2026-06-30" {
+  item      = "aws-sdk-go-v2/eks/release-2026-06-30"
+  as_of     = "2026-07-02T13:46:44Z"
+  kind      = "item-new"
+  note      = "tracker #48751 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-fsx-2025-12-02" {
+  item  = "aws-sdk-go-v2/fsx/release-2025-12-02"
+  as_of = "2025-12-02T20:13:26Z"
+  kind  = "item-tracked"
+  note  = "FSx release-2025-12-02: #45362 cite the release commit"
+  expect {
+    number   = 45362
+    category = "already_tracked"
+  }
+}
+
+case "item-new-fsx-2025-12-02" {
+  item      = "aws-sdk-go-v2/fsx/release-2025-12-02"
+  as_of     = "2025-12-02T19:42:26Z"
+  kind      = "item-new"
+  note      = "tracker #45362 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-grafana-2026-02-17" {
+  item  = "aws-sdk-go-v2/grafana/release-2026-02-17"
+  as_of = "2026-02-19T14:07:45Z"
+  kind  = "item-tracked"
+  note  = "grafana release-2026-02-17: #46559 cite the release commit"
+  expect {
+    number   = 46559
+    category = "already_tracked"
+  }
+}
+
+case "item-new-grafana-2026-02-17" {
+  item      = "aws-sdk-go-v2/grafana/release-2026-02-17"
+  as_of     = "2026-02-19T13:36:45Z"
+  kind      = "item-new"
+  note      = "tracker #46559 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-kinesis-2026-08-31" {
+  item  = "aws-sdk-go-v2/kinesis/release-2026-08-31"
+  as_of = "2026-09-02T13:36:11Z"
+  kind  = "item-tracked"
+  note  = "Kinesis release-2026-08-31: #49792 cite the release commit"
+  expect {
+    number   = 49792
+    category = "already_tracked"
+  }
+}
+
+case "item-new-kinesis-2026-08-31" {
+  item      = "aws-sdk-go-v2/kinesis/release-2026-08-31"
+  as_of     = "2026-09-02T13:05:11Z"
+  kind      = "item-new"
+  note      = "tracker #49792 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-kms-2026-04-27" {
+  item  = "aws-sdk-go-v2/kms/release-2026-04-27"
+  as_of = "2026-04-28T17:08:25Z"
+  kind  = "item-tracked"
+  note  = "KMS release-2026-04-27: #47671 cite the release commit"
+  expect {
+    number   = 47671
+    category = "already_tracked"
+  }
+}
+
+case "item-new-kms-2026-04-27" {
+  item      = "aws-sdk-go-v2/kms/release-2026-04-27"
+  as_of     = "2026-04-28T16:37:25Z"
+  kind      = "item-new"
+  note      = "tracker #47671 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-lambda-2025-12-01" {
+  item  = "aws-sdk-go-v2/lambda/release-2025-12-01"
+  as_of = "2025-12-01T13:34:01Z"
+  kind  = "item-tracked"
+  note  = "Lambda release-2025-12-01: #45332 cite the release commit"
+  expect {
+    number   = 45332
+    category = "already_tracked"
+  }
+}
+
+case "item-new-lambda-2025-12-01" {
+  item      = "aws-sdk-go-v2/lambda/release-2025-12-01"
+  as_of     = "2025-12-01T13:03:01Z"
+  kind      = "item-new"
+  note      = "tracker #45332 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-lambda-2025-12-02" {
+  item  = "aws-sdk-go-v2/lambda/release-2025-12-02"
+  as_of = "2025-12-02T17:04:38Z"
+  kind  = "item-tracked"
+  note  = "Lambda release-2025-12-02: #45354 cite the release commit"
+  expect {
+    number   = 45354
+    category = "already_tracked"
+  }
+}
+
+case "item-tracked-lambdacore-2026-06-22" {
+  item  = "aws-sdk-go-v2/lambdacore/release-2026-06-22"
+  as_of = "2026-06-23T13:58:51Z"
+  kind  = "item-tracked"
+  note  = "Lambda Core release-2026-06-22: #48526 cite the release commit"
+  expect {
+    number   = 48526
+    category = "already_tracked"
+  }
+}
+
+case "item-new-lambdacore-2026-06-22" {
+  item      = "aws-sdk-go-v2/lambdacore/release-2026-06-22"
+  as_of     = "2026-06-23T13:27:51Z"
+  kind      = "item-new"
+  note      = "tracker #48526 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-lambdamicrovms-2026-06-22" {
+  item  = "aws-sdk-go-v2/lambdamicrovms/release-2026-06-22"
+  as_of = "2026-06-23T13:58:51Z"
+  kind  = "item-tracked"
+  note  = "Lambda Microvms release-2026-06-22: #48526 cite the release commit"
+  expect {
+    number   = 48526
+    category = "already_tracked"
+  }
+}
+
+case "item-new-lambdamicrovms-2026-06-22" {
+  item      = "aws-sdk-go-v2/lambdamicrovms/release-2026-06-22"
+  as_of     = "2026-06-23T13:27:51Z"
+  kind      = "item-new"
+  note      = "tracker #48526 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-lambdaweb-2026-10-12" {
+  item  = "aws-sdk-go-v2/lambdaweb/release-2026-10-12"
+  as_of = "2026-10-13T01:48:51Z"
+  kind  = "item-tracked"
+  note  = "Lambda Web release-2026-10-12: #50429 cite the release commit"
+  expect {
+    number   = 50429
+    category = "already_tracked"
+  }
+  same = [50341]
+}
+
+case "item-new-lambdaweb-2026-10-12" {
+  item      = "aws-sdk-go-v2/lambdaweb/release-2026-10-12"
+  as_of     = "2026-10-13T01:17:51Z"
+  kind      = "item-new"
+  note      = "tracker #50429 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-mq-2026-06-17" {
+  item  = "aws-sdk-go-v2/mq/release-2026-06-17"
+  as_of = "2026-06-19T14:09:53Z"
+  kind  = "item-tracked"
+  note  = "mq release-2026-06-17: #48487 cite the release commit"
+  expect {
+    number   = 48487
+    category = "already_tracked"
+  }
+}
+
+case "item-new-mq-2026-06-17" {
+  item      = "aws-sdk-go-v2/mq/release-2026-06-17"
+  as_of     = "2026-06-19T13:38:53Z"
+  kind      = "item-new"
+  note      = "tracker #48487 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-mq-2026-07-14" {
+  item  = "aws-sdk-go-v2/mq/release-2026-07-14"
+  as_of = "2026-07-17T19:06:10Z"
+  kind  = "item-tracked"
+  note  = "mq release-2026-07-14: #49008 cite the release commit"
+  expect {
+    number   = 49008
+    category = "already_tracked"
+  }
+  same = [49010]
+}
+
+case "item-new-mq-2026-07-14" {
+  item      = "aws-sdk-go-v2/mq/release-2026-07-14"
+  as_of     = "2026-07-17T18:35:10Z"
+  kind      = "item-new"
+  note      = "tracker #49008 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-networkmanager-2026-10-22" {
+  item  = "aws-sdk-go-v2/networkmanager/release-2026-10-22"
+  as_of = "2026-10-23T18:05:51Z"
+  kind  = "item-tracked"
+  note  = "NetworkManager release-2026-10-22: #50613 cite the release commit"
+  expect {
+    number   = 50613
+    category = "already_tracked"
+  }
+}
+
+case "item-new-networkmanager-2026-10-22" {
+  item      = "aws-sdk-go-v2/networkmanager/release-2026-10-22"
+  as_of     = "2026-10-23T17:34:51Z"
+  kind      = "item-new"
+  note      = "tracker #50613 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-odb-2026-08-12" {
+  item  = "aws-sdk-go-v2/odb/release-2026-08-12"
+  as_of = "2026-08-13T14:02:35Z"
+  kind  = "item-tracked"
+  note  = "odb release-2026-08-12: #49464 cite the release commit"
+  expect {
+    number   = 49464
+    category = "already_tracked"
+  }
+}
+
+case "item-new-odb-2026-08-12" {
+  item      = "aws-sdk-go-v2/odb/release-2026-08-12"
+  as_of     = "2026-08-13T13:31:35Z"
+  kind      = "item-new"
+  note      = "tracker #49464 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-opensearch-2026-07-01" {
+  item  = "aws-sdk-go-v2/opensearch/release-2026-07-01"
+  as_of = "2026-07-02T14:12:32Z"
+  kind  = "item-tracked"
+  note  = "OpenSearch release-2026-07-01: #48750 cite the release commit"
+  expect {
+    number   = 48750
+    category = "already_tracked"
+  }
+}
+
+case "item-new-opensearch-2026-07-01" {
+  item      = "aws-sdk-go-v2/opensearch/release-2026-07-01"
+  as_of     = "2026-07-02T13:41:32Z"
+  kind      = "item-new"
+  note      = "tracker #48750 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-rds-2026-03-24" {
+  item  = "aws-sdk-go-v2/rds/release-2026-03-24"
+  as_of = "2026-03-26T12:40:08Z"
+  kind  = "item-tracked"
+  note  = "RDS release-2026-03-24: #47117 cite the release commit"
+  expect {
+    number   = 47117
+    category = "already_tracked"
+  }
+}
+
+case "item-new-rds-2026-03-24" {
+  item      = "aws-sdk-go-v2/rds/release-2026-03-24"
+  as_of     = "2026-03-26T12:09:08Z"
+  kind      = "item-new"
+  note      = "tracker #47117 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-resiliencehubv2-2026-05-28" {
+  item  = "aws-sdk-go-v2/resiliencehubv2/release-2026-05-28"
+  as_of = "2026-05-29T14:37:02Z"
+  kind  = "item-tracked"
+  note  = "resiliencehubv2 release-2026-05-28: #48122 cite the release commit"
+  expect {
+    number   = 48122
+    category = "already_tracked"
+  }
+}
+
+case "item-new-resiliencehubv2-2026-05-28" {
+  item      = "aws-sdk-go-v2/resiliencehubv2/release-2026-05-28"
+  as_of     = "2026-05-29T14:06:02Z"
+  kind      = "item-new"
+  note      = "tracker #48122 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-s3-2026-03-12" {
+  item  = "aws-sdk-go-v2/s3/release-2026-03-12"
+  as_of = "2026-03-12T20:26:12Z"
+  kind  = "item-tracked"
+  note  = "S3 release-2026-03-12: #46902 cite the release commit"
+  expect {
+    number   = 46902
+    category = "already_tracked"
+  }
+}
+
+case "item-new-s3-2026-03-12" {
+  item      = "aws-sdk-go-v2/s3/release-2026-03-12"
+  as_of     = "2026-03-12T19:55:12Z"
+  kind      = "item-new"
+  note      = "tracker #46902 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-s3-2026-04-22" {
+  item  = "aws-sdk-go-v2/s3/release-2026-04-22"
+  as_of = "2026-04-23T18:36:08Z"
+  kind  = "item-tracked"
+  note  = "S3 release-2026-04-22: #47610 cite the release commit"
+  expect {
+    number   = 47610
+    category = "already_tracked"
+  }
+}
+
+case "item-new-s3-2026-04-22" {
+  item      = "aws-sdk-go-v2/s3/release-2026-04-22"
+  as_of     = "2026-04-23T18:05:08Z"
+  kind      = "item-new"
+  note      = "tracker #47610 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-s3-2026-06-16" {
+  item  = "aws-sdk-go-v2/s3/release-2026-06-16"
+  as_of = "2026-06-17T17:06:21Z"
+  kind  = "item-tracked"
+  note  = "S3 release-2026-06-16: #48444 cite the release commit"
+  expect {
+    number   = 48444
+    category = "already_tracked"
+  }
+}
+
+case "item-new-s3-2026-06-16" {
+  item      = "aws-sdk-go-v2/s3/release-2026-06-16"
+  as_of     = "2026-06-17T16:35:21Z"
+  kind      = "item-new"
+  note      = "tracker #48444 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-s3-2026-08-06" {
+  item  = "aws-sdk-go-v2/s3/release-2026-08-06"
+  as_of = "2026-08-07T15:58:51Z"
+  kind  = "item-tracked"
+  note  = "S3 release-2026-08-06: #49351 cite the release commit"
+  expect {
+    number   = 49351
+    category = "already_tracked"
+  }
+}
+
+case "item-new-s3-2026-08-06" {
+  item      = "aws-sdk-go-v2/s3/release-2026-08-06"
+  as_of     = "2026-08-07T15:27:51Z"
+  kind      = "item-new"
+  note      = "tracker #49351 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-s3-2026-09-08" {
+  item  = "aws-sdk-go-v2/s3/release-2026-09-08"
+  as_of = "2026-09-09T12:27:55Z"
+  kind  = "item-tracked"
+  note  = "S3 release-2026-09-08: #49909 cite the release commit"
+  expect {
+    number   = 49909
+    category = "already_tracked"
+  }
+}
+
+case "item-new-s3-2026-09-08" {
+  item      = "aws-sdk-go-v2/s3/release-2026-09-08"
+  as_of     = "2026-09-09T11:56:55Z"
+  kind      = "item-new"
+  note      = "tracker #49909 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-s3control-2025-12-02" {
+  item  = "aws-sdk-go-v2/s3control/release-2025-12-02"
+  as_of = "2025-12-02T20:13:26Z"
+  kind  = "item-tracked"
+  note  = "S3 Control release-2025-12-02: #45362 cite the release commit"
+  expect {
+    number   = 45362
+    category = "already_tracked"
+  }
+}
+
+case "item-new-s3control-2025-12-02" {
+  item      = "aws-sdk-go-v2/s3control/release-2025-12-02"
+  as_of     = "2025-12-02T19:42:26Z"
+  kind      = "item-new"
+  note      = "tracker #45362 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-s3control-2026-09-08" {
+  item  = "aws-sdk-go-v2/s3control/release-2026-09-08"
+  as_of = "2026-09-09T12:27:55Z"
+  kind  = "item-tracked"
+  note  = "S3 Control release-2026-09-08: #49909 cite the release commit"
+  expect {
+    number   = 49909
+    category = "already_tracked"
+  }
+}
+
+case "item-new-s3control-2026-09-08" {
+  item      = "aws-sdk-go-v2/s3control/release-2026-09-08"
+  as_of     = "2026-09-09T11:56:55Z"
+  kind      = "item-new"
+  note      = "tracker #49909 filed a minute later"
+  unmatched = true
+}
+
+case "item-tracked-s3tables-2025-12-02" {
+  item  = "aws-sdk-go-v2/s3tables/release-2025-12-02"
+  as_of = "2025-12-02T19:49:01Z"
+  kind  = "item-tracked"
+  note  = "S3Tables release-2025-12-02: #45353, #45361 cite the release commit"
+  expect {
+    number   = 45353
+    category = "already_tracked"
+  }
+  expect {
+    number   = 45361
+    category = "already_tracked"
+  }
+  same = [45360]
+}
+
+# --- item-no-work
+
+case "item-nowork-ec2-2026-09-04" {
+  item      = "aws-sdk-go-v2/ec2/release-2026-09-04"
+  as_of     = "2026-09-10"
+  kind      = "item-no-work"
+  note      = "ValidateSecurityGroupQuotasForInterface is for AWS services only; the bump PR #49854 cites the release commit and has the ec2 label"
+  unmatched = true
+  different = [49854]
 }

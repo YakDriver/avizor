@@ -25,9 +25,11 @@ type Corpus struct {
 // Case is one labeled reconciliation.
 type Case struct {
 	Name string `hcl:"name,label"`
-	// Input is an issue number or URL, as given to `radar candidates`. Exactly one of Input and Text is set.
+	// Input is an issue number or URL, as given to `radar candidates`. Item is a pulled item ID. Exactly one of Input,
+	// Text, and Item is set.
 	Input string `hcl:"input,optional"`
 	Text  string `hcl:"text,optional"`
+	Item  string `hcl:"item,optional"`
 	// AsOf reconciles against the index as it was at a time, so later activity, such as the answer itself being filed,
 	// doesn't leak into the result. It is RFC 3339, YYYY-MM-DD (end of that day), "filed" (when the input issue was
 	// created), or "now". The default is "filed" for issue inputs and "now" otherwise.
@@ -116,8 +118,8 @@ func (cs *Case) validate() error {
 	if !nameRE.MatchString(cs.Name) {
 		return errors.New("name must be lowercase letters, digits, and dashes")
 	}
-	if (cs.Input == "") == (cs.Text == "") {
-		return errors.New("set exactly one of input and text")
+	if n := btoi(cs.Input != "") + btoi(cs.Text != "") + btoi(cs.Item != ""); n != 1 {
+		return errors.New("set exactly one of input, text, and item")
 	}
 	switch cs.AsOf {
 	case "", AsOfFiled, AsOfNow:
@@ -223,6 +225,13 @@ func (c *Corpus) Bind(repo string) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // AsOfTime returns the parsed as_of time. It is zero for "now" and "filed"; the runner resolves "filed".

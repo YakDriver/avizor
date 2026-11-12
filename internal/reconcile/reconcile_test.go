@@ -554,6 +554,17 @@ func TestRunItem(t *testing.T) {
 		t.Errorf("inferences = %+v", res.Inferences)
 	}
 
+	// The bump PR is only related, even with the label and release commit.
+	r2 := reconciler(t, st, "")
+	bump := &Item{ID: "sdk/fsx/release-1", Title: "FSx", Package: "fsx", ReleaseCommitURL: "https://github.com/aws/aws-sdk-go-v2/commit/abc123", BumpPR: 45400, NewOperations: []string{"CreateAndAttachS3AccessPoint"}, Request: RequestNewType}
+	res, err = r2.RunItem(ctx, bump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res.Candidates, 45400, ""); c.Category != CategoryRelated || !hasSignal(c, matchBump, "brings in the SDK version; doesn't implement the change") {
+		t.Errorf("bump PR #45400 = %s %+v, want related", c.Category, c.Signals)
+	}
+
 	// A new operation is strong only with the item's service label.
 	item := &Item{ID: "sdk/x/release-1", Title: "X", NewOperations: []string{"DetachAndDeleteS3AccessPoint"}, Request: RequestNewType}
 	for pkg, want := range map[string]string{"fsx": CategoryConsidered, "s3control": CategoryRelated, "": CategoryRelated} {

@@ -2,6 +2,7 @@ package eval
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -17,9 +18,16 @@ var Ks = []int{1, 3, 5}
 // passK is the cutoff a case's expected candidates must fall within to pass.
 const passK = 5
 
+// ItemSource resolves an item ID to the item to reconcile.
+type ItemSource interface {
+	Item(ctx context.Context, id string) (*reconcile.Item, error)
+}
+
 // Runner evaluates cases with a reconciler. Each case runs on a copy of Base with AsOf and NoCode set from the case.
 type Runner struct {
 	Base *reconcile.Reconciler
+	// Items resolves item cases. Without it, they're errors.
+	Items ItemSource
 }
 
 // CaseResult is the outcome of one case.
@@ -149,6 +157,9 @@ func (r *Runner) runCase(ctx context.Context, cs *Case) CaseResult {
 	if cs.Text != "" {
 		cr.Input = "text: " + cs.Text
 	}
+	if cs.Item != "" {
+		cr.Input = "item: " + cs.Item
+	}
 	fail := func(err error) CaseResult {
 		cr.Error = err.Error()
 		cr.Failures = append(cr.Failures, "error: "+cr.Error)
@@ -173,8 +184,21 @@ func (r *Runner) runCase(ctx context.Context, cs *Case) CaseResult {
 		cr.AsOf = rc.AsOf.UTC().Format(time.RFC3339)
 	}
 
-	res, err := rc.Run(ctx, cs.Input, cs.Text)
-	if err != nil {
+	var res *reconcile.Result
+	var err error
+	if cs.Item != "" {
+		if r.Items == nil {
+			return fail(errors.New("no item source: item cases need pulled items"))
+		}
+		it, err := r.Items.Item(ctx, cs.Item)
+		if err != nil {
+			return fail(err)
+		}
+		res, err = rc.RunItem(ctx, it)
+		if err != nil {
+			return fail(err)
+		}
+	} else if res, err = rc.Run(ctx, cs.Input, cs.Text); err != nil {
 		return fail(err)
 	}
 	score(cs, res, &cr)

@@ -300,6 +300,15 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 	if out, err = r.followReferences(ctx, out, commonThreshold); err != nil {
 		return nil, err
 	}
+	// After following references, which can add a strong match to the bump PR.
+	if in.item != nil && in.item.BumpPR != 0 {
+		for i := range out {
+			if out[i].Number == in.item.BumpPR && out[i].Kind == KindPR {
+				demoteBump(&out[i])
+				out[i].Category = CategoryRelated
+			}
+		}
+	}
 
 	if !r.Options.NoCode && in.item != nil {
 		// Only new operations: code calling an operation the change merely touches is the existing feature, not this one.

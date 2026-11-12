@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/YakDriver/radar"
+	"github.com/YakDriver/radar/internal/config"
+	"github.com/YakDriver/radar/internal/enrich"
 	"github.com/YakDriver/radar/internal/eval"
 	"github.com/YakDriver/radar/internal/reconcile"
 )
@@ -61,7 +63,7 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if *fetch {
 		base.HTTP = defaultHTTP()
 	}
-	rep, err := (&eval.Runner{Base: base}).Run(ctx, corpus, name)
+	rep, err := (&eval.Runner{Base: base, Items: evalItems{c: &c, t: t, stderr: stderr}}).Run(ctx, corpus, name)
 	if err != nil {
 		return err
 	}
@@ -161,4 +163,19 @@ func pct(v float64, n int) string {
 
 func shortCategory(c string) string {
 	return strings.TrimPrefix(strings.TrimPrefix(c, "already_"), "previously_")
+}
+
+// evalItems resolves item cases from pulled items, enriched for the target without searching code.
+type evalItems struct {
+	c      *common
+	t      *config.Target
+	stderr io.Writer
+}
+
+func (e evalItems) Item(ctx context.Context, id string) (*reconcile.Item, error) {
+	it, en, err := e.c.enrichedItem(ctx, e.t, id, true, e.stderr)
+	if err != nil {
+		return nil, err
+	}
+	return enrich.ReconcileItem(it, en), nil
 }

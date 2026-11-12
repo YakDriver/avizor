@@ -34,6 +34,9 @@ func ReconcileItem(it *awssdk.Item, res *Result) *reconcile.Item {
 	if res != nil && res.Service.Status == ServiceImplemented {
 		ri.Package = res.Service.Package
 	}
+	if res != nil && res.Availability != nil && res.Availability.Bump != nil {
+		ri.BumpPR = res.Availability.Bump.PR
+	}
 	if it.Diff != nil {
 		ri.NewOperations = slices.Clone(it.Diff.AddedOperations)
 	}

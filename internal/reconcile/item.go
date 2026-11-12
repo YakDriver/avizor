@@ -33,6 +33,9 @@ type Item struct {
 	ReleaseCommitURL string
 	// Request is RequestNewType or RequestChange, and RequestBasis why.
 	Request, RequestBasis string
+	// BumpPR is the target PR that brought the item's SDK version in, if known. It makes the change available but
+	// doesn't implement it, so it's only related, however strongly it matches.
+	BumpPR int
 }
 
 // RunItem reconciles an upstream item.
@@ -81,6 +84,17 @@ func (it *Item) strength(kind, value, where string) string {
 		return StrengthStrong
 	}
 	return StrengthWeak
+}
+
+// matchBump marks the PR that brought in the item's SDK version.
+const matchBump = "sdk_bump"
+
+// demoteBump makes the bump PR's matches weak and says why.
+func demoteBump(c *Candidate) {
+	for i := range c.Signals {
+		c.Signals[i].Strength = StrengthWeak
+	}
+	c.addSignal(Match{Type: matchBump, Value: "brings in the SDK version; doesn't implement the change", Strength: StrengthWeak})
 }
 
 // requireLabel downgrades a candidate's strong matches to weak unless it has the item's service label. A new operation
