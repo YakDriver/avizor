@@ -4,7 +4,7 @@ Radar finds what is already known about new information, gathers supporting evid
 
 The first target is the [Terraform AWS Provider](https://github.com/hashicorp/terraform-provider-aws). See [docs/design/radar.md](docs/design/radar.md) for the design and roadmap.
 
-Status: milestone 2 (evaluation).
+Status: milestone 3 in progress (SDK source).
 
 ## Install
 
@@ -27,7 +27,7 @@ target "tfaws" {
 
 `checkout` is optional. Without it, Radar searches only issues and PRs, and can't map service names from `names/data/names_data.hcl`.
 
-State lives in `$XDG_DATA_HOME/radar` (usually `~/.local/share/radar`), one SQLite file per target. Override it with `--state-dir`.
+State lives in `$XDG_DATA_HOME/radar` (usually `~/.local/share/radar`): one index per target, `items.db` for pulled items, and source clones under `sources/`. Override it with `state_dir` in the config or `--state-dir`.
 
 ## Sync
 
@@ -93,6 +93,32 @@ Weak signals are keywords in titles, shared `service/*` labels, cross-references
 Signals found in more than 40 records (contributing guide links, boilerplate) are skipped and listed under `warnings`.
 
 `summary.unmatched` is true when no candidate is better than `related`.
+
+## Pull SDK changes
+
+`radar pull` turns AWS SDK for Go v2 releases into items: one per service per release. Each item records the release notes and the API model change for that service: new and removed operations, members of existing shapes, enum values, and shapes.
+
+```
+radar pull                          # resume after the last release pulled (first run: the last 30 days)
+radar pull --since 2025-12-01       # a specific window; doesn't move the checkpoint
+radar items --format text           # items with API changes, newest first
+radar items --status skipped --service codebuild --format text
+radar inspect aws-sdk-go-v2/fsx/release-2025-12-02 --format text
+```
+
+The model change comes from a local bare clone of [aws/api-models-aws](https://github.com/aws/api-models-aws) (about 180 MB), made on the first pull and fetched on later ones. Models are committed about an hour before each SDK release, so a release's change is the diff between the last models commit before the previous release and the last one before this release.
+
+Items with no API change are stored as `skipped`, with a reason:
+
+- **No API change.** The model changed only in documentation, traits, or rules. This covers protocol additions (Smithy RPC v2 CBOR), serialization traits, and constraint changes such as a new maximum length.
+- **Release note without a model change.** For example, "Enable schema-based (de)serialization for this service."
+- **Service model removed.**
+
+Constraint changes can matter to a provider (for example, its validation), so check skipped items before assuming they need no work.
+
+Pulling the 230 releases from 2025-11-30 to 2026-11-11 took about 2.5 minutes and produced 1,487 items with API changes and 2,215 skipped.
+
+All source settings have defaults and can be changed in the config. See [radar.example.hcl](radar.example.hcl).
 
 ## Evaluate
 

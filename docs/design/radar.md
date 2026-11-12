@@ -311,6 +311,16 @@ What was built, and where it differs from the design above:
 - **Precision of confident categories** ([#3](https://github.com/YakDriver/radar/issues/3)): every candidate returned above "related" is judged `same` or `different` by reading it, and `radar eval` reports precision. A confident category on different work fails the case. At 56%, confident categories are wrong almost half the time, mostly from documentation URLs and a misread field name.
 - **Results**: before precision labels, 30 of 55 cases passed, hit@5 88%, recall 96%, category accuracy 47%. Categorization is still the main gap: duplicates and reworded requests are found, but as "related". The next things to measure are narrowing broad strong signals (multi-feature blog posts, shared operation names, SDK docs URLs) and an agent stage that evaluates top candidates. See [`eval/README.md`](../../eval/README.md#results).
 
+## Milestone 3 notes
+
+PR 1 (SDK source):
+
+- **Model source changed.** The design called for diffing the Smithy models in aws-sdk-go-v2 between release tags. That repository is 1.6 GB, and each release changes about 30 model files of up to 900 KB, so covering a year would take tens of thousands of downloads. Radar instead keeps a local bare clone of `aws/api-models-aws` (about 180 MB), which holds only the models and gets a commit about an hour before each SDK release. The SDK releases API still supplies each module's version and release notes. The result is the same diff, offline.
+- **Release windows.** A release's change is the diff between the last models commit at or before the previous release and the last one at or before this release. Some days have several models commits; all of them before the release count.
+- **Items** are one per service per release, stored in `items.db` with their evidence and provenance (models commits compared, model path, release URL). `radar pull`, `radar items`, and `radar inspect` are the commands.
+- **Skipping** is based on the model diff, not on release-note text. A trait-only change (a new protocol, `jsonName`, length constraints) is skipped as "no API change". This drops CBOR and serialization notes without a phrase list.
+- **Configuration.** Every source setting has a default and can be overridden: releases repo, models URL, clone location, branch, fetch, start, and service filters. The state directory is configurable too.
+
 ## Open questions
 
 - **Item granularity**: is one item per service per SDK release right, or do multi-feature releases need splitting?
@@ -320,4 +330,5 @@ What was built, and where it differs from the design above:
 - **Checkout branch**: code matches reflect whatever branch the checkout is on. Should Radar require or verify `main`?
 - **Common-signal threshold**: 40 records is a guess from one dataset. The corpus can now test changes to it.
 - **Corpus growth**: dispositions recorded in milestone 4 are natural new cases. How should they be added without tuning labels to Radar's output?
+- **Constraint changes**: skipped SDK items include length, range, and pattern changes, which can affect provider validation. Should they be a separate, lower-priority status instead of skipped?
 - **Bootstrapping dispositions**: should past provider issues that link SDK releases or announcements be imported as historical dispositions?
