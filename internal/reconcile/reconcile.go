@@ -46,6 +46,11 @@ const (
 	keywordLimit           = 10
 )
 
+// OperationSet reports whether a name is a real API operation.
+type OperationSet interface {
+	Has(name string) bool
+}
+
 // Reconciler matches inputs against a target's index and checkout.
 type Reconciler struct {
 	Store    *index.Store
@@ -54,6 +59,11 @@ type Reconciler struct {
 	Issues   IssueFetcher
 	HTTP     *http.Client
 	Options  Options
+	// Operations, if set, limits operation signals to real operation names. Text extraction only sees a verb-prefixed
+	// PascalCase word, so without it field names like StartTime count as operations. OperationsSource describes where
+	// the names came from, for provenance.
+	Operations       OperationSet
+	OperationsSource string
 	// AsOf, if set, reconciles against the index as it was at that time. See index.Store.AsOf. Code search reflects
 	// the checkout as it is now, so callers usually set Options.NoCode with it.
 	AsOf time.Time
@@ -88,7 +98,7 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 		Evidence:   []Evidence{},
 		Inferences: []Inference{},
 		Candidates: []Candidate{},
-		Provenance: Provenance{Tool: "radar", Version: r.Options.Version, GeneratedAt: time.Now().UTC()},
+		Provenance: Provenance{Tool: "radar", Version: r.Options.Version, GeneratedAt: time.Now().UTC(), Operations: r.OperationsSource},
 	}
 	if err := r.fillTarget(ctx, &res.Target); err != nil {
 		return nil, err
@@ -326,11 +336,21 @@ func (r *Reconciler) fillTarget(ctx context.Context, t *TargetInfo) error {
 func (r *Reconciler) inputSignals(in *input, res *Result) []signal.Signal {
 	var out []signal.Signal
 	seen := map[signal.Signal]bool{}
+	var notOps []string
+	defer func() {
+		if len(notOps) > 0 {
+			r.warnf("ignored operation-like names that aren't operations in the API models: %s", strings.Join(notOps, ", "))
+		}
+	}()
 	add := func(sg signal.Signal, source string) {
 		if seen[sg] {
 			return
 		}
 		seen[sg] = true
+		if sg.Kind == signal.KindOp && r.Operations != nil && !r.Operations.Has(sg.Value) {
+			notOps = append(notOps, sg.Value)
+			return
+		}
 		out = append(out, sg)
 		res.Evidence = append(res.Evidence, Evidence{Type: sg.Kind, Value: sg.Value, Source: source})
 	}

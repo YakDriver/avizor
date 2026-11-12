@@ -195,3 +195,35 @@ func TestIndexPath(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestTargetOperations(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct{ body, want, err string }{
+		"default": {body: `target "x" { repo = "a/b" }`, want: DefaultSourceName},
+		"named": {body: `target "x" {
+  repo       = "a/b"
+  operations = "sdk"
+}
+source "sdk" { type = "aws-sdk-go-v2" }`, want: "sdk"},
+		"none":    {body: `target "x" {` + "\n" + `repo = "a/b"` + "\n" + `operations = "none"` + "\n}", want: OperationsNone},
+		"unknown": {body: `target "x" {` + "\n" + `repo = "a/b"` + "\n" + `operations = "nope"` + "\n}", err: "unknown source"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := Load(writeConfig(t, tc.body))
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Fatalf("err = %v, want %q", err, tc.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.Targets[0].Operations; got != tc.want {
+				t.Errorf("operations = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/YakDriver/radar/internal/awssdk"
 	"github.com/YakDriver/radar/internal/config"
 	"github.com/YakDriver/radar/internal/github"
 	"github.com/YakDriver/radar/internal/index"
@@ -96,6 +97,10 @@ type common struct {
 	stateDir   string
 	target     string
 	format     string
+
+	// Set by open.
+	cfg *config.Config
+	dir string
 }
 
 func (c *common) register(fs *flag.FlagSet) {
@@ -148,7 +153,34 @@ func (c *common) open() (*config.Target, *index.Store, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	c.cfg, c.dir = cfg, dir
 	return t, st, nil
+}
+
+// operations sets r's operation names from the target's models source, if it has one and its clone exists. Without
+// them, any verb-prefixed PascalCase word counts as an operation, so a missing clone is a warning.
+func (c *common) operations(ctx context.Context, t *config.Target, r *reconcile.Reconciler, stderr io.Writer) {
+	if t.Operations == config.OperationsNone {
+		return
+	}
+	src, err := c.cfg.Source(t.Operations)
+	if err != nil {
+		fmt.Fprintf(stderr, "radar: warning: operation names unavailable: %v\n", err)
+		return
+	}
+	dir := src.ModelsPath(c.dir)
+	if _, err := os.Stat(dir); err != nil {
+		fmt.Fprintf(stderr, "radar: warning: operation names unavailable: no models clone at %s; run `radar pull %s`\n", dir, src.Name)
+		return
+	}
+	repo := &awssdk.ModelsRepo{Dir: dir, URL: src.ModelsURL, Branch: src.ModelsBranch}
+	ops, err := repo.Operations(ctx, dir+".operations.json")
+	if err != nil {
+		fmt.Fprintf(stderr, "radar: warning: operation names unavailable: %v\n", err)
+		return
+	}
+	r.Operations = ops
+	r.OperationsSource = fmt.Sprintf("%s@%s (%d operations)", src.ModelsURL, ops.Commit, len(ops.Names))
 }
 
 // parseInterspersed parses flags that may appear before or after positional arguments.
@@ -282,6 +314,7 @@ func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer)
 			Version:      version,
 		},
 	}
+	c.operations(ctx, t, r, stderr)
 	if gh, err := github.NewClient(ctx); err == nil {
 		r.Issues = fetcher{gh}
 	}

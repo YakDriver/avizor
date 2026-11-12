@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -259,6 +260,44 @@ func TestRunOpInText(t *testing.T) {
 
 	r := reconciler(t, seed(t), "")
 	res, err := r.Run(context.Background(), "", "Does the provider support DetachAndDeleteS3AccessPoint?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res.Candidates, 40000, ""); c.Category != CategoryConsidered {
+		t.Errorf("#40000 category = %s, want previously_considered", c.Category)
+	}
+}
+
+type opSet map[string]bool
+
+func (o opSet) Has(name string) bool { return o[name] }
+
+// TestRunOperationsFilter checks that with a set of real operation names, an operation-like word that isn't one doesn't
+// count as an operation signal.
+func TestRunOperationsFilter(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler(t, seed(t), "")
+	r.Operations = opSet{"CreateAndAttachS3AccessPoint": true}
+	res, err := r.Run(context.Background(), "", "Does the provider support DetachAndDeleteS3AccessPoint?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(res.Evidence, func(e Evidence) bool { return e.Type == "op" }) {
+		t.Errorf("evidence has an op signal for a name not in the operation set: %+v", res.Evidence)
+	}
+	for _, c := range res.Candidates {
+		if c.Number == 40000 && c.Category != CategoryRelated {
+			t.Errorf("#40000 category = %s, want related without the op signal", c.Category)
+		}
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "DetachAndDeleteS3AccessPoint") }) {
+		t.Errorf("warnings = %q, want the ignored name", res.Warnings)
+	}
+
+	// A real operation still counts.
+	r.Operations = opSet{"DetachAndDeleteS3AccessPoint": true}
+	res, err = r.Run(context.Background(), "", "Does the provider support DetachAndDeleteS3AccessPoint?")
 	if err != nil {
 		t.Fatal(err)
 	}

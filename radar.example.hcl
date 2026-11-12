@@ -12,6 +12,11 @@ target "tfaws" {
   # Prefix of per-service labels. This is the default.
   # service_label_prefix = "service/"
 
+  # Source whose API models define real operation names. Only those count as operation signals, so field names like
+  # StartTime don't. Defaults to the first aws-sdk-go-v2 source; "none" turns the check off. The names are read from
+  # the source's models clone (created by `radar pull`) and cached next to it.
+  # operations = "aws-sdk-go-v2"
+
   index {
     # "urls-and-identifiers" (default) scans comments for URLs, API operation names, Terraform names, and issue
     # references, without storing comment text. "none" skips comments.

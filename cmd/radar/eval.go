@@ -57,6 +57,7 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		Services: loadServices(t, stderr),
 		Options:  reconcile.Options{NoFetch: !*fetch, Version: version},
 	}
+	c.operations(ctx, t, base, stderr)
 	if *fetch {
 		base.HTTP = defaultHTTP()
 	}
