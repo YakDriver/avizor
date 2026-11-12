@@ -338,3 +338,71 @@ func TestParsePage(t *testing.T) {
 		t.Error("expected error for page without a title")
 	}
 }
+
+func TestIssueNumber(t *testing.T) {
+	t.Parallel()
+
+	for arg, want := range map[string]int{
+		"45362":  45362,
+		"#45362": 45362,
+		"https://github.com/hashicorp/terraform-provider-aws/issues/45362":                      45362,
+		"https://github.com/hashicorp/terraform-provider-aws/pull/45358/files":                  45358,
+		"https://github.com/hashicorp/terraform-provider-aws/issues/45362#issuecomment-1234567": 45362,
+		"https://github.com/Hashicorp/Terraform-Provider-AWS/issues/45362":                      45362,
+		"https://github.com/other/repo/issues/45362":                                            0,
+		"https://github.com/hashicorp/terraform-provider-aws/issues/45362abc":                   0,
+		"https://aws.amazon.com/about-aws/whats-new/2025/12/x/":                                 0,
+		"0":   0,
+		"FSx": 0,
+	} {
+		got, ok := IssueNumber(arg, repo)
+		if got != want || ok != (want != 0) {
+			t.Errorf("IssueNumber(%q) = %d, %t; want %d", arg, got, ok, want)
+		}
+	}
+}
+
+// TestRunAsOfHidesLaterReferences checks that issues filed after the cutoff never appear, even when the input's current
+// body references them.
+func TestRunAsOfHidesLaterReferences(t *testing.T) {
+	t.Parallel()
+
+	st := seed(t)
+	ctx := context.Background()
+	tx, err := st.Begin(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	later := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	if err := tx.UpsertIssue(ctx, &index.Issue{Number: 50000, Kind: index.KindPR, State: "open", Title: "Later work",
+		Body: "", CreatedAt: later, UpdatedAt: later}, 1); err != nil {
+		t.Fatal(err)
+	}
+	// The input's body was edited to mention the later PR.
+	if err := tx.UpsertIssue(ctx, &index.Issue{Number: 50001, Kind: index.KindIssue, State: "open", Title: "Request",
+		Body: "Superseded by #50000. Also see #12345.", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), UpdatedAt: later}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	r := reconciler(t, st, "")
+	r.AsOf = time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	res, err := r.Run(ctx, "50001", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawUnindexed bool
+	for _, c := range res.Candidates {
+		if c.Number == 50000 {
+			t.Errorf("#50000 filed after the cutoff returned as %+v", c)
+		}
+		if c.Number == 12345 {
+			sawUnindexed = true
+		}
+	}
+	if !sawUnindexed {
+		t.Error("#12345, genuinely not indexed, should still appear as a cross-reference")
+	}
+}

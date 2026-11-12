@@ -193,6 +193,24 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 	if err != nil {
 		return nil, err
 	}
+	// In a point-in-time view, a missing record may only be hidden by the cutoff. Those must not appear at all, not
+	// even as "(not in index)", or later activity leaks into the result.
+	hidden := map[int]bool{}
+	if r.view != r.Store {
+		var missing []int
+		for _, n := range numbers {
+			if records[n] == nil {
+				missing = append(missing, n)
+			}
+		}
+		later, err := r.Store.Issues(ctx, missing)
+		if err != nil {
+			return nil, err
+		}
+		for n := range later {
+			hidden[n] = true
+		}
+	}
 
 	serviceLabels := map[string]bool{}
 	for _, p := range pkgs {
@@ -202,6 +220,9 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 	var out []Candidate
 	for _, n := range numbers {
 		is := records[n]
+		if hidden[n] {
+			continue
+		}
 		if is == nil {
 			// Referenced but not indexed (e.g. a sliced sync). Keep cross-references so the reader can follow them.
 			if c, ok := cands[n]; ok {
