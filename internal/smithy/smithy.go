@@ -2,6 +2,7 @@
 package smithy
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -88,12 +89,48 @@ func memberValue(shapeType, name string, mem astMember) string {
 	switch shapeType {
 	case TypeEnum, TypeIntEnum:
 		if raw, ok := mem.Traits["smithy.api#enumValue"]; ok {
-			return strings.Trim(string(raw), `"`)
+			if v, ok := decodeEnumValue(raw); ok {
+				return v
+			}
 		}
 		return name
 	default:
 		return shortName(mem.Target)
 	}
+}
+
+// decodeEnumValue decodes a string enum value (unescaping it) or an intEnum's number, kept as written.
+func decodeEnumValue(raw json.RawMessage) (string, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return "", false
+	}
+	switch x := v.(type) {
+	case string:
+		return x, true
+	case json.Number:
+		return x.String(), true
+	}
+	return "", false
+}
+
+// preludeTypes maps Smithy prelude shape names to their types, for members that target them.
+var preludeTypes = map[string]string{
+	"Blob": "blob", "Boolean": "boolean", "String": "string", "Byte": "byte", "Short": "short", "Integer": "integer",
+	"Long": "long", "Float": "float", "Double": "double", "BigInteger": "bigInteger", "BigDecimal": "bigDecimal",
+	"Timestamp": "timestamp", "Document": "document", "PrimitiveBoolean": "boolean", "PrimitiveByte": "byte",
+	"PrimitiveShort": "short", "PrimitiveInteger": "integer", "PrimitiveLong": "long", "PrimitiveFloat": "float",
+	"PrimitiveDouble": "double", "Unit": "structure",
+}
+
+// typeOf returns the type of a shape by short name, from the model or the prelude.
+func (m *Model) typeOf(name string) string {
+	if s, ok := m.Shapes[name]; ok {
+		return s.Type
+	}
+	return preludeTypes[name]
 }
 
 func shortName(id string) string {
@@ -114,6 +151,14 @@ type Diff struct {
 	RemovedMembers    []MemberChange `json:"removed_members,omitempty"`
 	AddedEnumValues   []MemberChange `json:"added_enum_values,omitempty"`
 	RemovedEnumValues []MemberChange `json:"removed_enum_values,omitempty"`
+	// ChangedMembers are existing members whose target changed to a shape of a different type, such as string to
+	// integer. ChangedEnumValues are enum members whose value changed.
+	ChangedMembers    []MemberChange `json:"changed_members,omitempty"`
+	ChangedEnumValues []MemberChange `json:"changed_enum_values,omitempty"`
+	// RetargetedMembers are existing members whose target changed to another shape of the same type, such as one
+	// string shape to another. The value's type is unchanged, though its constraints (length, range, pattern) may
+	// differ. They're evidence, not API changes: they don't count toward Count or Empty.
+	RetargetedMembers []MemberChange `json:"retargeted_members,omitempty"`
 }
 
 // ShapeRef names a shape and its type.
@@ -123,14 +168,15 @@ type ShapeRef struct {
 }
 
 // MemberChange is a member added to or removed from an existing shape. For enums, Value is the enum value; otherwise
-// it's the member's target shape.
+// it's the member's target shape. OldValue is set for changed members.
 type MemberChange struct {
-	Shape  string `json:"shape"`
-	Member string `json:"member"`
-	Value  string `json:"value,omitempty"`
+	Shape    string `json:"shape"`
+	Member   string `json:"member"`
+	Value    string `json:"value,omitempty"`
+	OldValue string `json:"old_value,omitempty"`
 }
 
-// Empty reports whether the diff has no API surface change.
+// Empty reports whether the diff has no API surface change. Retargeted members alone are not an API change.
 func (d *Diff) Empty() bool {
 	return d.Count() == 0
 }
@@ -138,7 +184,8 @@ func (d *Diff) Empty() bool {
 // Count is the number of changes.
 func (d *Diff) Count() int {
 	return len(d.AddedOperations) + len(d.RemovedOperations) + len(d.AddedShapes) + len(d.RemovedShapes) +
-		len(d.AddedMembers) + len(d.RemovedMembers) + len(d.AddedEnumValues) + len(d.RemovedEnumValues)
+		len(d.AddedMembers) + len(d.RemovedMembers) + len(d.AddedEnumValues) + len(d.RemovedEnumValues) +
+		len(d.ChangedMembers) + len(d.ChangedEnumValues)
 }
 
 // Compare returns the API surface change from old to new. old may be nil for a new service.
@@ -170,6 +217,18 @@ func Compare(old, new *Model) *Diff {
 				d.AddedEnumValues = append(d.AddedEnumValues, c)
 			} else if ns.Type != TypeOperation {
 				d.AddedMembers = append(d.AddedMembers, c)
+			}
+		}
+		for _, m := range changed(os.Members, ns.Members) {
+			c := MemberChange{Shape: name, Member: m, Value: ns.Members[m], OldValue: os.Members[m]}
+			switch {
+			case isEnum(ns.Type):
+				d.ChangedEnumValues = append(d.ChangedEnumValues, c)
+			case ns.Type == TypeOperation:
+			case old.typeOf(c.OldValue) == new.typeOf(c.Value) && new.typeOf(c.Value) != "":
+				d.RetargetedMembers = append(d.RetargetedMembers, c)
+			default:
+				d.ChangedMembers = append(d.ChangedMembers, c)
 			}
 		}
 		for _, m := range removed {
@@ -226,6 +285,17 @@ func memberDiff(old, new map[string]string) (added, removed []string) {
 		}
 	}
 	return added, removed
+}
+
+// changed returns members present in both with different values.
+func changed(old, new map[string]string) []string {
+	var out []string
+	for _, k := range sortedKeys(new) {
+		if v, ok := old[k]; ok && v != new[k] {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 func sortedKeys[V any](m map[string]V) []string {

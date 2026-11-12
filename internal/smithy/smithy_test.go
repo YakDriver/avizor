@@ -80,9 +80,9 @@ func TestCompare(t *testing.T) {
 	check("RemovedOperations", d.RemovedOperations, []string{"DeleteWidget"})
 	check("AddedShapes", d.AddedShapes, []ShapeRef{{"Size", "integer"}})
 	check("RemovedShapes", d.RemovedShapes, []ShapeRef{{"Gone", "string"}})
-	check("AddedMembers", d.AddedMembers, []MemberChange{{"CreateWidgetRequest", "Size", "Size"}})
-	check("RemovedMembers", d.RemovedMembers, []MemberChange{{"CreateWidgetRequest", "Legacy", "String"}})
-	check("AddedEnumValues", d.AddedEnumValues, []MemberChange{{"Color", "BLUE", "blue"}})
+	check("AddedMembers", d.AddedMembers, []MemberChange{{Shape: "CreateWidgetRequest", Member: "Size", Value: "Size"}})
+	check("RemovedMembers", d.RemovedMembers, []MemberChange{{Shape: "CreateWidgetRequest", Member: "Legacy", Value: "String"}})
+	check("AddedEnumValues", d.AddedEnumValues, []MemberChange{{Shape: "Color", Member: "BLUE", Value: "blue"}})
 	if d.Count() != 7 {
 		t.Errorf("Count = %d, want 7", d.Count())
 	}
@@ -119,4 +119,78 @@ func equalJSONish(a, b any) bool {
 		return slices.Equal(x, b.([]MemberChange))
 	}
 	return false
+}
+
+// TestCompareChangedMembers checks that a member whose target or value changes is reported, with the old value, and that
+// a change to another shape of the same type is recorded but not counted as an API change.
+func TestCompareChangedMembers(t *testing.T) {
+	t.Parallel()
+
+	model := func(nameTarget, sizeTarget, red string) *Model {
+		t.Helper()
+		m, err := Parse([]byte(`{"shapes": {
+  "com.amazonaws.w#Svc": {"type": "service", "traits": {"aws.api#service": {"sdkId": "W"}}},
+  "com.amazonaws.w#Req": {"type": "structure", "members": {
+    "Name": {"target": "` + nameTarget + `"},
+    "Size": {"target": "` + sizeTarget + `"}
+  }},
+  "com.amazonaws.w#ShortName": {"type": "string"},
+  "com.amazonaws.w#LongName": {"type": "string"},
+  "com.amazonaws.w#Color": {"type": "enum", "members": {"RED": {"target": "smithy.api#Unit", "traits": {"smithy.api#enumValue": "` + red + `"}}}}
+}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+
+	// String to Integer is a type change; one string shape to another is a retarget.
+	d := Compare(model("com.amazonaws.w#ShortName", "smithy.api#String", "red"), model("com.amazonaws.w#LongName", "smithy.api#Integer", "rouge"))
+	if !slices.Equal(d.ChangedMembers, []MemberChange{{Shape: "Req", Member: "Size", Value: "Integer", OldValue: "String"}}) {
+		t.Errorf("ChangedMembers = %+v", d.ChangedMembers)
+	}
+	if !slices.Equal(d.ChangedEnumValues, []MemberChange{{Shape: "Color", Member: "RED", Value: "rouge", OldValue: "red"}}) {
+		t.Errorf("ChangedEnumValues = %+v", d.ChangedEnumValues)
+	}
+	if !slices.Equal(d.RetargetedMembers, []MemberChange{{Shape: "Req", Member: "Name", Value: "LongName", OldValue: "ShortName"}}) {
+		t.Errorf("RetargetedMembers = %+v", d.RetargetedMembers)
+	}
+	if d.Count() != 2 {
+		t.Errorf("Count = %d, want 2 (retargets don't count)", d.Count())
+	}
+
+	// A retarget alone is no API change.
+	d = Compare(model("com.amazonaws.w#ShortName", "smithy.api#String", "red"), model("com.amazonaws.w#LongName", "smithy.api#String", "red"))
+	if !d.Empty() || len(d.RetargetedMembers) != 1 {
+		t.Errorf("retarget-only diff = %+v", d)
+	}
+}
+
+func TestEnumValueDecoding(t *testing.T) {
+	t.Parallel()
+
+	m, err := Parse([]byte(`{"shapes": {
+  "com.amazonaws.w#Svc": {"type": "service", "traits": {"aws.api#service": {"sdkId": "W"}}},
+  "com.amazonaws.w#E": {"type": "enum", "members": {
+    "SPACE": {"target": "smithy.api#Unit", "traits": {"smithy.api#enumValue": "A\u0020B"}},
+    "QUOTE": {"target": "smithy.api#Unit", "traits": {"smithy.api#enumValue": "say \"hi\" \\ bye"}},
+    "NONE": {"target": "smithy.api#Unit"}
+  }},
+  "com.amazonaws.w#I": {"type": "intEnum", "members": {
+    "ONE": {"target": "smithy.api#Unit", "traits": {"smithy.api#enumValue": 1}}
+  }}
+}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for shape, want := range map[string]map[string]string{
+		"E": {"SPACE": "A B", "QUOTE": `say "hi" \ bye`, "NONE": "NONE"},
+		"I": {"ONE": "1"},
+	} {
+		for member, v := range want {
+			if got := m.Shapes[shape].Members[member]; got != v {
+				t.Errorf("%s.%s = %q, want %q", shape, member, got, v)
+			}
+		}
+	}
 }
