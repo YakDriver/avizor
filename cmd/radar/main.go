@@ -2,6 +2,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,8 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/YakDriver/radar/internal/config"
@@ -98,32 +97,41 @@ func (c *common) register(fs *flag.FlagSet) {
 	fs.StringVar(&c.format, "format", "json", "output format: json or text")
 }
 
-// open loads config and opens the target's index.
-func (c *common) open() (*config.Target, *index.Store, error) {
+// load reads the config and resolves the state directory: --state-dir, then the config's state_dir, then the default.
+func (c *common) load() (*config.Config, string, error) {
 	if c.format != "json" && c.format != "text" {
-		return nil, nil, fmt.Errorf("%w: --format must be json or text", errUsage)
+		return nil, "", fmt.Errorf("%w: --format must be json or text", errUsage)
 	}
 	path := c.configPath
 	if path == "" {
 		p, err := config.DefaultPath()
 		if err != nil {
-			return nil, nil, err
+			return nil, "", err
 		}
 		path = p
 	}
 	cfg, err := config.Load(path)
+	if err != nil {
+		return nil, "", err
+	}
+	dir := cmp.Or(c.stateDir, cfg.StateDir)
+	if dir == "" {
+		if dir, err = config.DefaultStateDir(); err != nil {
+			return nil, "", err
+		}
+	}
+	return cfg, dir, nil
+}
+
+// open loads config and opens the target's index.
+func (c *common) open() (*config.Target, *index.Store, error) {
+	cfg, dir, err := c.load()
 	if err != nil {
 		return nil, nil, err
 	}
 	t, err := cfg.Target(c.target)
 	if err != nil {
 		return nil, nil, err
-	}
-	dir := c.stateDir
-	if dir == "" {
-		if dir, err = config.DefaultStateDir(); err != nil {
-			return nil, nil, err
-		}
 	}
 	st, err := index.Open(filepath.Join(dir, t.Name+".db"))
 	if err != nil {
@@ -208,24 +216,12 @@ func cmdSync(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	return writeJSON(stdout, res)
 }
 
-var ageRE = regexp.MustCompile(`^(\d+)([dh])$`)
-
 func parseSince(s string, now time.Time) (time.Time, error) {
-	if m := ageRE.FindStringSubmatch(s); m != nil {
-		n, _ := strconv.Atoi(m[1])
-		unit := time.Hour
-		if m[2] == "d" {
-			unit = 24 * time.Hour
-		}
-		return now.Add(-time.Duration(n) * unit), nil
+	t, err := config.ParseSince(s, now)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("--since: %w", err)
 	}
-	if t, err := time.Parse(time.DateOnly, s); err == nil {
-		return t, nil
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t, nil
-	}
-	return time.Time{}, fmt.Errorf("invalid --since %q: use a date (2026-01-02), RFC 3339 time, or age (90d, 12h)", s)
+	return t, nil
 }
 
 func cmdCandidates(ctx context.Context, args []string, stdout, stderr io.Writer) error {
