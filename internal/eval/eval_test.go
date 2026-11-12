@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -173,7 +174,7 @@ case "dup-as-filed" {
     number   = 1
     category = "already_tracked"
   }
-  related_only = [4]
+  different    = [4]
   unmatched    = false
 }
 
@@ -247,10 +248,104 @@ case "nothing" {
 	if m.Cases != 4 || m.Passed != 2 || m.Errors != 1 || m.WithExpect != 2 {
 		t.Errorf("overall = %+v", m)
 	}
-	if m.Hit[1] != 0.5 || m.Hit[3] != 1 || m.CategoryLabeled != 2 || m.CategoryAccuracy != 0.5 || m.RelatedOnlyLabeled != 1 || m.FalseEquivalent != 0 {
+	if m.Hit[1] != 0.5 || m.Hit[3] != 1 || m.CategoryLabeled != 2 || m.CategoryAccuracy != 0.5 || m.ConfidentWrong != 0 {
 		t.Errorf("overall = %+v", m)
 	}
 	if rep.ByKind["no-work"].UnmatchedAccuracy != 1 {
 		t.Errorf("no-work = %+v", rep.ByKind["no-work"])
+	}
+}
+
+func TestLoadJudgmentErrors(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct{ body, want string }{
+		"same and different": {`target = "t"
+case "a" {
+  input     = "1"
+  kind      = "k"
+  same      = [2]
+  different = [2]
+}`, "#2 is in both"},
+		"expect and different": {`target = "t"
+case "a" {
+  input = "1"
+  kind  = "k"
+  expect {
+    number = 2
+  }
+  different = [2]
+}`, "#2 is in both expect and different"},
+		"paths need code": {`target = "t"
+case "a" {
+  input           = "1"
+  kind            = "k"
+  unmatched       = true
+  different_paths = ["x.go"]
+}`, "need code = true"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Load(writeCorpus(t, tc.body))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestScoreConfident checks verdicts on confident candidates, at any rank, and the precision metric.
+func TestScoreConfident(t *testing.T) {
+	t.Parallel()
+
+	cs := &Case{
+		Expect:         []Expect{{Number: 1}},
+		Same:           []int{2},
+		Different:      []int{3},
+		DifferentPaths: []string{"x.go"},
+	}
+	cand := func(n int, path, cat string) reconcile.Candidate {
+		return reconcile.Candidate{Number: n, Path: path, Category: cat}
+	}
+	res := &reconcile.Result{Candidates: []reconcile.Candidate{
+		cand(1, "", reconcile.CategoryTracked),
+		cand(2, "", reconcile.CategoryImplemented),
+		cand(4, "", reconcile.CategoryConsidered),
+		cand(5, "", reconcile.CategoryRelated),
+		cand(0, "x.go", reconcile.CategoryRelated),
+		cand(6, "", reconcile.CategoryRelated),
+		cand(7, "", reconcile.CategoryRelated),
+		cand(8, "", reconcile.CategoryRelated),
+		cand(9, "", reconcile.CategoryRelated),
+		cand(10, "", reconcile.CategoryRelated),
+		cand(11, "", reconcile.CategoryRelated),
+		cand(3, "", reconcile.CategoryTracked), // rank 12: beyond the top-10 summary, still judged
+	}}
+	var cr CaseResult
+	score(cs, res, &cr)
+
+	got := map[string]string{}
+	for _, j := range cr.Confident {
+		got[j.Ref] = j.Verdict
+	}
+	want := map[string]string{"#1": VerdictExpected, "#2": VerdictSame, "#4": VerdictUnjudged, "#3": VerdictDifferent}
+	if len(got) != len(want) {
+		t.Errorf("confident = %v, want %v", got, want)
+	}
+	for ref, v := range want {
+		if got[ref] != v {
+			t.Errorf("%s verdict = %q, want %q", ref, got[ref], v)
+		}
+	}
+	if cr.Pass || !slices.ContainsFunc(cr.Failures, func(f string) bool { return strings.Contains(f, "#3 is already_tracked, but is different work") }) {
+		t.Errorf("failures = %v, want #3 to fail the case", cr.Failures)
+	}
+
+	m := aggregate([]CaseResult{cr})
+	if m.Confident != 4 || m.ConfidentCorrect != 2 || m.ConfidentWrong != 1 || m.ConfidentUnjudged != 1 {
+		t.Errorf("confident counts = %+v", m)
+	}
+	if want := 2.0 / 3; m.ConfidentPrecision != want {
+		t.Errorf("precision = %v, want %v", m.ConfidentPrecision, want)
 	}
 }

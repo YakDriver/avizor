@@ -7,9 +7,16 @@
 #                      filed.
 #   announcement-text  The same announcements' headlines as free text, as a differently worded request would arrive.
 #   implemented        Announcements reconciled an hour after the PR that closed the tracker merged.
-#   related            Issues whose bodies cite a similar but different feature.
+#   related            Trackers whose "Relates" link is a similar but different feature.
 #   new                Headlines reconciled a minute before their tracker was filed, when nothing tracked them yet.
 #   no-work            SDK release notes that need no provider work.
+#
+# same and different judge other candidates Radar returns with a confident category (anything above "related"): same
+# is the same work as the input, such as a second duplicate or the implementing PR; different is not. Judgments come
+# from reading the candidate, not from its category. A confident category on different work fails the case. Run
+# `radar eval --format text --unjudged` to list confident candidates that still need a judgment.
+#
+# Cases with code = true are judged against the checkout as of labeling (provider main at 37436a92a45, 2026-11-12).
 #
 # as_of defaults to "filed" for issue inputs. Regenerate the duplicate sample only with care: labels must not be
 # tuned to Radar's output.
@@ -36,6 +43,7 @@ case "dup-41200" {
     number   = 38983
     category = "already_tracked"
   }
+  different = [33461, 33460, 32914, 26230, 29213, 29753]
 }
 
 case "dup-41552" {
@@ -46,6 +54,7 @@ case "dup-41552" {
     number   = 40135
     category = "already_tracked"
   }
+  same = [40181]
 }
 
 case "dup-41782" {
@@ -56,6 +65,7 @@ case "dup-41782" {
     number   = 41710
     category = "already_tracked"
   }
+  different = [41462, 31299, 41199, 41126, 41620]
 }
 
 case "dup-41973" {
@@ -66,6 +76,8 @@ case "dup-41973" {
     number   = 41710
     category = "already_tracked"
   }
+  same      = [41782]
+  different = [41462, 41199, 31299, 41126, 41620]
 }
 
 case "dup-42127" {
@@ -86,6 +98,7 @@ case "dup-42605" {
     number   = 40597
     category = "previously_considered"
   }
+  different = [35931]
 }
 
 case "dup-43223" {
@@ -106,6 +119,7 @@ case "dup-43828" {
     number   = 42850
     category = "already_tracked"
   }
+  different = [41241, 41384]
 }
 
 case "dup-44751" {
@@ -116,6 +130,7 @@ case "dup-44751" {
     number   = 44672
     category = "already_tracked"
   }
+  different = [39447]
 }
 
 case "dup-45838" {
@@ -126,6 +141,7 @@ case "dup-45838" {
     number   = 44836
     category = "already_tracked"
   }
+  different = [43043]
 }
 
 case "dup-46606" {
@@ -196,6 +212,8 @@ case "dup-49365" {
     number   = 45533
     category = "already_tracked"
   }
+  same      = [14619, 33088]
+  different = [46315]
 }
 
 case "dup-49894" {
@@ -435,27 +453,27 @@ case "impl-45219" {
 # --- related: the tracker's "Relates" link is a similar feature, not the same one
 
 case "rel-45362" {
-  input        = "45362"
-  kind         = "related"
-  related_only = [43195]
+  input     = "45362"
+  kind      = "related"
+  different = [43195]
 }
 
 case "rel-47610" {
-  input        = "47610"
-  kind         = "related"
-  related_only = [40964]
+  input     = "47610"
+  kind      = "related"
+  different = [40964]
 }
 
 case "rel-47542" {
-  input        = "47542"
-  kind         = "related"
-  related_only = [47184]
+  input     = "47542"
+  kind      = "related"
+  different = [47184]
 }
 
 case "rel-45361" {
-  input        = "45361"
-  kind         = "related"
-  related_only = [45353]
+  input     = "45361"
+  kind      = "related"
+  different = [45353, 45360]
 }
 
 # --- new: headline a minute before the tracker was filed
@@ -541,7 +559,9 @@ case "dev-45362-code" {
     number   = 50872
     category = "previously_considered"
   }
-  related_only = [45361]
+  same       = [50917]
+  different  = [45361, 43391, 43195]
+  same_paths = ["internal/service/fsx/sweep.go", "website/docs/r/fsx_s3_access_point_attachment.html.markdown"]
 }
 
 case "dev-45362-url" {
@@ -552,6 +572,7 @@ case "dev-45362-url" {
     number   = 45362
     category = "already_tracked"
   }
+  same = [50917]
 }
 
 case "dev-50921" {

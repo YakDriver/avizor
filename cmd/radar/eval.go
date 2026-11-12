@@ -20,6 +20,7 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	corpusPath := fs.String("corpus", "", "corpus file (default: the corpus built into radar, "+radar.DefaultCorpusName+")")
 	fetch := fs.Bool("fetch", false, "fetch URL inputs to read their page titles (results then depend on the network)")
 	failures := fs.Bool("failures", false, "in text output, list only failing cases")
+	unjudged := fs.Bool("unjudged", false, "in text output, list confident candidates the corpus doesn't label, for adding same or different labels")
 	names, err := parseInterspersed(fs, args)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errUsage, err)
@@ -67,6 +68,9 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		return err
 	}
 	if c.format == "text" {
+		if *unjudged {
+			return writeUnjudged(stdout, rep)
+		}
 		return writeEvalText(stdout, rep, *failures)
 	}
 	return writeJSON(stdout, rep)
@@ -97,12 +101,14 @@ func writeEvalText(w io.Writer, rep *eval.Report, failuresOnly bool) error {
 		}
 	}
 
-	fmt.Fprintf(w, "\n%-18s %5s %6s %6s %6s %6s %7s %8s %8s %6s\n", "kind", "cases", "pass", "hit@1", "hit@3", "hit@5", "recall", "category", "unmatch", "false=")
+	fmt.Fprintf(w, "\n%-18s %5s %5s %6s %6s %6s %6s %8s %7s %9s %5s %8s\n", "kind", "cases", "pass", "hit@1", "hit@3", "hit@5",
+		"recall", "category", "unmatch", "precision", "wrong", "unjudged")
 	row := func(name string, m *eval.Metrics) {
-		fmt.Fprintf(w, "%-18s %5d %6d %6s %6s %6s %7s %8s %8s %6s\n", name, m.Cases, m.Passed,
+		fmt.Fprintf(w, "%-18s %5d %5d %6s %6s %6s %6s %8s %7s %9s %5d %8d\n", name, m.Cases, m.Passed,
 			pct(m.Hit[1], m.WithExpect), pct(m.Hit[3], m.WithExpect), pct(m.Hit[5], m.WithExpect),
 			pct(m.Recall, m.WithExpect), pct(m.CategoryAccuracy, m.CategoryLabeled),
-			pct(m.UnmatchedAccuracy, m.UnmatchedLabeled), fmt.Sprintf("%d/%d", m.FalseEquivalent, m.RelatedOnlyLabeled))
+			pct(m.UnmatchedAccuracy, m.UnmatchedLabeled), pct(m.ConfidentPrecision, m.ConfidentCorrect+m.ConfidentWrong),
+			m.ConfidentWrong, m.ConfidentUnjudged)
 	}
 	for _, k := range rep.Kinds() {
 		row(k, rep.ByKind[k])
@@ -114,6 +120,25 @@ func writeEvalText(w io.Writer, rep *eval.Report, failuresOnly bool) error {
 	if rep.Overall.MissedUnmatched > 0 {
 		fmt.Fprintf(w, "%d case(s) with existing work were summarized as unmatched\n", rep.Overall.MissedUnmatched)
 	}
+	return nil
+}
+
+func writeUnjudged(w io.Writer, rep *eval.Report) error {
+	n := 0
+	for _, cr := range rep.Cases {
+		var lines []string
+		for _, j := range cr.Confident {
+			if j.Verdict == eval.VerdictUnjudged {
+				lines = append(lines, fmt.Sprintf("  %3d. %-8s %-22s %s", j.Rank, j.Ref, j.Category, j.Title))
+			}
+		}
+		if len(lines) == 0 {
+			continue
+		}
+		n += len(lines)
+		fmt.Fprintf(w, "%s  %s\n%s\n", cr.Name, cr.Input, strings.Join(lines, "\n"))
+	}
+	fmt.Fprintf(w, "\n%d unjudged confident candidate(s)\n", n)
 	return nil
 }
 

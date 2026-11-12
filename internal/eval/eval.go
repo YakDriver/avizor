@@ -35,9 +35,8 @@ type CaseResult struct {
 	Expected []ExpectResult `json:"expected"`
 	// Hit maps k to whether any expected candidate is in the top k. Only set for cases with expectations.
 	Hit map[int]bool `json:"hit,omitempty"`
-	// RelatedOnly is the number of related-only labels; FalseEquivalent lists those returned above "related".
-	RelatedOnly     int        `json:"related_only_labeled,omitempty"`
-	FalseEquivalent []Returned `json:"false_equivalent,omitempty"`
+	// Confident lists every candidate returned above "related", at any rank, with its verdict.
+	Confident []Judged `json:"confident"`
 	// Unmatched is the result's summary.unmatched; UnmatchedOK is set when the case has an expectation for it.
 	Unmatched   bool  `json:"unmatched"`
 	UnmatchedOK *bool `json:"unmatched_ok,omitempty"`
@@ -54,6 +53,20 @@ type ExpectResult struct {
 	Got      string `json:"got_category,omitempty"`
 	Found    bool   `json:"found"`
 	Category *bool  `json:"category_ok,omitempty"`
+}
+
+// Verdicts on confident candidates.
+const (
+	VerdictExpected  = "expected"
+	VerdictSame      = "same"
+	VerdictDifferent = "different"
+	VerdictUnjudged  = "unjudged"
+)
+
+// Judged is a confident candidate and the corpus's verdict on it.
+type Judged struct {
+	Returned
+	Verdict string `json:"verdict"`
 }
 
 // Returned is a candidate as returned, with its 1-based rank.
@@ -84,9 +97,14 @@ type Metrics struct {
 	// UnmatchedLabeled and UnmatchedAccuracy cover cases that label summary.unmatched.
 	UnmatchedLabeled  int     `json:"unmatched_labeled"`
 	UnmatchedAccuracy float64 `json:"unmatched_accuracy"`
-	// FalseEquivalent counts related-only candidates returned above "related", over RelatedOnlyLabeled labels.
-	RelatedOnlyLabeled int `json:"related_only_labeled"`
-	FalseEquivalent    int `json:"false_equivalent"`
+	// Confident counts candidates returned above "related". Each is correct (expected or labeled the same work),
+	// wrong (labeled different work), or unjudged. Precision is correct / (correct + wrong): how often a confident
+	// category is on the right work.
+	Confident          int     `json:"confident"`
+	ConfidentCorrect   int     `json:"confident_correct"`
+	ConfidentWrong     int     `json:"confident_wrong"`
+	ConfidentUnjudged  int     `json:"confident_unjudged"`
+	ConfidentPrecision float64 `json:"confident_precision"`
 }
 
 // Report is the result of a run.
@@ -209,12 +227,23 @@ func score(cs *Case, res *reconcile.Result, cr *CaseResult) {
 		}
 	}
 
-	cr.RelatedOnly = len(cs.RelatedOnly)
-	for _, n := range cs.RelatedOnly {
-		ref := "#" + strconv.Itoa(n)
-		if cat, ok := cats[ref]; ok && cat != reconcile.CategoryRelated {
-			cr.FalseEquivalent = append(cr.FalseEquivalent, Returned{Rank: ranks[ref], Ref: ref, Category: cat})
-			cr.Failures = append(cr.Failures, fmt.Sprintf("%s is %s, but is only related", ref, cat))
+	judge := cs.judgments()
+	cr.Confident = []Judged{}
+	for i, c := range res.Candidates {
+		if c.Category == reconcile.CategoryRelated {
+			continue
+		}
+		ref := candidateRef(c)
+		if ranks[ref] != i+1 {
+			continue // duplicate entry
+		}
+		v, ok := judge[ref]
+		if !ok {
+			v = VerdictUnjudged
+		}
+		cr.Confident = append(cr.Confident, Judged{Rank: i + 1, Ref: ref, Category: c.Category, Title: c.Title, Verdict: v})
+		if v == VerdictDifferent {
+			cr.Failures = append(cr.Failures, fmt.Sprintf("%s is %s, but is different work", ref, c.Category))
 		}
 	}
 
@@ -275,8 +304,17 @@ func aggregate(crs []CaseResult) Metrics {
 				unmatchedOK++
 			}
 		}
-		m.RelatedOnlyLabeled += cr.RelatedOnly
-		m.FalseEquivalent += len(cr.FalseEquivalent)
+		for _, j := range cr.Confident {
+			m.Confident++
+			switch j.Verdict {
+			case VerdictExpected, VerdictSame:
+				m.ConfidentCorrect++
+			case VerdictDifferent:
+				m.ConfidentWrong++
+			default:
+				m.ConfidentUnjudged++
+			}
+		}
 	}
 	for _, k := range Ks {
 		m.Hit[k] = ratio(hits[k], m.WithExpect)
@@ -284,6 +322,7 @@ func aggregate(crs []CaseResult) Metrics {
 	m.Recall = ratio(found, expects)
 	m.CategoryAccuracy = ratio(catOK, m.CategoryLabeled)
 	m.UnmatchedAccuracy = ratio(unmatchedOK, m.UnmatchedLabeled)
+	m.ConfidentPrecision = ratio(m.ConfidentCorrect, m.ConfidentCorrect+m.ConfidentWrong)
 	return m
 }
 
@@ -302,6 +341,27 @@ func ratio(a, b int) float64 {
 		return 0
 	}
 	return float64(a) / float64(b)
+}
+
+// judgments maps candidate refs to the case's verdict on them.
+func (cs *Case) judgments() map[string]string {
+	out := map[string]string{}
+	for _, e := range cs.Expect {
+		out[expectRef(e)] = VerdictExpected
+	}
+	for _, r := range numberRefs(cs.Same) {
+		out[r] = VerdictSame
+	}
+	for _, r := range cs.SamePaths {
+		out[r] = VerdictSame
+	}
+	for _, r := range numberRefs(cs.Different) {
+		out[r] = VerdictDifferent
+	}
+	for _, r := range cs.DifferentPaths {
+		out[r] = VerdictDifferent
+	}
+	return out
 }
 
 func candidateRef(c reconcile.Candidate) string {

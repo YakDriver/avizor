@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/hashicorp/hcl/v2/hclsimple"
@@ -41,8 +42,14 @@ type Case struct {
 	Expect []Expect `hcl:"expect,block"`
 	// Unmatched, if set, is the expected value of summary.unmatched.
 	Unmatched *bool `hcl:"unmatched,optional"`
-	// RelatedOnly lists issues and PRs that are related but not equivalent. They may appear, but only as "related".
-	RelatedOnly []int `hcl:"related_only,optional"`
+	// Same and SamePaths label other candidates that are the same work as the input, such as a second duplicate or the
+	// PR that implemented it. They needn't appear, but a confident category on them is correct.
+	Same      []int    `hcl:"same,optional"`
+	SamePaths []string `hcl:"same_paths,optional"`
+	// Different and DifferentPaths label candidates that are not the same work. They may appear, but only as
+	// "related": a confident category on them is confidently wrong, and fails the case.
+	Different      []int    `hcl:"different,optional"`
+	DifferentPaths []string `hcl:"different_paths,optional"`
 
 	asOf time.Time
 	// issue is the input's issue number in the bound repo, or 0. Set by Bind.
@@ -122,8 +129,11 @@ func (cs *Case) validate() error {
 		}
 		cs.asOf = t
 	}
-	if len(cs.Expect) == 0 && cs.Unmatched == nil && len(cs.RelatedOnly) == 0 {
-		return errors.New("needs at least one of expect, unmatched, or related_only")
+	if len(cs.Expect) == 0 && cs.Unmatched == nil && len(cs.Different)+len(cs.DifferentPaths) == 0 {
+		return errors.New("needs at least one of expect, unmatched, or different")
+	}
+	if err := cs.validateJudgments(); err != nil {
+		return err
 	}
 	for _, e := range cs.Expect {
 		if (e.Number == 0) == (e.Path == "") {
@@ -135,9 +145,6 @@ func (cs *Case) validate() error {
 		if e.Path != "" && !cs.Code {
 			return fmt.Errorf("expect path %s needs code = true", e.Path)
 		}
-		if slices.Contains(cs.RelatedOnly, e.Number) && e.Number != 0 {
-			return fmt.Errorf("#%d is in both expect and related_only", e.Number)
-		}
 	}
 	if cs.Unmatched != nil && *cs.Unmatched {
 		for _, e := range cs.Expect {
@@ -147,6 +154,47 @@ func (cs *Case) validate() error {
 		}
 	}
 	return nil
+}
+
+// validateJudgments checks that no candidate is labeled more than one way.
+func (cs *Case) validateJudgments() error {
+	seen := map[string]string{}
+	add := func(ref, field string) error {
+		if prev, ok := seen[ref]; ok {
+			return fmt.Errorf("%s is in both %s and %s", ref, prev, field)
+		}
+		seen[ref] = field
+		return nil
+	}
+	for _, e := range cs.Expect {
+		if err := add(expectRef(e), "expect"); err != nil {
+			return err
+		}
+	}
+	for field, refs := range map[string][]string{
+		"same":            numberRefs(cs.Same),
+		"same_paths":      cs.SamePaths,
+		"different":       numberRefs(cs.Different),
+		"different_paths": cs.DifferentPaths,
+	} {
+		for _, ref := range refs {
+			if err := add(ref, field); err != nil {
+				return err
+			}
+		}
+	}
+	if (len(cs.SamePaths) > 0 || len(cs.DifferentPaths) > 0) && !cs.Code {
+		return errors.New("same_paths and different_paths need code = true")
+	}
+	return nil
+}
+
+func numberRefs(ns []int) []string {
+	out := make([]string, len(ns))
+	for i, n := range ns {
+		out[i] = "#" + strconv.Itoa(n)
+	}
+	return out
 }
 
 // Bind resolves cases against the target repo ("owner/name"): it finds which inputs are the repo's issues, defaults
