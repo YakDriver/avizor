@@ -406,3 +406,76 @@ func TestRunAsOfHidesLaterReferences(t *testing.T) {
 		t.Error("#12345, genuinely not indexed, should still appear as a cross-reference")
 	}
 }
+
+// TestRunFollowsReferences checks that a PR referencing a strongly matched issue is returned with the issue's match, and
+// that weakly matched issues and comment references aren't followed.
+func TestRunFollowsReferences(t *testing.T) {
+	t.Parallel()
+
+	st := seed(t)
+	ctx := context.Background()
+	ts := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	tx, err := st.Begin(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, is := range []*index.Issue{
+		// Implements #45362 without repeating its announcement URL.
+		{Number: 46000, Kind: index.KindPR, State: "closed", Merged: true, MergedAt: ts, Title: "r/aws_fsx_s3_access_point_attachment: new resource",
+			Body: "Closes #45362."},
+		// Open PR for #45362.
+		{Number: 46001, Kind: index.KindPR, State: "open", Title: "Docs tweak", Body: "Relates #45362."},
+		// An issue, not a PR, that references #45362.
+		{Number: 46002, Kind: index.KindIssue, State: "open", Title: "Question", Body: "Is #45362 done?"},
+		// A PR that references #30001, which matches only weakly.
+		{Number: 46003, Kind: index.KindPR, State: "closed", Merged: true, MergedAt: ts, Title: "Lambda fix", Body: "Fixes #30001."},
+		// A PR that mentions #45362 only in a comment.
+		{Number: 46004, Kind: index.KindPR, State: "open", Title: "Unrelated", Body: "nothing"},
+	} {
+		is.CreatedAt, is.UpdatedAt = ts, ts
+		if err := tx.UpsertIssue(ctx, is, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.ReplaceCommentSignals(ctx, 46004, 77, ts, "see #45362"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	r := reconciler(t, st, "")
+	res, err := r.Run(ctx, "https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res.Candidates, 45362, ""); c.Category != CategoryTracked {
+		t.Fatalf("#45362 = %+v", c)
+	}
+	if c := find(t, res.Candidates, 46000, ""); c.Category != CategoryImplemented || !hasSignal(c, matchReferencesCandidate, "#45362") {
+		t.Errorf("#46000 = %+v, want implemented via #45362", c)
+	}
+	if c := find(t, res.Candidates, 46001, ""); c.Category != CategoryTracked {
+		t.Errorf("#46001 category = %s, want already_tracked", c.Category)
+	}
+	for _, c := range res.Candidates {
+		switch c.Number {
+		case 46002, 46003, 46004:
+			if hasSignal(c, matchReferencesCandidate, "#45362") || c.Category != CategoryRelated {
+				t.Errorf("#%d should not be followed: %+v", c.Number, c)
+			}
+		}
+	}
+
+	// As of before the PRs existed, they aren't followed.
+	r.AsOf = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	res, err = r.Run(ctx, "https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range res.Candidates {
+		if c.Number == 46000 || c.Number == 46001 {
+			t.Errorf("#%d returned before it was created", c.Number)
+		}
+	}
+}

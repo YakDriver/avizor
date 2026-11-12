@@ -27,7 +27,12 @@ const (
 const (
 	matchReferencedByInput = "referenced_by_input"
 	matchReferencesInput   = "references_input"
+	// matchReferencesCandidate marks a PR that references a strongly matched issue candidate.
+	matchReferencesCandidate = "references_candidate"
 )
+
+// notIndexedTitle is the title of a cross-referenced issue that isn't in the index.
+const notIndexedTitle = "(not in index)"
 
 // Candidate kinds.
 const (
@@ -134,6 +139,18 @@ func (c *Candidate) strongCount() int {
 	n := 0
 	for _, m := range c.Signals {
 		if m.Strength == StrengthStrong {
+			n++
+		}
+	}
+	return n
+}
+
+// directStrongCount counts strong signals matched by the candidate itself, not inherited by following a reference.
+// Sorting by it first keeps an issue ahead of the PRs found through it.
+func (c *Candidate) directStrongCount() int {
+	n := 0
+	for _, m := range c.Signals {
+		if m.Strength == StrengthStrong && m.Type != matchReferencesCandidate {
 			n++
 		}
 	}

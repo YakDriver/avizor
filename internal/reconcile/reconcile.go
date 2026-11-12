@@ -228,7 +228,7 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 			if c, ok := cands[n]; ok {
 				c.Kind, c.Number, c.Category = KindIssue, n, CategoryRelated
 				c.URL = fmt.Sprintf("https://github.com/%s/issues/%d", r.Target.Repo, n)
-				c.Title = "(not in index)"
+				c.Title = notIndexedTitle
 				out = append(out, *c)
 			}
 			continue
@@ -261,6 +261,10 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 
 		c.Category = categorize(c, is)
 		out = append(out, *c)
+	}
+
+	if out, err = r.followReferences(ctx, out, commonThreshold); err != nil {
+		return nil, err
 	}
 
 	if !r.Options.NoCode {
@@ -488,6 +492,9 @@ func sortCandidates(cs []Candidate) {
 		if d := order[a.Category] - order[b.Category]; d != 0 {
 			return d
 		}
+		if d := b.directStrongCount() - a.directStrongCount(); d != 0 {
+			return d
+		}
 		if d := b.strongCount() - a.strongCount(); d != 0 {
 			return d
 		}
@@ -571,4 +578,74 @@ func inferRequest(text string, res *Result) string {
 	}
 	res.Inferences = append(res.Inferences, Inference{Type: "request", Value: kind, Basis: basis})
 	return kind
+}
+
+// followReferences adds PRs that reference strongly matched issues. A tracking issue usually doesn't link the PR that
+// implements it, but the PR links the issue ("Closes #N"), so following that link finds work the input's own signals
+// miss. Only title and body references count; comment references are mostly "+1, see #N".
+//
+// The PR inherits the issue's strong match, so its category follows its own state: merged is "already implemented".
+func (r *Reconciler) followReferences(ctx context.Context, out []Candidate, commonThreshold int) ([]Candidate, error) {
+	at := map[int]int{}
+	for i, c := range out {
+		if c.Number != 0 {
+			at[c.Number] = i
+		}
+	}
+
+	type link struct {
+		issue int
+		where string
+	}
+	links := map[int][]link{}
+	for _, c := range out {
+		if c.Kind != KindIssue || c.Category == CategoryRelated || c.Title == notIndexedTitle {
+			continue
+		}
+		hits, err := r.view.SignalHits(ctx, signal.KindIssueRef, strconv.Itoa(c.Number))
+		if err != nil {
+			return nil, err
+		}
+		if len(hits) > commonThreshold {
+			r.warnf("didn't follow references to #%d (referenced by %d records)", c.Number, len(hits))
+			continue
+		}
+		for _, h := range hits {
+			if h.Where != index.WhereComment && h.Number != c.Number {
+				links[h.Number] = append(links[h.Number], link{c.Number, h.Where})
+			}
+		}
+	}
+	if len(links) == 0 {
+		return out, nil
+	}
+
+	numbers := make([]int, 0, len(links))
+	for n := range links {
+		numbers = append(numbers, n)
+	}
+	records, err := r.view.Issues(ctx, numbers)
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(numbers)
+	for _, n := range numbers {
+		is := records[n]
+		if is == nil || is.Kind != index.KindPR {
+			continue
+		}
+		i, ok := at[n]
+		if !ok {
+			var c Candidate
+			fillFromIssue(&c, is)
+			out = append(out, c)
+			i = len(out) - 1
+			at[n] = i
+		}
+		for _, l := range links[n] {
+			out[i].addSignal(Match{Type: matchReferencesCandidate, Value: "#" + strconv.Itoa(l.issue), Where: l.where, Strength: StrengthStrong})
+		}
+		out[i].Category = categorize(&out[i], is)
+	}
+	return out, nil
 }
