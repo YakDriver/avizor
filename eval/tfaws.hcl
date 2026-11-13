@@ -22,11 +22,21 @@
 #   item-gap           Pulled SDK items that need provider work nothing covers yet, from the gap sample (below).
 #   item-covered       Pulled SDK items from the gap sample that existing work covers, though no tracker cites the
 #                      release commit.
+#   item-covered-sample  The covered sample (below): queue state and judged confident candidates.
+#   item-partial         Covered items the first partial-state run flagged, outside the covered sample, hand-checked:
+#                        partial when some work has no code or issue, covered when the launch's tracker covers it.
+#                        AgentCore release-2026-08-06 and Resilience Hub release-2026-05-28 are left out: each has a
+#                        release tracker that may cover the flagged work.
 #
 # The gap sample: 32 items drafted in a seeded random order (seed 20261112) from items in implemented services with
 # the SDK version available and some inferred work, until 30 had no confident existing work. Each was hand-checked
 # against provider code at 258e7008847 (2026-11-12) and a GitHub search of issues and PRs.
 #
+# The covered sample: 30 of the 61 covered items that are not other item cases, in a seeded random order (seed 13),
+# hand-checked on 2026-11-13 against provider code at 873712b39f8 and the index. Two (Network Firewall
+# release-2026-11-10 and DevOps Agent release-2026-03-30) were first labeled covered and relabeled partial after the
+# partial state flagged them; see the design doc.
+
 # Item cases need pulled items: run `avizor pull --since 2025-11-30` first.
 #
 # same and different judge other candidates Avizor returns with a confident category (anything above "related"): same
@@ -1618,4 +1628,576 @@ case "item-covered-cognitoidentityprovider-2026-06-01" {
     number   = 48670
     category = "already_tracked"
   }
+}
+
+# --- covered sample: item-covered-sample and item-partial
+
+case "item-covered-sample-accountaccess-2026-08-11" {
+  item  = "aws-sdk-go-v2/accountaccess/release-2026-08-11"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [49553]
+  same_paths = [
+    "internal/service/accountaccess/application.go",
+    "internal/service/accountaccess/application_data_source.go",
+    "internal/service/accountaccess/entitlement.go",
+    "internal/service/accountaccess/sweep.go",
+  ]
+}
+
+case "item-covered-sample-athena-2026-11-06" {
+  item  = "aws-sdk-go-v2/athena/release-2026-11-06"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "workgroup system_table_statuses argument has no code or issue"
+  state = "partial"
+  same  = [50887, 50893]
+}
+
+case "item-covered-sample-bedrockagentcorecontrol-2026-02-05" {
+  item  = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-02-05"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same_paths = [
+    "internal/service/bedrockagentcore/browser_profile.go",
+  ]
+}
+
+case "item-covered-sample-bedrockagentcorecontrol-2026-04-22" {
+  item  = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-04-22"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  different = [48496, 48654, 49749, 50088, 50654, 50663]
+  same_paths = [
+    "internal/service/bedrockagentcore/harness.go",
+  ]
+}
+
+case "item-covered-sample-bedrockagentcorecontrol-2026-09-03" {
+  item  = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-09-03"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "online evaluation config log group prefixes, metrics namespace, and result destination have no code or issue"
+  state = "partial"
+  same  = [49882, 49947]
+}
+
+case "item-covered-sample-bedrockdataautomation-2026-04-02" {
+  item  = "aws-sdk-go-v2/bedrockdataautomation/release-2026-04-02"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [50727]
+  same_paths = [
+    "internal/service/bedrockdataautomation/library.go",
+  ]
+}
+
+case "item-covered-sample-cloudwatch-2026-02-24" {
+  item  = "aws-sdk-go-v2/cloudwatch/release-2026-02-24"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [46750]
+  same_paths = [
+    "internal/service/cloudwatch/alarm_mute_rule.go",
+  ]
+}
+
+case "item-covered-sample-cloudwatch-2026-04-02" {
+  item  = "aws-sdk-go-v2/cloudwatch/release-2026-04-02"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [50390]
+  same_paths = [
+    "internal/service/cloudwatch/otel_enrichment.go",
+  ]
+}
+
+case "item-covered-sample-cloudwatchlogs-2025-12-02" {
+  item  = "aws-sdk-go-v2/cloudwatchlogs/release-2025-12-02"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [48137, 48190]
+  different = [48286]
+  same_paths = [
+    "internal/service/logs/s3_table_integration_source.go",
+  ]
+}
+
+case "item-covered-sample-cloudwatchomni-2026-09-22" {
+  item  = "aws-sdk-go-v2/cloudwatchomni/release-2026-09-22"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [50329, 50385, 50428, 50471, 50482, 50483, 50551, 50660, 50679]
+  same_paths = [
+    "internal/service/cloudwatchomni/access_grant.go",
+    "internal/service/cloudwatchomni/access_grant_list.go",
+    "internal/service/cloudwatchomni/access_profile.go",
+    "internal/service/cloudwatchomni/dashboard.go",
+    "internal/service/cloudwatchomni/domain.go",
+    "internal/service/cloudwatchomni/domain_list.go",
+    "internal/service/cloudwatchomni/organization_domain.go",
+    "internal/service/cloudwatchomni/organization_domain_list.go",
+    "internal/service/cloudwatchomni/space.go",
+    "internal/service/cloudwatchomni/view.go",
+  ]
+}
+
+case "item-covered-sample-devopsagent-2026-03-30" {
+  item  = "aws-sdk-go-v2/devopsagent/release-2026-03-30"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "private connection (open PR #48148, not cited) and operator app have no code; first labeled covered"
+  state = "partial"
+  same  = [47795, 50711, 50712]
+  same_paths = [
+    "internal/service/devopsagent/agent_space.go",
+  ]
+}
+
+case "item-covered-sample-devopsagent-2026-06-08" {
+  item  = "aws-sdk-go-v2/devopsagent/release-2026-06-08"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same_paths = [
+    "internal/service/devopsagent/asset.go",
+    "internal/service/devopsagent/asset_file.go",
+    "internal/service/devopsagent/asset_file_list.go",
+  ]
+}
+
+case "item-covered-sample-ec2-2026-02-10" {
+  item  = "aws-sdk-go-v2/ec2/release-2026-02-10"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "aws_instance secondary_interfaces has no code or issue; the launch template has it"
+  state = "partial"
+  different = [46552]
+  same_paths = [
+    "internal/service/ec2/ec2_secondary_network.go",
+    "internal/service/ec2/ec2_secondary_subnet.go",
+  ]
+}
+
+case "item-covered-sample-ec2-2026-07-29" {
+  item  = "aws-sdk-go-v2/ec2/release-2026-07-29"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same_paths = [
+    "internal/service/ec2/transitgateway_policy_table_entry.go",
+  ]
+}
+
+case "item-covered-sample-ecs-2026-10-20" {
+  item  = "aws-sdk-go-v2/ecs/release-2026-10-20"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [50894, 50895]
+}
+
+case "item-covered-sample-kafka-2026-02-10-2" {
+  item  = "aws-sdk-go-v2/kafka/release-2026-02-10.2"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [46640]
+  different = [50323, 50388, 50721, 50723]
+  same_paths = [
+    "internal/service/kafka/topic.go",
+  ]
+}
+
+case "item-covered-sample-kafka-2026-07-30" {
+  item  = "aws-sdk-go-v2/kafka/release-2026-07-30"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [49266]
+  same_paths = [
+    "internal/service/kafka/channel.go",
+  ]
+}
+
+case "item-covered-sample-lambda-2026-08-20" {
+  item  = "aws-sdk-go-v2/lambda/release-2026-08-20"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [49866]
+  same_paths = [
+    "internal/service/lambda/resource_policy.go",
+  ]
+}
+
+case "item-covered-sample-lambdaweb-2026-10-02" {
+  item  = "aws-sdk-go-v2/lambdaweb/release-2026-10-02"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [50341, 50452]
+  different = [50719]
+  same_paths = [
+    "internal/service/lambdaweb/function.go",
+    "internal/service/lambdaweb/function_endpoint.go",
+    "internal/service/lambdaweb/function_revision.go",
+    "internal/service/lambdaweb/generate.go",
+    "internal/service/lambdaweb/resource_policy.go",
+    "internal/service/lambdaweb/tags_gen.go",
+  ]
+}
+
+case "item-covered-sample-networkfirewall-2026-11-10" {
+  item  = "aws-sdk-go-v2/networkfirewall/release-2026-11-10"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "rule group firewall_rule_group and ips_rule_group have no code; the policy v2 tracker #50901 does not mention them; first labeled covered"
+  state = "partial"
+  same  = [50901]
+}
+
+case "item-covered-sample-observabilityadmin-2025-12-02" {
+  item  = "aws-sdk-go-v2/observabilityadmin/release-2025-12-02"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [48137, 48190]
+  different = [48286]
+  same_paths = [
+    "internal/service/observabilityadmin/s3_table_integration.go",
+    "internal/service/observabilityadmin/telemetry_pipeline.go",
+  ]
+}
+
+case "item-covered-sample-observabilityadmin-2026-09-22" {
+  item  = "aws-sdk-go-v2/observabilityadmin/release-2026-09-22"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "centralization rule context graph configuration has no code or issue"
+  state = "partial"
+  same  = [50505, 50529]
+  same_paths = [
+    "internal/service/observabilityadmin/dataset_integration.go",
+  ]
+}
+
+case "item-covered-sample-odb-2026-06-09" {
+  item  = "aws-sdk-go-v2/odb/release-2026-06-09"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "autonomous database backup has no code or issue"
+  state = "partial"
+  same  = [48991]
+  same_paths = [
+    "internal/service/odb/autonomous_database.go",
+  ]
+}
+
+case "item-covered-sample-opensearch-2026-03-31" {
+  item  = "aws-sdk-go-v2/opensearch/release-2026-03-31"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [49494, 50606]
+}
+
+case "item-covered-sample-pricingplanmanager-2026-07-30" {
+  item  = "aws-sdk-go-v2/pricingplanmanager/release-2026-07-30"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [45450, 49235]
+  different = [50498]
+  same_paths = [
+    "internal/service/pricingplanmanager/subscription.go",
+  ]
+}
+
+case "item-covered-sample-s3-2026-01-28" {
+  item  = "aws-sdk-go-v2/s3/release-2026-01-28"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [46261, 46264, 46286]
+}
+
+case "item-covered-sample-s3files-2026-04-07" {
+  item  = "aws-sdk-go-v2/s3files/release-2026-04-07"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [47333, 47334, 47336, 47337]
+  different = [47430, 47510, 47575, 47588, 47664, 47753, 47760, 48725, 49204, 50920]
+  same_paths = [
+    "internal/service/s3files/access_point.go",
+    "internal/service/s3files/file_system.go",
+    "internal/service/s3files/file_system_list.go",
+    "internal/service/s3files/file_system_policy.go",
+    "internal/service/s3files/file_systems_data_source.go",
+    "internal/service/s3files/mount_target.go",
+    "internal/service/s3files/sweep.go",
+    "internal/service/s3files/synchronization_configuration.go",
+  ]
+}
+
+case "item-covered-sample-sagemaker-2025-12-02" {
+  item  = "aws-sdk-go-v2/sagemaker/release-2025-12-02"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same_paths = [
+    "internal/service/sagemaker/mlflow_app.go",
+  ]
+}
+
+case "item-covered-sample-ssoadmin-2026-02-03" {
+  item  = "aws-sdk-go-v2/ssoadmin/release-2026-02-03"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same  = [48126, 48397, 48398]
+  same_paths = [
+    "internal/service/ssoadmin/region.go",
+  ]
+}
+
+case "item-covered-sample-uxc-2026-03-25" {
+  item  = "aws-sdk-go-v2/uxc/release-2026-03-25"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-covered-sample"
+  note  = "existing code, issues, or PRs cover the work"
+  state = "covered"
+  same_paths = [
+    "internal/service/uxc/account_customizations.go",
+  ]
+}
+
+case "item-partial-networkmanager-2026-10-22" {
+  item  = "aws-sdk-go-v2/networkmanager/release-2026-10-22"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "tracker #50613 covers the launch, including nat_gateway_rules"
+  state = "covered"
+  same  = [50613, 50689, 50690, 50700]
+  different = [50669, 50672, 50683]
+}
+
+case "item-partial-s3-2026-09-08" {
+  item  = "aws-sdk-go-v2/s3/release-2026-09-08"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "tracker #49909 covers object lock variable retention"
+  state = "covered"
+  same  = [49909, 50220]
+}
+
+case "item-partial-dynamodb-2026-08-04" {
+  item  = "aws-sdk-go-v2/dynamodb/release-2026-08-04"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "tracker #49350 covers vector search, including vector index arguments"
+  state = "covered"
+  same  = [49350, 49375]
+}
+
+case "item-partial-ec2-2026-08-04" {
+  item  = "aws-sdk-go-v2/ec2/release-2026-08-04"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "application status check suppression has no code or issue"
+  state = "partial"
+  same  = [49487, 49490]
+}
+
+case "item-partial-configservice-2026-07-07" {
+  item  = "aws-sdk-go-v2/configservice/release-2026-07-07"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "configuration recorder connector_arn and scope_configuration have no code or issue"
+  state = "partial"
+  same  = [49559]
+  same_paths = [
+    "internal/service/configservice/connector.go",
+  ]
+}
+
+case "item-partial-securityhub-2026-07-07" {
+  item  = "aws-sdk-go-v2/securityhub/release-2026-07-07"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "resource_owner_* arguments have no code or issue"
+  state = "partial"
+  same  = [49503]
+  different = [49559]
+  same_paths = [
+    "internal/service/securityhub/feature_v2.go",
+  ]
+}
+
+case "item-partial-cloudformation-2026-06-30" {
+  item  = "aws-sdk-go-v2/cloudformation/release-2026-06-30"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "tracker #48728 covers Express mode, including deployment_config"
+  state = "covered"
+  same  = [48728]
+}
+
+case "item-partial-eks-2026-06-30" {
+  item  = "aws-sdk-go-v2/eks/release-2026-06-30"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "tracker #48751 covers version rollback"
+  state = "covered"
+  same  = [48751]
+}
+
+case "item-partial-cloudwatchlogs-2026-06-22" {
+  item  = "aws-sdk-go-v2/cloudwatchlogs/release-2026-06-22"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "tracker #48547 covers syslog ingestion"
+  state = "covered"
+  same  = [48547]
+}
+
+case "item-partial-bedrockagentcorecontrol-2026-06-17" {
+  item  = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-06-17"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "four new arguments have no code; open PRs #48711, #48677, #48875 cover three, not cited"
+  state = "partial"
+  same  = [48791]
+}
+
+case "item-partial-s3-2026-06-16" {
+  item  = "aws-sdk-go-v2/s3/release-2026-06-16"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "tracker #48444 covers object annotations"
+  state = "covered"
+  same  = [48444, 50121]
+}
+
+case "item-partial-sesv2-2026-05-29" {
+  item  = "aws-sdk-go-v2/sesv2/release-2026-05-29"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "#49357 and #50861 cover tenant suppression attributes"
+  state = "covered"
+  same  = [49357, 50861]
+}
+
+case "item-partial-rds-2026-03-24" {
+  item  = "aws-sdk-go-v2/rds/release-2026-03-24"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "tracker #47117 covers express configuration"
+  state = "covered"
+  same  = [47117]
+}
+
+case "item-partial-bedrockagentcorecontrol-2025-12-02" {
+  item  = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2025-12-02"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "episodic memory strategy arguments have no code or issue"
+  state = "partial"
+  same  = [47108, 47209, 47957, 47964, 47971]
+  same_paths = [
+    "internal/service/bedrockagentcore/evaluator.go",
+    "internal/service/bedrockagentcore/gateway.go",
+    "internal/service/bedrockagentcore/online_evaluation_config.go",
+    "internal/service/bedrockagentcore/policy.go",
+    "internal/service/bedrockagentcore/policy_engine.go",
+    "internal/service/bedrockagentcore/resource_policy.go",
+  ]
+}
+
+case "item-partial-lambda-2025-12-02" {
+  item  = "aws-sdk-go-v2/lambda/release-2025-12-02"
+  as_of = "2026-11-13T19:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "tracker #45354 covers durable functions; durable_execution_name is an invoke parameter"
+  state = "covered"
+  same  = [45354, 45359]
+  same_paths = [
+    "internal/service/lambda/function.go",
+  ]
 }

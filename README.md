@@ -95,7 +95,7 @@ Strong signals rarely match by chance:
 
 Weak signals are title keywords, `service/*` labels, cross-references, GitHub URLs, and Terraform names in bodies. Text output marks strong signals with `*`. Signals found in more than 40 records, like contributing-guide links, are skipped and listed under `warnings`.
 
-Categories are often wrong, so check the signals. On the [eval](eval/README.md) corpus, 78% of confident categories are right. That drops to 30% on duplicate reports, where Avizor finds the duplicate but often marks other work as tracked. In an [experiment](docs/design/avizor.md#step-5-agent-experiment), an agent reading the top 10 candidates found the duplicate in 19 of 20 cases and rejected every wrong confident category.
+Categories are often wrong, so check the signals. On the [eval](eval/README.md) corpus, 89% of confident categories are right, most of them on SDK items. That drops to 30% on duplicate reports, where Avizor finds the duplicate but often marks other work as tracked. In an [experiment](docs/design/avizor.md#step-5-agent-experiment), an agent reading the top 10 candidates found the duplicate in 19 of 20 cases and rejected every wrong confident category.
 
 For an item, the signals are different. A new operation name and the SDK release commit are strong only with the item's service label. The SDK bump PR is always `related`, because it makes the change available but doesn't implement it. Code search covers only new operations in the item's package. An issue or PR that matches only operations the code already calls is `related` too (`existing_code`), since it's usually a bug or enhancement for that code. Titles that ask for or add a new resource or service keep their category.
 
@@ -212,7 +212,7 @@ The reviewer section also lists warnings and possibly related issues and PRs:
 
 ## Evaluate
 
-`avizor eval` scores reconciliation and the queue against 158 cases labeled from provider history. See [eval/README.md](eval/README.md).
+`avizor eval` scores reconciliation and queue states against 203 cases labeled from provider history. See [eval/README.md](eval/README.md).
 
 ## Develop
 
