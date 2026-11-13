@@ -158,10 +158,31 @@ radar queue --since 90d --service s3 --all --format text
 | `no_code` | no | The work touches no code the target has and adds no new resource. |
 | `unimplemented` | no | The service isn't one the target implements, and it isn't a new SDK module. |
 | `no_work` | no | Radar inferred no work, as for documentation-only model changes. |
+| `resurfaced` | yes | A decided item that needs another look. See [Record decisions](#record-decisions). |
+| `decided` | no | An item whose recorded decision still stands. |
 
 `--all` shows the hidden states too, and `--state gap,covered` picks states. A `gap` is still a guess. In a hand-checked sample, the queue showed 20 items as gaps: 8 were real gaps, 8 needed no provider work, and 4 were already implemented or tracked. 2 of those 4 had the covering issue or PR in the related list. Check the related list before drafting. An item is `no_code` only when its model loaded and the code search ran, so with `--no-code`, or when either fails, nothing is hidden as `no_code`; the row's reason says why. The queue needs the target's checkout for its service map.
 
 The queue runs 4 items at a time (`--jobs`); 30 days, about 180 items, takes about 15 seconds.
+
+### Record decisions
+
+```
+radar decide aws-sdk-go-v2/docdb/release-2026-09-21 created 51234
+radar decide aws-sdk-go-v2/cloudwatch/release-2026-05-01 duplicate 48548
+radar decide aws-sdk-go-v2/cleanrooms/release-2026-07-27 skipped --reason "query-time setting, no resource"
+radar decide aws-sdk-go-v2/rds/release-2026-08-27 deferred --revisit 60d
+radar decide aws-sdk-go-v2/rds/release-2026-08-27 cleared
+radar decisions --format text
+```
+
+A decision takes the item off the default queue. Radar records who decided (`--by`, default `$USER`) and what it found at the time, and the item comes back as `resurfaced`, with the reason, when:
+
+- its revisit date passes (`--revisit`, an age or a date; `deferred` defaults to 30 days);
+- it's a `duplicate` and the covering issue was closed other than as completed, or the covering PR was closed unmerged;
+- it's `skipped` or `deferred` and what Radar finds changed, such as the SDK version becoming available or a new tracking issue.
+
+`created` stands otherwise. Decided items published before `--since` are checked too, so a deferral comes back when it's due; they're listed only if they re-surface or `--state decided` asks for them. `--state decided` lists decided items, and `radar decisions --history` lists every decision, including cleared ones.
 
 ### Draft an issue
 

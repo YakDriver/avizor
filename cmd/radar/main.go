@@ -39,6 +39,9 @@ Usage:
   radar inspect [flags] <item-id>            Show an item's evidence.
   radar draft [flags] <item-id>              Draft a new issue for an item.
   radar queue [flags]                        List recent items that need a decision.
+  radar decide [flags] <item-id> <decision> [issue]
+                                             Record a decision: created, duplicate, skipped, deferred, or cleared.
+  radar decisions [flags] [item-id]          List recorded decisions.
   radar version
 
 Common flags:
@@ -81,6 +84,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return cmdPull(ctx, args[1:], stdout, stderr)
 	case "items":
 		return cmdItems(ctx, args[1:], stdout, stderr)
+	case "decide":
+		return cmdDecide(ctx, args[1:], stdout, stderr)
+	case "decisions":
+		return cmdDecisions(ctx, args[1:], stdout, stderr)
 	case "queue":
 		return cmdQueue(ctx, args[1:], stdout, stderr)
 	case "draft":

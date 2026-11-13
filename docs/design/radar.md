@@ -164,21 +164,23 @@ Inferred values, such as the Terraform name, and possibly related issues for a `
 
 ### Disposition
 
-The recorded outcome for an item.
+The recorded outcome for an item, per target.
 
-- `created #N`
-- `duplicate-of #N`: existing work covers the item.
+- `created #N`: a new issue was filed.
+- `duplicate #N`: existing work covers the item.
 - `skipped` (with reason)
-- `deferred`
+- `deferred` (revisit after 30 days unless set)
+- `cleared`: withdraws the previous decision.
 
-Each disposition stores:
+Each disposition stores `decided_at`, `decided_by` (human or agent identity), an optional `revisit_after`, and the evidence Radar found when the decision was made: the queue state, SDK availability, and confident candidates. Decisions are kept as history; the latest is current.
 
-- `decided_at`, `decided_by` (human or agent identity).
-- `revisit_after`: optional date to re-surface the item.
-- `evidence_fingerprint`: a hash of the findings that informed the decision. If later findings differ (the provider picks up the SDK version, the matched issue is closed, an announcement appears), the item re-surfaces.
-- `last_evaluated_at`.
+A decided item re-surfaces in the queue, with the reason, when:
 
-Dispositions are never treated as permanent. Over time they also become labeled data for the evaluation corpus.
+- its revisit date passes (any decision);
+- for `duplicate`, the covering issue is closed other than as completed, or the covering PR is closed unmerged;
+- for `skipped` and `deferred`, the evidence changed: the state, availability, or confident candidates differ.
+
+A `created` decision otherwise stands. Dispositions are never treated as permanent. Over time they also become labeled data for the evaluation corpus.
 
 ## Evaluation
 
@@ -386,6 +388,16 @@ Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hu
 - **Unimplemented services are hidden unless the item is a new SDK module.** The gap sample didn't cover them. Most are services the provider has chosen not to implement or AWS-internal APIs, and a new module is the clearest sign of a service worth a look.
 - **`pending` comes after `no_code`.** An item with nothing in code the target has stays hidden even if its SDK version isn't available yet.
 - **Over all items:** 638 gap, 59 pending, 19 new service, 99 covered, 374 no code, 272 unimplemented, and 26 no work. 59 of the 95 shown in the last 30 days are pending, because the provider's AWS SDK versions predate the 2026-10-29 releases.
+
+**Step 3: dispositions.** `radar decide <item-id> <decision> [issue]` records a decision in the items database, and `radar decisions` lists them. The queue hides decided items (`decided`) until they re-surface (`resurfaced`, shown first). Deviations from the original design:
+
+- **Evidence is stored readably, not as a hash.** A hash only says that something changed. The stored evidence lets the queue say what: "availability pending → available", "new: already tracked #5".
+- **Resurfacing depends on the decision.** A single fingerprint would re-surface every `created` item as soon as its new issue was indexed, because that issue becomes a confident candidate. So `created` stands, `duplicate` watches the covering issue or PR, and only `skipped` and `deferred` compare evidence.
+- **No `last_evaluated_at`.** The queue reads decisions without writing, and comparing evidence doesn't need it.
+- **Evidence from runs with different code searches isn't compared on code.** Evidence records whether enrichment searched code (which `no_code` depends on) and, separately, whether reconciliation did (which code candidates depend on). Code candidates are compared only when both runs searched, and the state only when both runs did the same searches. Availability and issue or PR candidates are always compared, so `--no-code` or a failed model load doesn't re-surface everything.
+- **Decisions aren't limited to the queue's window.** Decided items published before `--since` are evaluated too, and listed if they re-surface, so a 30-day deferral of a 20-day-old item still comes back.
+- **`commented` is gone** (see [Draft](#draft)), and `cleared` withdraws a decision without deleting history.
+- **Turning decisions into eval cases** is left for later. It needs a rule for which decisions make good labels; see Open questions.
 
 ## Open questions
 
