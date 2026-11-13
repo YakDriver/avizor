@@ -123,6 +123,16 @@ Pulling the 230 releases from 2025-11-30 to 2026-11-11 took about 2.5 minutes an
 
 All source settings have defaults and can be changed in the config. See [radar.example.hcl](radar.example.hcl).
 
+### Announcements
+
+`radar pull` also pulls [AWS What's New](https://aws.amazon.com/about-aws/whats-new/) announcements. With no source name it pulls every source; `radar pull aws-whats-new --since 2025-11-25` pulls only announcements, back to a date. Announcements don't become items. Enrichment matches each item to the announcement it most likely belongs to, and `radar inspect`, `radar draft`, and `radar queue` show it.
+
+A match is an inference from text similarity between the item's release notes and the announcement, within 3 days before to 7 days after the release. Region-expansion posts are left out, and the best match must clearly beat the next. Radar uses the matched headline for draft titles. It puts the announcement in the body only with `radar draft --announcement`, which quotes the headline and links the post in place of the release notes, as maintainer trackers do.
+
+Of 36 items that maintainer trackers link to an announcement, Radar matched 26 to the linked one, 2 to a different one, and left 8 unmatched. In a random sample of 300 other items it matched 79, and 3 of those were wrong by hand check.
+
+What's New has no documented API beyond an RSS feed of the latest 100 posts. Radar reads the JSON directory endpoint the What's New pages use, which pages back through history; `url` in the source config overrides it.
+
 ### Relate items to the target
 
 `radar inspect` also relates the item to the target (`--no-enrich` skips this):

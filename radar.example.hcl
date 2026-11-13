@@ -41,8 +41,8 @@ target "tfaws" {
 # ~/.local/share/radar). --state-dir overrides it.
 # state_dir = "~/.local/share/radar"
 
-# Sources produce items for `radar pull`. With no source blocks, Radar uses one aws-sdk-go-v2 source with these
-# defaults, so this block is only needed to change them.
+# Sources feed `radar pull`. With no source blocks, Radar uses one aws-sdk-go-v2 source and one aws-whats-new source
+# with these defaults, so these blocks are only needed to change them. Configuring any source replaces both defaults.
 source "aws-sdk-go-v2" {
   type = "aws-sdk-go-v2"
 
@@ -63,4 +63,15 @@ source "aws-sdk-go-v2" {
   # Limit items to some SDK service modules, or drop some.
   # services         = ["fsx", "s3control"]
   # exclude_services = ["connect"]
+}
+
+# AWS What's New announcements, matched to items by enrichment. With no source blocks, Radar adds this one too.
+source "aws-whats-new" {
+  type = "aws-whats-new"
+
+  # The directory search endpoint behind the What's New pages. It isn't a documented API.
+  # url = "https://aws.amazon.com/api/dirs/items/search?item.directoryId=whats-new-v2&sort_by=item.additionalFields.postDateTime&sort_order=desc&item.locale=en_US"
+
+  # Where the first pull starts. Later pulls start a week before the last one, for late and back-dated posts.
+  # start = "30d"
 }
