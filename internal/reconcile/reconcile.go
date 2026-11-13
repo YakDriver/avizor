@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YakDriver/radar/internal/config"
-	"github.com/YakDriver/radar/internal/index"
-	"github.com/YakDriver/radar/internal/services"
-	"github.com/YakDriver/radar/internal/signal"
+	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/index"
+	"github.com/YakDriver/avizor/internal/services"
+	"github.com/YakDriver/avizor/internal/signal"
 )
 
 // IssueFetcher fetches an issue that isn't in the index.
@@ -112,7 +112,7 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 		Evidence:   []Evidence{},
 		Inferences: []Inference{},
 		Candidates: []Candidate{},
-		Provenance: Provenance{Tool: "radar", Version: r.Options.Version, GeneratedAt: time.Now().UTC(), Operations: r.OperationsSource},
+		Provenance: Provenance{Tool: "avizor", Version: r.Options.Version, GeneratedAt: time.Now().UTC(), Operations: r.OperationsSource},
 	}
 	if err := r.fillTarget(ctx, &res.Target); err != nil {
 		return nil, err
@@ -377,7 +377,7 @@ func (r *Reconciler) fillTarget(ctx context.Context, t *TargetInfo) error {
 	}
 	t.IndexSynced = synced
 	if synced == "" {
-		r.warnf("the index for %s has never been synced; run `radar sync`", r.Target.Name)
+		r.warnf("the index for %s has never been synced; run `avizor sync`", r.Target.Name)
 	}
 	st, err := r.Store.Stats(ctx)
 	if err != nil {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/YakDriver/radar/internal/smithy"
+	"github.com/YakDriver/avizor/internal/smithy"
 )
 
 // Verbs that, on a new operation, suggest a resource's lifecycle or a read.

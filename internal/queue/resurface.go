@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YakDriver/radar/internal/index"
-	"github.com/YakDriver/radar/internal/items"
+	"github.com/YakDriver/avizor/internal/index"
+	"github.com/YakDriver/avizor/internal/items"
 )
 
 // IssueLookup returns an issue or PR from the index, or nil if it isn't there.

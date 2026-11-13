@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/YakDriver/radar/internal/signal"
+	"github.com/YakDriver/avizor/internal/signal"
 )
 
 // InputItem is the kind of an upstream item input, such as an AWS SDK release item.

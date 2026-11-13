@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YakDriver/radar/internal/awssdk"
-	"github.com/YakDriver/radar/internal/services"
-	"github.com/YakDriver/radar/internal/smithy"
+	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/services"
+	"github.com/YakDriver/avizor/internal/smithy"
 )
 
 func TestWork(t *testing.T) {

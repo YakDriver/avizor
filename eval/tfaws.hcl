@@ -1,6 +1,6 @@
-# Radar evaluation corpus for the Terraform AWS Provider.
+# Avizor evaluation corpus for the Terraform AWS Provider.
 #
-# Every expectation comes from repository history, not from Radar's output:
+# Every expectation comes from repository history, not from Avizor's output:
 #   duplicate          GitHub "Duplicate of #N" markings. Every 5th of the 98 pairs filed since 2025-01-01 whose original
 #                      predates the duplicate, in issue order.
 #   announcement       What's New URLs linked from maintainer tracking issues, reconciled 30 minutes after the tracker was
@@ -13,7 +13,7 @@
 #   item-tracked       Pulled SDK items whose release commit a maintainer tracker (or PR) with the item's service label
 #                      cites, reconciled 30 minutes after the later of the release and the last such tracker. Every
 #                      such item in releases from 2025-12-01 to 2026-11-11, except ec2/release-2026-09-04, which only
-#                      the bump PR cites. Radar matches on the same release commit, so these mostly measure precision
+#                      the bump PR cites. Avizor matches on the same release commit, so these mostly measure precision
 #                      on the other candidates, not retrieval.
 #   item-new           The same items reconciled a minute before their first tracker was filed, when it was filed
 #                      after the release.
@@ -27,17 +27,17 @@
 # the SDK version available and some inferred work, until 30 had no confident existing work. Each was hand-checked
 # against provider code at 258e7008847 (2026-11-12) and a GitHub search of issues and PRs.
 #
-# Item cases need pulled items: run `radar pull --since 2025-11-30` first.
+# Item cases need pulled items: run `avizor pull --since 2025-11-30` first.
 #
-# same and different judge other candidates Radar returns with a confident category (anything above "related"): same
+# same and different judge other candidates Avizor returns with a confident category (anything above "related"): same
 # is the same work as the input, such as a second duplicate or the implementing PR; different is not. Judgments come
 # from reading the candidate, not from its category. A confident category on different work fails the case. Run
-# `radar eval --format text --unjudged` to list confident candidates that still need a judgment.
+# `avizor eval --format text --unjudged` to list confident candidates that still need a judgment.
 #
 # Cases with code = true are judged against the checkout as of labeling (provider main at 37436a92a45, 2026-11-12).
 #
 # as_of defaults to "filed" for issue inputs. Regenerate the duplicate sample only with care: labels must not be
-# tuned to Radar's output.
+# tuned to Avizor's output.
 
 target = "tfaws"
 

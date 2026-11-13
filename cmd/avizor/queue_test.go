@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YakDriver/radar/internal/draft"
-	"github.com/YakDriver/radar/internal/items"
-	"github.com/YakDriver/radar/internal/queue"
-	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/draft"
+	"github.com/YakDriver/avizor/internal/items"
+	"github.com/YakDriver/avizor/internal/queue"
+	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
 func TestWorkSummary(t *testing.T) {

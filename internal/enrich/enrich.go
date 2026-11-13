@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YakDriver/radar/internal/awssdk"
-	"github.com/YakDriver/radar/internal/services"
-	"github.com/YakDriver/radar/internal/smithy"
-	"github.com/YakDriver/radar/internal/whatsnew"
+	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/services"
+	"github.com/YakDriver/avizor/internal/smithy"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 // Service statuses.
@@ -163,7 +163,7 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 			usages, modelOK = m.Usages(), true
 		}
 	default:
-		warnf("no model to find which operations changed members reach; run `radar pull` to clone the models")
+		warnf("no model to find which operations changed members reach; run `avizor pull` to clone the models")
 	}
 	res.Work = work(it.Diff, usages)
 	if e.Announcements != nil {

@@ -159,13 +159,13 @@ func TestDetectInText(t *testing.T) {
 	}
 }
 
-// TestLoadProvider parses the real provider file when RADAR_NAMES_DATA points to it.
+// TestLoadProvider parses the real provider file when AVIZOR_NAMES_DATA points to it.
 func TestLoadProvider(t *testing.T) {
 	t.Parallel()
 
-	p := os.Getenv("RADAR_NAMES_DATA")
+	p := os.Getenv("AVIZOR_NAMES_DATA")
 	if p == "" {
-		t.Skip("set RADAR_NAMES_DATA to a provider names_data.hcl to run")
+		t.Skip("set AVIZOR_NAMES_DATA to a provider names_data.hcl to run")
 	}
 	m, err := Load(p)
 	if err != nil {

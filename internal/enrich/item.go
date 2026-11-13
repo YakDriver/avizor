@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/YakDriver/radar/internal/awssdk"
-	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
 // ReconcileItem describes an SDK item and its enrichment for reconciliation.

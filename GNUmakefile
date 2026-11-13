@@ -4,7 +4,7 @@ default: help
 
 build: ## [CI] Build / go build
 	@echo "make: Building..."
-	@$(GO) build -o radar ./cmd/radar
+	@$(GO) build -o avizor ./cmd/avizor
 
 ci: build fmt-check fix-check tidy-check vet test ## Run every check CI runs
 

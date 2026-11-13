@@ -55,7 +55,7 @@ func NewClient(ctx context.Context) (*Client, error) {
 	}, nil
 }
 
-// Issue is the subset of the REST issue object Radar uses. The issues endpoints also return pull requests; those have
+// Issue is the subset of the REST issue object Avizor uses. The issues endpoints also return pull requests; those have
 // PullRequest set.
 type Issue struct {
 	Number      int        `json:"number"`
@@ -257,7 +257,7 @@ func (c *Client) get(ctx context.Context, u string, v any) (http.Header, error) 
 		req.Header.Set("Accept", "application/vnd.github+json")
 		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 		req.Header.Set("Authorization", "Bearer "+c.token)
-		req.Header.Set("User-Agent", "radar")
+		req.Header.Set("User-Agent", "avizor")
 
 		resp, err := c.HTTP.Do(req)
 		if err != nil {

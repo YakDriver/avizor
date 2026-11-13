@@ -19,7 +19,7 @@ const (
 	TypeIntEnum   = "intEnum"
 )
 
-// Model is the part of a Smithy JSON AST model Radar uses.
+// Model is the part of a Smithy JSON AST model Avizor uses.
 type Model struct {
 	// SDKID is the service's SDK ID, e.g. "FSx" or "S3 Control".
 	SDKID string

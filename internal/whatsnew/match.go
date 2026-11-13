@@ -13,7 +13,7 @@ import (
 )
 
 // Matching defaults. They were chosen on 36 SDK items that maintainer trackers link to an announcement, and checked on
-// a random sample of untracked items; see docs/design/radar.md.
+// a random sample of untracked items; see docs/design/avizor.md.
 const (
 	// DefaultBefore and DefaultAfter bound how long before and after a release an announcement can be posted.
 	DefaultBefore = 3 * 24 * time.Hour

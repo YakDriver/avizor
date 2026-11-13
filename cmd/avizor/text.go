@@ -6,7 +6,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
 var categoryTitles = map[string]string{

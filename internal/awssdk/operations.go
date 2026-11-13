@@ -15,7 +15,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/YakDriver/radar/internal/smithy"
+	"github.com/YakDriver/avizor/internal/smithy"
 )
 
 // Operations is the set of operation names across all service models at one commit.

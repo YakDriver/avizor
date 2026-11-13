@@ -1,4 +1,4 @@
-# Radar: design notes
+# Avizor: design notes
 
 Status: milestones 1 (index and reconcile) and 2 (evaluation) implemented. See [Milestone 1 notes](#milestone-1-notes) and [Milestone 2 notes](#milestone-2-notes).
 
@@ -16,9 +16,9 @@ Step 4 is the hardest. Community issues rarely use AWS's wording, so a determini
 
 ## Goal
 
-Radar finds what is already known about new information, gathers supporting evidence, and prepares the next action for review.
+Avizor finds what is already known about new information, gathers supporting evidence, and prepares the next action for review.
 
-Radar gathers evidence and drafts. It does not decide. A good result reads like:
+Avizor gathers evidence and drafts. It does not decide. A good result reads like:
 
 > AWS added `CreateAndAttachS3AccessPoint`, `DescribeS3AccessPointAttachments`, and `DetachAndDeleteS3AccessPoint` to FSx in aws-sdk-go-v2 release 2025-12-02. The provider picked up that release in #45358. Issue #45362 tracks this capability. `internal/service/fsx` already calls `CreateAndAttachS3AccessPoint`. No new issue appears necessary.
 
@@ -27,8 +27,8 @@ That explains the situation and makes the next action obvious, while leaving the
 ### Non-goals
 
 - Deciding by itself whether something is a duplicate.
-- Writing to GitHub. Radar produces the issue content and `gh` command arguments, and a human or agent runs them.
-- A general-purpose ingestion framework up front. Radar keeps interfaces that allow other sources and targets, but only AWS and the Terraform AWS Provider are built until a second use case needs more.
+- Writing to GitHub. Avizor produces the issue content and `gh` command arguments, and a human or agent runs them.
+- A general-purpose ingestion framework up front. Avizor keeps interfaces that allow other sources and targets, but only AWS and the Terraform AWS Provider are built until a second use case needs more.
 
 ## Milestones
 
@@ -53,7 +53,7 @@ Reconciliation is the hardest and most valuable part, and it's useful on its own
 
 ### Findings: evidence, inference, candidate, disposition
 
-Radar's output mixes statements of very different reliability. It keeps them apart so a reader, especially an agent, can tell observed facts from educated guesses.
+Avizor's output mixes statements of very different reliability. It keeps them apart so a reader, especially an agent, can tell observed facts from educated guesses.
 
 | Kind | Example | Produced by |
 |---|---|---|
@@ -87,7 +87,7 @@ The normalized unit of work.
 - `source`, `title`, `summary`, `url`, `published`.
 - `findings`: evidence and inferences attached by the source and enrichers.
 
-One SDK release can contain several independent features for one service, and several announcements can describe one feature. Radar doesn't model "capabilities" separately yet. One item per service per release is the starting point, and the evaluation corpus will show whether that's too coarse.
+One SDK release can contain several independent features for one service, and several announcements can describe one feature. Avizor doesn't model "capabilities" separately yet. One item per service per release is the starting point, and the evaluation corpus will show whether that's too coarse.
 
 ### Enricher
 
@@ -106,7 +106,7 @@ A local copy of what already exists in the target, so reconciliation is fast and
 
 - Issues and PRs, open and closed, synced with `gh api` and refreshed with `since=`. GitHub's REST issues endpoints return PRs as issues, so the sync tags each record's kind. Sync must handle pagination, edits, and deletions, so a periodic full resync supplements incremental updates.
 - Titles, bodies, and labels are indexed first.
-- Comments are expensive to index in full for a repository this size. People often paste announcement links in comments ("AWS just announced this: ..."), though, so at minimum Radar extracts URLs and AWS operation names from comments into a separate table.
+- Comments are expensive to index in full for a repository this size. People often paste announcement links in comments ("AWS just announced this: ..."), though, so at minimum Avizor extracts URLs and AWS operation names from comments into a separate table.
 - A local checkout of the target repo is searched directly for code and docs. It is not copied into the index.
 
 Storage is SQLite with FTS5. Embeddings wait until the evaluation corpus shows concrete misses. AWS operation names, Terraform resource names, and service aliases are strong lexical anchors.
@@ -120,7 +120,7 @@ Reconciliation runs in two stages.
    - SDK operation and shape names
    - proposed Terraform names and close variants
    - `service/*` labels plus key nouns and known service aliases
-2. **Evaluation (optional, agent).** An agent reads the top candidates and the item's findings, and writes a short justification that cites evidence. Radar narrows the field so the agent reasons over a handful of candidates, not the whole repository.
+2. **Evaluation (optional, agent).** An agent reads the top candidates and the item's findings, and writes a short justification that cites evidence. Avizor narrows the field so the agent reasons over a handful of candidates, not the whole repository.
 
 Candidates are grouped by **match category** instead of one weighted score, because an existing implementation, a merged PR, and an open request mean different things:
 
@@ -152,7 +152,7 @@ related
 
 ### Draft
 
-Renders a new issue from the item's findings using a per-target template. Output is the Markdown body plus `gh issue create` arguments (title, labels). Radar doesn't draft comments on existing issues: if existing work covers the item, the draft warns and the item is left alone. For the Terraform AWS Provider, the format follows #45362:
+Renders a new issue from the item's findings using a per-target template. Output is the Markdown body plus `gh issue create` arguments (title, labels). Avizor doesn't draft comments on existing issues: if existing work covers the item, the draft warns and the item is left alone. For the Terraform AWS Provider, the format follows #45362:
 
 - Title: ``New resource: `aws_<service>_<thing>` ``, `r/aws_<resource>: <capability>`, or `<service>: <capability>`.
 - Quoted announcement headline and a link to it, when the reviewer accepts the matched announcement (`--announcement`).
@@ -172,7 +172,7 @@ The recorded outcome for an item, per target.
 - `deferred` (revisit after 30 days unless set)
 - `cleared`: withdraws the previous decision.
 
-Each disposition stores `decided_at`, `decided_by` (human or agent identity), an optional `revisit_after`, and the evidence Radar found when the decision was made: the queue state, SDK availability, and confident candidates. Decisions are kept as history; the latest is current.
+Each disposition stores `decided_at`, `decided_by` (human or agent identity), an optional `revisit_after`, and the evidence Avizor found when the decision was made: the queue state, SDK availability, and confident candidates. Decisions are kept as history; the latest is current.
 
 A decided item re-surfaces in the queue, with the reason, when:
 
@@ -184,7 +184,7 @@ A `created` decision otherwise stands. Dispositions are never treated as permane
 
 ## Evaluation
 
-Without measurement, changes to retrieval, categories, or agent prompts are guesswork. Radar ships with an evaluation corpus and a command to run it.
+Without measurement, changes to retrieval, categories, or agent prompts are guesswork. Avizor ships with an evaluation corpus and a command to run it.
 
 The corpus starts with 30 to 50 hand-labeled cases drawn from provider history:
 
@@ -250,7 +250,7 @@ pipeline "aws-sdk" {
 }
 ```
 
-State (index, items, dispositions) lives in the XDG data directory (`$XDG_DATA_HOME/radar`, usually `~/.local/share/radar`), overridable with `--state-dir`.
+State (index, items, dispositions) lives in the XDG data directory (`$XDG_DATA_HOME/avizor`, usually `~/.local/share/avizor`), overridable with `--state-dir`.
 
 ## Interface
 
@@ -258,21 +258,21 @@ A CLI with small, composable commands. JSON by default for agents, `--text` for 
 
 | Command | Milestone | Purpose |
 |---|---|---|
-| `radar sync [target]` | 1 | Refresh the index. |
-| `radar candidates <issue\|url\|item-id>` or `--text "..."` | 1 | Reconcile ad hoc input or an item. |
-| `radar eval` | 2 | Run the evaluation corpus. |
-| `radar pull [pipeline]` | 3 | Fetch and enrich new items. |
-| `radar inspect <item-id\|url>` | 3 | Show an item's findings with provenance. |
-| `radar draft <item-id>` | 3 | Render an issue or comment and `gh` arguments. |
-| `radar queue` | 4 | List items with no disposition, or whose revisit conditions are met. |
-| `radar decide <item-id> <disposition>` | 4 | Record a disposition. |
+| `avizor sync [target]` | 1 | Refresh the index. |
+| `avizor candidates <issue\|url\|item-id>` or `--text "..."` | 1 | Reconcile ad hoc input or an item. |
+| `avizor eval` | 2 | Run the evaluation corpus. |
+| `avizor pull [pipeline]` | 3 | Fetch and enrich new items. |
+| `avizor inspect <item-id\|url>` | 3 | Show an item's findings with provenance. |
+| `avizor draft <item-id>` | 3 | Render an issue or comment and `gh` arguments. |
+| `avizor queue` | 4 | List items with no disposition, or whose revisit conditions are met. |
+| `avizor decide <item-id> <disposition>` | 4 | Record a disposition. |
 
 Examples:
 
 ```
-radar candidates 45362
-radar candidates https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/
-radar candidates --text "FSx S3 access point support"
+avizor candidates 45362
+avizor candidates https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/
+avizor candidates --text "FSx S3 access point support"
 ```
 
 An MCP server wrapping the same commands is a later option.
@@ -303,21 +303,21 @@ What was built, and where it differs from the design above:
 
 ## Milestone 2 notes
 
-- **Corpus and runner**: [`eval/tfaws.hcl`](../../eval/tfaws.hcl) has 55 cases labeled from repository history, and `radar eval` scores them. See [`eval/README.md`](../../eval/README.md) for the format, label sources, and baseline.
-- **Point-in-time reconciliation**: without it, labels leak (a duplicate's original shows as closed, the implementing PR appears before the request). The index now records when each signal's text was posted and when PRs merged (schema v2), and `index.Store.AsOf` hides later records and rewinds closed and merged state. `radar candidates --as-of` exposes it.
+- **Corpus and runner**: [`eval/tfaws.hcl`](../../eval/tfaws.hcl) has 55 cases labeled from repository history, and `avizor eval` scores them. See [`eval/README.md`](../../eval/README.md) for the format, label sources, and baseline.
+- **Point-in-time reconciliation**: without it, labels leak (a duplicate's original shows as closed, the implementing PR appears before the request). The index now records when each signal's text was posted and when PRs merged (schema v2), and `index.Store.AsOf` hides later records and rewinds closed and merged state. `avizor candidates --as-of` exposes it.
 - **Sync fix**: GitHub's repository comments endpoint stops returning next links after 300 pages, so the first sync silently stopped at 30,000 comments. Listing now restarts from the latest update time when a pass ends on a full page.
 - **Ranking**: FTS5's `bm25()` uses statistics from the whole table, so later records could reorder a point-in-time view. Full-text matches are now scored in Go with inverse document frequencies counted over the visible records, weighted by column. Eval results barely changed.
 - **Following references**: PRs that reference a strongly matched issue in their title or body are returned with that issue's match, and categorized by their own state. This fixed all 4 implemented-PR misses.
-- **Precision of confident categories** ([#3](https://github.com/YakDriver/radar/issues/3)): every candidate returned above "related" is judged `same` or `different` by reading it, and `radar eval` reports precision. A confident category on different work fails the case. At 56%, confident categories are wrong almost half the time, mostly from documentation URLs and a misread field name.
+- **Precision of confident categories** ([#3](https://github.com/YakDriver/avizor/issues/3)): every candidate returned above "related" is judged `same` or `different` by reading it, and `avizor eval` reports precision. A confident category on different work fails the case. At 56%, confident categories are wrong almost half the time, mostly from documentation URLs and a misread field name.
 - **Results**: before precision labels, 30 of 55 cases passed, hit@5 88%, recall 96%, category accuracy 47%. Categorization is still the main gap: duplicates and reworded requests are found, but as "related". The next things to measure are narrowing broad strong signals (multi-feature blog posts, shared operation names, SDK docs URLs) and an agent stage that evaluates top candidates. See [`eval/README.md`](../../eval/README.md#results).
 
 ## Milestone 3 notes
 
 PR 1 (SDK source):
 
-- **Model source changed.** The design called for diffing the Smithy models in aws-sdk-go-v2 between release tags. That repository is 1.6 GB, and each release changes about 30 model files of up to 900 KB, so covering a year would take tens of thousands of downloads. Radar instead keeps a local bare clone of `aws/api-models-aws` (about 180 MB), which holds only the models and gets a commit about an hour before each SDK release. The SDK releases API still supplies each module's version and release notes. The result is the same diff, offline.
+- **Model source changed.** The design called for diffing the Smithy models in aws-sdk-go-v2 between release tags. That repository is 1.6 GB, and each release changes about 30 model files of up to 900 KB, so covering a year would take tens of thousands of downloads. Avizor instead keeps a local bare clone of `aws/api-models-aws` (about 180 MB), which holds only the models and gets a commit about an hour before each SDK release. The SDK releases API still supplies each module's version and release notes. The result is the same diff, offline.
 - **Release windows.** A release's change is the diff between the last models commit at or before the previous release and the last one at or before this release. Some days have several models commits; all of them before the release count.
-- **Items** are one per service per release, stored in `items.db` with their evidence and provenance (models commits compared, model path, release URL). `radar pull`, `radar items`, and `radar inspect` are the commands.
+- **Items** are one per service per release, stored in `items.db` with their evidence and provenance (models commits compared, model path, release URL). `avizor pull`, `avizor items`, and `avizor inspect` are the commands.
 - **Skipping** is based on the model diff, not on release-note text. A trait-only change (a new protocol, `jsonName`, length constraints) is skipped as "no API change". This drops CBOR and serialization notes without a phrase list.
 - **Configuration.** Every source setting has a default and can be overridden: releases repo, models URL, clone location, branch, fetch, start, and service filters. The state directory is configurable too.
 
@@ -329,14 +329,14 @@ PR 2 (enrich and reconcile items):
 - **Work kinds are inferences** from the diff and the model: new operations grouped by noun (create, or paired verbs like register and deregister, mean a resource; reads only, a data source), and new members as arguments or attributes by whether an existing operation's input reaches the shape.
 - **Item reconciliation uses item-specific signals.** New operations and the release commit are strong only with the item's service label. The bump PR is demoted to related. Code search is limited to new operations in the item's package.
 - **Pull records release commits** from `git ls-remote`, so items carry the commit URL maintainers cite.
-- **Eval.** 73 item cases, labeled from trackers that cite release commits. Because Radar uses the same signal, they measure precision more than retrieval. Item-level no-work cases are hard to label from history: an item no tracker cites may still need work. The corpus has one.
+- **Eval.** 73 item cases, labeled from trackers that cite release commits. Because Avizor uses the same signal, they measure precision more than retrieval. Item-level no-work cases are hard to label from history: an item no tracker cites may still need work. The corpus has one.
 
 PR 3 (draft):
 
-- **`radar draft <item-id>`** renders the title, labels, body, and `gh issue create` arguments. Radar doesn't run `gh`.
+- **`avizor draft <item-id>`** renders the title, labels, body, and `gh issue create` arguments. Avizor doesn't run `gh`.
 - **The body holds only what the item shows**: the release notes quoted in full and the required SDK release with its bump PR. Inferred values (title, Terraform names, labels, headline) are listed with their basis in the JSON and the text reviewer section, not in the body, so the body can be filed as is.
-- **`Relates` is a suggestion, not body text.** Related candidates are weak matches, so writing them into the issue would state a relation Radar hasn't established.
-- **Existing work is a warning.** A confident candidate means the item may already be tracked or implemented. Radar fills gaps, so it doesn't draft comments on existing issues.
+- **`Relates` is a suggestion, not body text.** Related candidates are weak matches, so writing them into the issue would state a relation Avizor hasn't established.
+- **Existing work is a warning.** A confident candidate means the item may already be tracked or implemented. Avizor fills gaps, so it doesn't draft comments on existing issues.
 - **No announcement source yet.** The body quotes the release notes in full; titles use the first sentence. The reviewer can add the announcement headline, and milestone 4's announcement source will supply it.
 - **Tagging operations** (`TagResource` and its family) are inferred as tagging support, not a new resource, and aren't strong signals in reconciliation: every service has them.
 - **Measured against history.** Drafts for the 37 items with maintainer trackers (39 tracker pairs):
@@ -362,10 +362,10 @@ A look back after milestone 3 changed the order of milestone 4.
 **Order:**
 
 1. **Measure the gap claim.** Hand-check a sample of recent items in implemented services with no confident existing work: is work really missing, and does the item deserve an issue? This gives a precision for "no existing work" and the share of items worth filing, and the checked items become eval cases that don't come from the release-commit signal.
-2. **`radar queue`.** List items with no confident existing work, filtered and sorted by work kind, service, and availability.
+2. **`avizor queue`.** List items with no confident existing work, filtered and sorted by work kind, service, and availability.
 3. **Dispositions.** Record decisions on queue items, re-surface them when evidence changes, and add them to the corpus.
 4. **Announcement source.** What's New entries joined to items, for headlines, links, and announcement-only trackers.
-5. **Agent experiment.** Give an agent the candidates for the duplicate cases and score its picks. If it fixes most of the confidently wrong ones, tuning matters less there; if not, [#3](https://github.com/YakDriver/radar/issues/3) comes first.
+5. **Agent experiment.** Give an agent the candidates for the duplicate cases and score its picks. If it fixes most of the confidently wrong ones, tuning matters less there; if not, [#3](https://github.com/YakDriver/avizor/issues/3) comes first.
 
 Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hurt in practice.
 
@@ -377,19 +377,19 @@ Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hu
 - **Draft warnings miss PRs.** The draft's "possibly related" list includes the CloudWatch issue but not the Cognito PR, since it lists only issues. The queue should show weak PR matches too.
 - **Next experiment, not yet built:** search the files that call an item's operations for its new members' snake_case names, to catch "already implemented". Generic names like `tags` or `routing` are a precision risk, so measure before trusting it.
 
-**Step 2: `radar queue`.** It classifies each new item from the last 30 days and shows `gap`, `pending`, and `new_service` items by default. `covered`, `no_code`, `unimplemented`, and `no_work` are hidden.
+**Step 2: `avizor queue`.** It classifies each new item from the last 30 days and shows `gap`, `pending`, and `new_service` items by default. `covered`, `no_code`, `unimplemented`, and `no_work` are hidden.
 
 - **The default hides the gap sample's no-work items with no code.** On all 1,487 items, the queue's states agree with the gap sample labels:
   - all 38 `item-tracked` items are `covered`;
   - 10 of 18 `item-no-work` items are `no_code` (hidden) and 8 are `gap`;
   - all 8 `item-gap` items are `gap`;
-  - all 4 `item-covered` items are `gap`, since Radar has no confident candidate. 2 of the 4 have the covering work in the related list: #48548, and #48670 now that related lists include PRs.
+  - all 4 `item-covered` items are `gap`, since Avizor has no confident candidate. 2 of the 4 have the covering work in the related list: #48548, and #48670 now that related lists include PRs.
 - **Related lists include PRs** in the queue and in drafts. The SDK bump PR is left out, since every item in a release shares it.
 - **Unimplemented services are hidden unless the item is a new SDK module.** The gap sample didn't cover them. Most are services the provider has chosen not to implement or AWS-internal APIs, and a new module is the clearest sign of a service worth a look.
 - **`pending` comes after `no_code`.** An item with nothing in code the target has stays hidden even if its SDK version isn't available yet.
 - **Over all items:** 638 gap, 59 pending, 19 new service, 99 covered, 374 no code, 272 unimplemented, and 26 no work. 59 of the 95 shown in the last 30 days are pending, because the provider's AWS SDK versions predate the 2026-10-29 releases.
 
-**Step 3: dispositions.** `radar decide <item-id> <decision> [issue]` records a decision in the items database, and `radar decisions` lists them. The queue hides decided items (`decided`) until they re-surface (`resurfaced`, shown first). Deviations from the original design:
+**Step 3: dispositions.** `avizor decide <item-id> <decision> [issue]` records a decision in the items database, and `avizor decisions` lists them. The queue hides decided items (`decided`) until they re-surface (`resurfaced`, shown first). Deviations from the original design:
 
 - **Evidence is stored readably, not as a hash.** A hash only says that something changed. The stored evidence lets the queue say what: "availability pending → available", "new: already tracked #5".
 - **Resurfacing depends on the decision.** A single fingerprint would re-surface every `created` item as soon as its new issue was indexed, because that issue becomes a confident candidate. So `created` stands, `duplicate` watches the covering issue or PR, and only `skipped` and `deferred` compare evidence.
@@ -408,24 +408,24 @@ Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hu
   - On the 36 linked items: 26 matched the linked post, 2 matched another, and 8 didn't match. The 2 wrong ones are a CloudFormation release covering two same-day launches and an S3 Control release spanning several features.
   - On 300 random untracked items: 79 matched, and 3 were wrong by hand check (a GameLift runtime note matched a scaling launch, a Compute Optimizer rule change matched an EBS recommendations post, and an AgentCore session endpoint matched the AgentCore CLI release).
   - Over all 1,487 items, 30% of `gap` items and 53% of `covered` items have a match.
-- **The match is an inference, so the body doesn't use it by default.** Titles use the matched headline, listed with its basis. `radar draft --announcement` puts the headline and link in the body in place of the release notes, which is the tracker format. That's the reviewer accepting the match.
+- **The match is an inference, so the body doesn't use it by default.** Titles use the matched headline, listed with its basis. `avizor draft --announcement` puts the headline and link in the body in place of the release notes, which is the tracker format. That's the reviewer accepting the match.
 - **Decisions watch the match.** Evidence records the matched announcement, so a skipped or deferred item re-surfaces when a match appears or changes. Evidence from before announcements were pulled isn't compared on it.
 - **Not yet in reconciliation.** Maintainer trackers link the announcement, so its URL could find trackers that don't cite the release commit, which [item-covered](../../eval/README.md) misses. A wrong match with the service label could then be confidently wrong, so that needs its own eval run.
 
-**Step 5: agent experiment.** The question was whether an agent reading Radar's candidate list catches what Radar's categories get wrong. That claim is why "related" is an acceptable answer.
+**Step 5: agent experiment.** The question was whether an agent reading Avizor's candidate list catches what Avizor's categories get wrong. That claim is why "related" is an acceptable answer.
 
-- **Setup.** I used the 20 `duplicate` eval cases. Each agent got a packet holding the input issue (title, labels, date, and body up to 2,500 characters) and Radar's top 10 candidates (title, kind, labels, date, and body up to 1,200 characters), as of the case's time.
+- **Setup.** I used the 20 `duplicate` eval cases. Each agent got a packet holding the input issue (title, labels, date, and body up to 2,500 characters) and Avizor's top 10 candidates (title, kind, labels, date, and body up to 1,200 characters), as of the case's time.
   - The agent had to name the candidate the input duplicates, or none, and judge every candidate as `same`, `different`, or `unsure`. The instructions said misleading answers are worse than none.
   - The agents used only the packet: no web, no GitHub, and no eval files. Both reported using only read and write tools.
-  - One run hid Radar's categories (blind). The other showed them as hints.
+  - One run hid Avizor's categories (blind). The other showed them as hints.
 - **Labels.** The agents marked 8 unlabeled candidates `same`, such as the PR that fixed the input's bug and a second duplicate report. I read each one, and all 8 are the same work, so I counted them as `same`. Labeling after seeing the agent's answers could bias the result, so the details below say which ones they are.
 - **Result, blind run:**
-  - It picked a correct duplicate in 19 of 20 cases. Radar's top-ranked candidate is correct in 11.
-  - The remaining case (#43223) has no correct candidate in Radar's top 10, and the agent answered none.
+  - It picked a correct duplicate in 19 of 20 cases. Avizor's top-ranked candidate is correct in 11.
+  - The remaining case (#43223) has no correct candidate in Avizor's top 10, and the agent answered none.
   - All 29 of its `same` verdicts were correct.
-  - It judged all 16 of Radar's confidently wrong candidates `different`.
+  - It judged all 16 of Avizor's confidently wrong candidates `different`.
 - **Result, run with categories:** the same answers. It dropped one case from its output (19 of 20 written), so output format needs checking.
-- **What it means.** On duplicates, the agent fixed every confidently wrong category without adding new errors, and the recall limit was Radar's retrieval: 19 of 20 cases had a correct candidate in the top 10. So [#3](https://github.com/YakDriver/radar/issues/3) matters less for duplicate cases when an agent reads the list. Retrieval recall, and keeping humans who read only categories from being misled, still matter.
+- **What it means.** On duplicates, the agent fixed every confidently wrong category without adding new errors, and the recall limit was Avizor's retrieval: 19 of 20 cases had a correct candidate in the top 10. So [#3](https://github.com/YakDriver/avizor/issues/3) matters less for duplicate cases when an agent reads the list. Retrieval recall, and keeping humans who read only categories from being misled, still matter.
 - **Limits.** The sample is 20 cases from one model, in one run, and the issues are public, so the model may have seen them in training. The candidates the agent marked `same` and I then labeled are:
   - dup-41782: #41725
   - dup-42605: #42536
@@ -434,17 +434,17 @@ Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hu
   - dup-48354: #48344 and #48345
   - dup-49183: #43621
   - dup-49894: #48785
-- **Next.** Answer the open question on the agent contract. Radar could write this packet itself (input, candidates with evidence, and the verdict format), and `radar eval` could score a file of agent verdicts. Then agent strategies could be compared on the same cases the way retrieval changes are.
+- **Next.** Answer the open question on the agent contract. Avizor could write this packet itself (input, candidates with evidence, and the verdict format), and `avizor eval` could score a file of agent verdicts. Then agent strategies could be compared on the same cases the way retrieval changes are.
 
 ## Open questions
 
 - **Item granularity**: is one item per service per SDK release right, or do multi-feature releases need splitting?
 - **Comment indexing**: is extracting URLs and identifiers enough, or does full comment text improve recall enough to justify the cost?
-- **Agent evaluation contract**: what input and output format should the stage-2 agent use so its justifications are checkable? Step 5's packet (input, top 10 candidates with text, and a verdict per candidate) worked on duplicates; it doesn't yet carry Radar's evidence or ask for cited justifications.
+- **Agent evaluation contract**: what input and output format should the stage-2 agent use so its justifications are checkable? Step 5's packet (input, top 10 candidates with text, and a verdict per candidate) worked on duplicates; it doesn't yet carry Avizor's evidence or ask for cited justifications.
 - **Announcement-only changes**: how often does provider work come from announcements with no SDK model change? The corpus should answer whether the What's New source is worth adding.
-- **Checkout branch**: code matches and availability reflect whatever the checkout's `ref` points to (default `HEAD`). Should Radar default to `main`, or verify it?
+- **Checkout branch**: code matches and availability reflect whatever the checkout's `ref` points to (default `HEAD`). Should Avizor default to `main`, or verify it?
 - **Item labels without release commits**: trackers that cite only an announcement can't be tied to an item from history alone. Announcement matching (milestone 4, step 4) could add them as cases, at the matcher's error rate.
 - **Common-signal threshold**: 40 records is a guess from one dataset. The corpus can now test changes to it.
-- **Corpus growth**: dispositions recorded in milestone 4 are natural new cases. How should they be added without tuning labels to Radar's output?
+- **Corpus growth**: dispositions recorded in milestone 4 are natural new cases. How should they be added without tuning labels to Avizor's output?
 - **Constraint changes**: skipped SDK items include length, range, and pattern changes, which can affect provider validation. Should they be a separate, lower-priority status instead of skipped?
 - **Bootstrapping dispositions**: should past provider issues that link SDK releases or announcements be imported as historical dispositions?

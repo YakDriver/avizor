@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YakDriver/radar/internal/signal"
+	"github.com/YakDriver/avizor/internal/signal"
 
 	_ "modernc.org/sqlite" // SQLite driver.
 )

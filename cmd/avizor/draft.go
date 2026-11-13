@@ -7,9 +7,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/YakDriver/radar/internal/draft"
-	"github.com/YakDriver/radar/internal/enrich"
-	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/draft"
+	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
 func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -63,7 +63,7 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	case *bodyOnly:
 		// stdout is for piping to gh, so warnings go to stderr.
 		for _, w := range d.Warnings {
-			fmt.Fprintf(stderr, "radar: warning: %s\n", w)
+			fmt.Fprintf(stderr, "avizor: warning: %s\n", w)
 		}
 		_, err := io.WriteString(stdout, d.Body)
 		return err
@@ -76,7 +76,7 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 // regenArgs is the command that prints this draft's body again: the same item, with the flags that were set (config,
 // state directory, target, and options) and the target it resolved to.
 func regenArgs(fs *flag.FlagSet, item, target string) []string {
-	args := []string{"radar", "draft", item}
+	args := []string{"avizor", "draft", item}
 	hasTarget := false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {

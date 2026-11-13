@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YakDriver/radar/internal/config"
+	"github.com/YakDriver/avizor/internal/config"
 )
 
 func TestDefaultURL(t *testing.T) {
@@ -113,7 +113,7 @@ func TestPull(t *testing.T) {
 	var sizes []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sizes = append(sizes, r.URL.Query().Get("size")+"/"+r.URL.Query().Get("page"))
-		if r.Header.Get("User-Agent") != "radar/test" {
+		if r.Header.Get("User-Agent") != "avizor/test" {
 			t.Errorf("User-Agent = %q", r.Header.Get("User-Agent"))
 		}
 		switch p := r.URL.Query().Get("page"); p {
@@ -126,7 +126,7 @@ func TestPull(t *testing.T) {
 	defer srv.Close()
 
 	st := &memStore{}
-	c := &Client{URL: srv.URL + "/search?item.directoryId=whats-new-v2", HTTP: srv.Client(), UserAgent: "radar/test"}
+	c := &Client{URL: srv.URL + "/search?item.directoryId=whats-new-v2", HTTP: srv.Client(), UserAgent: "avizor/test"}
 	n, err := Pull(context.Background(), c, st, time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC), nil)
 	if err != nil {
 		t.Fatal(err)

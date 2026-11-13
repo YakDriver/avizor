@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YakDriver/radar/internal/awssdk"
-	"github.com/YakDriver/radar/internal/enrich"
-	"github.com/YakDriver/radar/internal/reconcile"
-	"github.com/YakDriver/radar/internal/whatsnew"
+	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 func item(module string, notes ...string) *awssdk.Item {

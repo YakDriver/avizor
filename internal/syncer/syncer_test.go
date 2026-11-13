@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YakDriver/radar/internal/config"
-	"github.com/YakDriver/radar/internal/github"
-	"github.com/YakDriver/radar/internal/index"
+	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/github"
+	"github.com/YakDriver/avizor/internal/index"
 )
 
 const repo = "o/r"
