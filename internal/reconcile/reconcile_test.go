@@ -667,6 +667,13 @@ func TestAddsType(t *testing.T) {
 		"r/aws_msk_topic: Reducing the partition count should force a new resource": false,
 		"[Enhancement]: aws_msk_topic: Add tags argument":                           false,
 		"Fix(bedrockagentcore): handle computed harness environment variables":      false,
+		"r/aws_bedrockdataautomation_library: New resource and list resource":       true,
+		"Added msk_aws_topic resource and data source":                              true,
+		"Add odb_network_arn to aws_route resource and data source":                 false,
+		"add aws_msk_topic tags support":                                            false,
+		"add resource policy support":                                               false,
+		"New list resource: aws_ec2_secondary_network":                              false,
+		"feat: add aws_ec2_secondary_network list resource support":                 false,
 	} {
 		if got := addsType(title); got != want {
 			t.Errorf("addsType(%q) = %t, want %t", title, got, want)

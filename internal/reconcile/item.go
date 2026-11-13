@@ -148,23 +148,29 @@ func demoteExisting(cands []Candidate, calls map[string]bool) {
 
 var (
 	// addsTypeRE matches titles like "add Autonomous Database resource" and "feat: add aws_x_y".
-	addsTypeRE   = regexp.MustCompile("(?i)\\badd(?:s|ed|ing)?\\s+(?:`?aws_\\w+|[\\w ]{0,40}?\\b(?:resource|data[ -]source)s?\\b)")
+	addsTypeRE = regexp.MustCompile("(?i)\\badd(?:s|ed|ing)?\\s+(?:`?aws_\\w+|[\\w ]{0,40}?\\b(?:resource|data[ -]source)s?\\b)")
+	// addsToTypeRE matches words that make an "add" title a change to an existing type: "add x to aws_y", "add tags
+	// support", "add resource policy support".
+	addsToTypeRE = regexp.MustCompile(`(?i)\b(?:to|support|supports|arguments?|attributes?|blocks?|tags?|fields?|options?|parameters?)\b`)
 	newServiceRE = regexp.MustCompile(`(?i)\bnew service\b`)
+	// listResourceRE matches list resources, which add listing to an existing type, not a new one.
+	listResourceRE = regexp.MustCompile(`(?i)\blist[ -]resources?\b`)
 	// forcesNewRE matches bug titles like "should force a new resource", which aren't requests for one.
 	forcesNewRE = regexp.MustCompile(`(?i)\bforces?\s+(?:a\s+)?new\s+resource`)
 )
 
 // addsType reports whether an issue or PR title asks for or adds a new type or service, such as "New resource: aws_x",
-// "add Autonomous Database resource", or "[New Service]: AWS X". Adding a list resource to an existing type doesn't
-// count.
+// "add Autonomous Database resource", or "[New Service]: AWS X". Additions to an existing type, like "add tags
+// support" or a list resource, don't count.
 func addsType(title string) bool {
 	if forcesNewRE.MatchString(title) {
 		return false
 	}
-	if m := addsTypeRE.FindString(title); m != "" && !strings.Contains(strings.ToLower(m), "list resource") {
+	title = listResourceRE.ReplaceAllString(title, "")
+	if newTypeRE.MatchString(title) || newServiceRE.MatchString(title) {
 		return true
 	}
-	return newTypeRE.MatchString(title) || newServiceRE.MatchString(title)
+	return addsTypeRE.MatchString(title) && !addsToTypeRE.MatchString(title)
 }
 
 func requireLabel(c *Candidate, hasLabel bool) {
