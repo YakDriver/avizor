@@ -192,7 +192,7 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 }
 
 // queueStates are the queue states in the order they're reported.
-var queueStates = []string{queue.Resurfaced, queue.Gap, queue.Pending, queue.NewService, queue.Decided, queue.Covered, queue.NoCode, queue.Unimplemented, queue.NoWork}
+var queueStates = []string{queue.Resurfaced, queue.Gap, queue.Pending, queue.NewService, queue.Partial, queue.Decided, queue.Covered, queue.NoCode, queue.Unimplemented, queue.NoWork}
 
 // queueEnricher is newEnricher with a shared service map, for many items from one source.
 func queueEnricher(cfg *config.Config, dir string, t *config.Target, svcs *services.Map, source string, noCode bool) *enrich.Enricher {
@@ -216,7 +216,20 @@ func queueEntry(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *rec
 	if err != nil {
 		return queue.Entry{}, err
 	}
-	return queue.Classify(it, en, rec, d), nil
+	texts := map[int]string{}
+	for _, c := range rec.Candidates {
+		if c.Number == 0 {
+			continue
+		}
+		is, err := r.Store.Issue(ctx, c.Number)
+		if err != nil {
+			return queue.Entry{}, err
+		}
+		if is != nil {
+			texts[c.Number] = is.Title + "\n" + is.Body
+		}
+	}
+	return queue.Classify(it, en, rec, d, texts), nil
 }
 
 func writeQueueText(w io.Writer, shown []queue.Entry, counts map[string]int, total int, all bool) error {

@@ -337,3 +337,37 @@ func TestOperationWorkTagging(t *testing.T) {
 		t.Errorf("new operations = %v", ri.NewOperations)
 	}
 }
+
+func TestFindMembers(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	write := func(p, s string) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("names/attr_consts_gen.go", "const (\n\tAttrKMSKeyARN = \"kms_key_arn\"\n\tAttrKMSKeyARNPrefix = \"kms_key_arn_prefix\"\n)\n")
+	write("thing.go", `"secondary_interface": {}, names.AttrKMSKeyARNPrefix: {}`)
+	write("other.go", `names.AttrKMSKeyARN: {}`)
+	ws := []Work{
+		{Kind: WorkNewArgument, Subject: "Req.SecondaryInterfaces", Operations: []string{"RunThing"}, UsedBy: []string{"thing.go"}},
+		{Kind: WorkNewArgument, Subject: "Req.KmsKeyArn", Operations: []string{"CreateThing"}, UsedBy: []string{"thing.go", "other.go"}},
+		{Kind: WorkNewArgument, Subject: "Req.Color", Operations: []string{"UpdateThing"}, UsedBy: []string{"thing.go"}},
+		// Inputs of reads are filters, not arguments.
+		{Kind: WorkNewArgument, Subject: "ListReq.Color", Operations: []string{"ListThings"}, UsedBy: []string{"thing.go"}},
+	}
+	(&Enricher{Checkout: dir}).findMembers(ws)
+
+	for i, want := range []struct {
+		member string
+		found  []string
+	}{{"secondary_interfaces", []string{"thing.go"}}, {"kms_key_arn", []string{"other.go"}}, {"color", nil}, {"", nil}} {
+		if ws[i].Member != want.member || !slices.Equal(ws[i].FoundIn, want.found) {
+			t.Errorf("%s: member %q found in %q, want %q in %q", ws[i].Subject, ws[i].Member, ws[i].FoundIn, want.member, want.found)
+		}
+	}
+}

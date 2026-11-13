@@ -114,6 +114,10 @@ type Work struct {
 	Basis      string   `json:"basis"`
 	// UsedBy are provider files that call one of Operations, from a code search. It's evidence.
 	UsedBy []string `json:"used_by,omitempty"`
+	// Member is the likely Terraform name of a new argument of a write operation, and FoundIn the UsedBy files that
+	// already use it. A name found for another field matches too, so FoundIn suggests, not proves, the argument exists.
+	Member  string   `json:"member,omitempty"`
+	FoundIn []string `json:"found_in,omitempty"`
 }
 
 // Enricher enriches items for one target.
@@ -176,6 +180,7 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 			warnf("code search: %v", err)
 		} else {
 			res.CodeSearched = modelOK
+			e.findMembers(res.Work)
 		}
 	}
 	return res
