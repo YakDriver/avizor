@@ -52,7 +52,7 @@ type Disposition struct {
 	DecidedAt    time.Time `json:"decided_at"`
 	DecidedBy    string    `json:"decided_by,omitempty"`
 	RevisitAfter time.Time `json:"revisit_after,omitzero"`
-	// Evidence is what Radar found when the decision was made, so a later change can re-surface the item.
+	// Evidence is what Avizor found when the decision was made, so a later change can re-surface the item.
 	Evidence json.RawMessage `json:"evidence,omitempty"`
 }
 

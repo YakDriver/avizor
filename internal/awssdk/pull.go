@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YakDriver/radar/internal/config"
-	"github.com/YakDriver/radar/internal/github"
-	"github.com/YakDriver/radar/internal/items"
-	"github.com/YakDriver/radar/internal/smithy"
+	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/github"
+	"github.com/YakDriver/avizor/internal/items"
+	"github.com/YakDriver/avizor/internal/smithy"
 )
 
 // Skip reasons.
@@ -297,7 +297,7 @@ func (p *Puller) pullRelease(ctx context.Context, prev, rel github.Release) ([]i
 		Base:         base,
 		Head:         head,
 		PulledAt:     time.Now().UTC(),
-		PulledBy:     "radar " + p.Version,
+		PulledBy:     "avizor " + p.Version,
 	}
 	release := Release{Tag: rel.TagName, URL: rel.HTMLURL, PublishedAt: rel.PublishedAt.UTC()}
 	if sha := p.commits[rel.TagName]; sha != "" {

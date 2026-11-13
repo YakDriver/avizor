@@ -12,15 +12,15 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/YakDriver/radar/internal/awssdk"
-	"github.com/YakDriver/radar/internal/config"
-	"github.com/YakDriver/radar/internal/draft"
-	"github.com/YakDriver/radar/internal/enrich"
-	"github.com/YakDriver/radar/internal/index"
-	"github.com/YakDriver/radar/internal/items"
-	"github.com/YakDriver/radar/internal/queue"
-	"github.com/YakDriver/radar/internal/reconcile"
-	"github.com/YakDriver/radar/internal/services"
+	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/draft"
+	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/index"
+	"github.com/YakDriver/avizor/internal/items"
+	"github.com/YakDriver/avizor/internal/queue"
+	"github.com/YakDriver/avizor/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/services"
 )
 
 func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -106,9 +106,9 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	// Without the service map, every item's service is unknown and would be hidden as unimplemented.
 	switch {
 	case t.Checkout == "":
-		return fmt.Errorf("radar queue needs target %q's checkout for its service map; set checkout in the config", t.Name)
+		return fmt.Errorf("avizor queue needs target %q's checkout for its service map; set checkout in the config", t.Name)
 	case svcs == nil:
-		return fmt.Errorf("radar queue needs the service map %s", t.NamesDataPath())
+		return fmt.Errorf("avizor queue needs the service map %s", t.NamesDataPath())
 	}
 	var ops reconcile.Reconciler
 	c.operations(ctx, t, &ops, stderr)

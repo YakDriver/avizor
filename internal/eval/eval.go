@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
 // Ks are the cutoffs reported for hit@k.

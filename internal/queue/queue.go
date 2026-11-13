@@ -7,11 +7,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/YakDriver/radar/internal/awssdk"
-	"github.com/YakDriver/radar/internal/draft"
-	"github.com/YakDriver/radar/internal/enrich"
-	"github.com/YakDriver/radar/internal/items"
-	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/draft"
+	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/items"
+	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
 // States. Gap, Pending, and NewService are shown by default; the others are hidden.

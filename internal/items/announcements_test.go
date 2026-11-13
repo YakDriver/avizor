@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YakDriver/radar/internal/whatsnew"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 func TestAnnouncements(t *testing.T) {

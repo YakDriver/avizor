@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YakDriver/radar/internal/config"
-	"github.com/YakDriver/radar/internal/index"
-	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/index"
+	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
 const repo = "o/r"

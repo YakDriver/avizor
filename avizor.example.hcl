@@ -1,4 +1,4 @@
-# Example Radar configuration. Copy to ./radar.hcl or $XDG_CONFIG_HOME/radar/radar.hcl and adjust paths.
+# Example Avizor configuration. Copy to ./avizor.hcl or $XDG_CONFIG_HOME/avizor/avizor.hcl and adjust paths.
 
 target "tfaws" {
   repo = "hashicorp/terraform-provider-aws"
@@ -18,13 +18,13 @@ target "tfaws" {
 
   # Source whose API models define real operation names. Only those count as operation signals, so field names like
   # StartTime don't. Defaults to the first aws-sdk-go-v2 source; "none" turns the check off. The names are read from
-  # the source's models clone (created by `radar pull`) and cached next to it.
+  # the source's models clone (created by `avizor pull`) and cached next to it.
   # operations = "aws-sdk-go-v2"
 
   # Terraform type prefix, used to name new resources in drafts. This is the default.
   # type_prefix = "aws_"
 
-  # Go text/template file for `radar draft` issue bodies, relative to this file. The default follows the provider's
+  # Go text/template file for `avizor draft` issue bodies, relative to this file. The default follows the provider's
   # tracking issues: quoted release notes and the required SDK release with its bump PR. The template sees
   # draft.Data: .Notes (full release notes), .Headline (first sentence), .Release, .ReleaseURL, .BumpPRURL, .Service,
   # .Work, and .Item.
@@ -37,11 +37,11 @@ target "tfaws" {
   }
 }
 
-# Optional: where indexes, items, and source clones live. Defaults to $XDG_DATA_HOME/radar (usually
-# ~/.local/share/radar). --state-dir overrides it.
-# state_dir = "~/.local/share/radar"
+# Optional: where indexes, items, and source clones live. Defaults to $XDG_DATA_HOME/avizor (usually
+# ~/.local/share/avizor). --state-dir overrides it.
+# state_dir = "~/.local/share/avizor"
 
-# Sources feed `radar pull`. With no source blocks, Radar uses one aws-sdk-go-v2 source and one aws-whats-new source
+# Sources feed `avizor pull`. With no source blocks, Avizor uses one aws-sdk-go-v2 source and one aws-whats-new source
 # with these defaults, so these blocks are only needed to change them. Configuring any source replaces both defaults.
 source "aws-sdk-go-v2" {
   type = "aws-sdk-go-v2"
@@ -65,7 +65,7 @@ source "aws-sdk-go-v2" {
   # exclude_services = ["connect"]
 }
 
-# AWS What's New announcements, matched to items by enrichment. With no source blocks, Radar adds this one too.
+# AWS What's New announcements, matched to items by enrichment. With no source blocks, Avizor adds this one too.
 source "aws-whats-new" {
   type = "aws-whats-new"
 

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YakDriver/radar/internal/index"
-	"github.com/YakDriver/radar/internal/items"
+	"github.com/YakDriver/avizor/internal/index"
+	"github.com/YakDriver/avizor/internal/items"
 )
 
 func TestResurface(t *testing.T) {

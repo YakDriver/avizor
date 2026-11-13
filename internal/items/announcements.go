@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/YakDriver/radar/internal/whatsnew"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 const announcementsSchema = `

@@ -1,6 +1,6 @@
-/radar
+/avizor
 *.db
 *.db-wal
 *.db-shm
-/radar.hcl
+/avizor.hcl
 .DS_Store

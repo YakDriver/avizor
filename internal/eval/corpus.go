@@ -12,7 +12,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclsimple"
 
-	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
 // Corpus is a set of labeled cases for one target.
@@ -25,7 +25,7 @@ type Corpus struct {
 // Case is one labeled reconciliation.
 type Case struct {
 	Name string `hcl:"name,label"`
-	// Input is an issue number or URL, as given to `radar candidates`. Item is a pulled item ID. Exactly one of Input,
+	// Input is an issue number or URL, as given to `avizor candidates`. Item is a pulled item ID. Exactly one of Input,
 	// Text, and Item is set.
 	Input string `hcl:"input,optional"`
 	Text  string `hcl:"text,optional"`

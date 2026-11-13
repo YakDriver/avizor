@@ -1,4 +1,4 @@
-// Package config loads Radar's HCL configuration.
+// Package config loads Avizor's HCL configuration.
 package config
 
 import (
@@ -22,8 +22,8 @@ const (
 	defaultServiceLabelPrefix  = "service/"
 	defaultTypePrefix          = "aws_"
 	defaultCommentsMode        = CommentsURLsAndIdentifiers
-	configFileName             = "radar.hcl"
-	stateDirName               = "radar"
+	configFileName             = "avizor.hcl"
+	stateDirName               = "avizor"
 )
 
 var (
@@ -183,7 +183,7 @@ func ParseSince(s string, now time.Time) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid time %q: use a date (2026-01-02), RFC 3339 time, or age (90d, 12h)", s)
 }
 
-// Target is a repository Radar reconciles against.
+// Target is a repository Avizor reconciles against.
 type Target struct {
 	Name string `hcl:"name,label"`
 	// Repo is "owner/name" on GitHub.
@@ -345,7 +345,7 @@ func (t *Target) NamesDataPath() string {
 	return filepath.Join(t.Checkout, t.NamesData)
 }
 
-// DefaultPath finds the config file: ./radar.hcl, then $XDG_CONFIG_HOME/radar/radar.hcl.
+// DefaultPath finds the config file: ./avizor.hcl, then $XDG_CONFIG_HOME/avizor/avizor.hcl.
 func DefaultPath() (string, error) {
 	if _, err := os.Stat(configFileName); err == nil {
 		return configFileName, nil
@@ -364,7 +364,7 @@ func DefaultPath() (string, error) {
 	return p, nil
 }
 
-// DefaultStateDir returns $XDG_DATA_HOME/radar, usually ~/.local/share/radar.
+// DefaultStateDir returns $XDG_DATA_HOME/avizor, usually ~/.local/share/avizor.
 func DefaultStateDir() (string, error) {
 	dir, err := xdgDir("XDG_DATA_HOME", filepath.Join(".local", "share"))
 	if err != nil {

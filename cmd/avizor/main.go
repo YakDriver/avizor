@@ -1,4 +1,4 @@
-// Command radar finds what is already known about new information and gathers evidence for a human or agent to act on.
+// Command avizor finds what is already known about new information and gathers evidence for a human or agent to act on.
 package main
 
 import (
@@ -15,42 +15,42 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/YakDriver/radar/internal/awssdk"
-	"github.com/YakDriver/radar/internal/config"
-	"github.com/YakDriver/radar/internal/enrich"
-	"github.com/YakDriver/radar/internal/github"
-	"github.com/YakDriver/radar/internal/index"
-	"github.com/YakDriver/radar/internal/reconcile"
-	"github.com/YakDriver/radar/internal/services"
-	"github.com/YakDriver/radar/internal/syncer"
+	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/github"
+	"github.com/YakDriver/avizor/internal/index"
+	"github.com/YakDriver/avizor/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/services"
+	"github.com/YakDriver/avizor/internal/syncer"
 )
 
 var version = "dev"
 
-const usage = `radar finds existing issues, pull requests, and code related to new information.
+const usage = `avizor finds existing issues, pull requests, and code related to new information.
 
 Usage:
-  radar sync [flags]                         Refresh the local index from GitHub.
-  radar candidates [flags] <issue|url>       Reconcile an issue number, issue URL, or other URL.
-  radar candidates [flags] --text "..."      Reconcile a free-text description.
-  radar eval [flags] [case...]               Run the evaluation corpus.
-  radar pull [flags] [source]                Pull new items from a source (default: aws-sdk-go-v2).
-  radar items [flags]                        List pulled items.
-  radar inspect [flags] <item-id>            Show an item's evidence.
-  radar draft [flags] <item-id>              Draft a new issue for an item.
-  radar queue [flags]                        List recent items that need a decision.
-  radar decide [flags] <item-id> <decision> [issue]
+  avizor sync [flags]                         Refresh the local index from GitHub.
+  avizor candidates [flags] <issue|url>       Reconcile an issue number, issue URL, or other URL.
+  avizor candidates [flags] --text "..."      Reconcile a free-text description.
+  avizor eval [flags] [case...]               Run the evaluation corpus.
+  avizor pull [flags] [source]                Pull new items from a source (default: aws-sdk-go-v2).
+  avizor items [flags]                        List pulled items.
+  avizor inspect [flags] <item-id>            Show an item's evidence.
+  avizor draft [flags] <item-id>              Draft a new issue for an item.
+  avizor queue [flags]                        List recent items that need a decision.
+  avizor decide [flags] <item-id> <decision> [issue]
                                              Record a decision: created, duplicate, skipped, deferred, or cleared.
-  radar decisions [flags] [item-id]          List recorded decisions.
-  radar version
+  avizor decisions [flags] [item-id]          List recorded decisions.
+  avizor version
 
 Common flags:
-  --config path      Config file (default ./radar.hcl, then $XDG_CONFIG_HOME/radar/radar.hcl)
-  --state-dir path   State directory (default $XDG_DATA_HOME/radar)
+  --config path      Config file (default ./avizor.hcl, then $XDG_CONFIG_HOME/avizor/avizor.hcl)
+  --state-dir path   State directory (default $XDG_DATA_HOME/avizor)
   --target name      Target to use when several are configured
   --format fmt       Output format: json (default) or text
 
-Run "radar <command> -h" for command flags.
+Run "avizor <command> -h" for command flags.
 `
 
 func main() {
@@ -58,7 +58,7 @@ func main() {
 	defer stop()
 
 	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, "radar:", err)
+		fmt.Fprintln(os.Stderr, "avizor:", err)
 		if errors.Is(err, errUsage) {
 			os.Exit(2)
 		}
@@ -95,7 +95,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	case "inspect":
 		return cmdInspect(ctx, args[1:], stdout, stderr)
 	case "version":
-		fmt.Fprintln(stdout, "radar", version)
+		fmt.Fprintln(stdout, "avizor", version)
 		return nil
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
@@ -180,18 +180,18 @@ func (c *common) operations(ctx context.Context, t *config.Target, r *reconcile.
 	}
 	src, err := c.cfg.Source(t.Operations)
 	if err != nil {
-		fmt.Fprintf(stderr, "radar: warning: operation names unavailable: %v\n", err)
+		fmt.Fprintf(stderr, "avizor: warning: operation names unavailable: %v\n", err)
 		return
 	}
 	dir := src.ModelsPath(c.dir)
 	if _, err := os.Stat(dir); err != nil {
-		fmt.Fprintf(stderr, "radar: warning: operation names unavailable: no models clone at %s; run `radar pull %s`\n", dir, src.Name)
+		fmt.Fprintf(stderr, "avizor: warning: operation names unavailable: no models clone at %s; run `avizor pull %s`\n", dir, src.Name)
 		return
 	}
 	repo := &awssdk.ModelsRepo{Dir: dir, URL: src.ModelsURL, Branch: src.ModelsBranch}
 	ops, err := repo.Operations(ctx, dir+".operations.json")
 	if err != nil {
-		fmt.Fprintf(stderr, "radar: warning: operation names unavailable: %v\n", err)
+		fmt.Fprintf(stderr, "avizor: warning: operation names unavailable: %v\n", err)
 		return
 	}
 	r.Operations = ops
@@ -387,7 +387,7 @@ func (c *common) enrichedItem(ctx context.Context, t *config.Target, id string, 
 		return nil, nil, err
 	}
 	if rec == nil {
-		return nil, nil, fmt.Errorf("no item %q; list items with `radar items`", id)
+		return nil, nil, fmt.Errorf("no item %q; list items with `avizor items`", id)
 	}
 	it, err := decodeItem(*rec)
 	if err != nil {
@@ -407,7 +407,7 @@ func loadServices(t *config.Target, stderr io.Writer) *services.Map {
 	}
 	svcs, err := services.Load(p)
 	if err != nil {
-		fmt.Fprintf(stderr, "radar: warning: service map unavailable: %v\n", err)
+		fmt.Fprintf(stderr, "avizor: warning: service map unavailable: %v\n", err)
 		return nil
 	}
 	return svcs

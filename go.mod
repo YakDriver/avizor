@@ -1,4 +1,4 @@
-module github.com/YakDriver/radar
+module github.com/YakDriver/avizor
 
 go 1.27.3
 

@@ -7,11 +7,11 @@ import (
 	"io"
 	"strings"
 
-	"github.com/YakDriver/radar"
-	"github.com/YakDriver/radar/internal/config"
-	"github.com/YakDriver/radar/internal/enrich"
-	"github.com/YakDriver/radar/internal/eval"
-	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/avizor"
+	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/eval"
+	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
 func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -19,7 +19,7 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	fs.SetOutput(stderr)
 	var c common
 	c.register(fs)
-	corpusPath := fs.String("corpus", "", "corpus file (default: the corpus built into radar, "+radar.DefaultCorpusName+")")
+	corpusPath := fs.String("corpus", "", "corpus file (default: the corpus built into avizor, "+avizor.DefaultCorpusName+")")
 	fetch := fs.Bool("fetch", false, "fetch URL inputs to read their page titles (results then depend on the network)")
 	failures := fs.Bool("failures", false, "in text output, list only failing cases")
 	unjudged := fs.Bool("unjudged", false, "in text output, list confident candidates the corpus doesn't label, for adding same or different labels")
@@ -31,8 +31,8 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	var corpus *eval.Corpus
 	name := *corpusPath
 	if name == "" {
-		name = "built-in:" + radar.DefaultCorpusName
-		corpus, err = eval.Parse(radar.DefaultCorpusName, radar.DefaultCorpus)
+		name = "built-in:" + avizor.DefaultCorpusName
+		corpus, err = eval.Parse(avizor.DefaultCorpusName, avizor.DefaultCorpus)
 	} else {
 		corpus, err = eval.Load(name)
 	}

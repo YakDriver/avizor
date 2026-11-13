@@ -14,10 +14,10 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/YakDriver/radar/internal/config"
-	"github.com/YakDriver/radar/internal/draft"
-	"github.com/YakDriver/radar/internal/items"
-	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/draft"
+	"github.com/YakDriver/avizor/internal/items"
+	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
 func cmdDecide(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -77,7 +77,7 @@ func cmdDecide(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	d.Target = t.Name
 	if d.Number != 0 {
 		if is, err := st.Issue(ctx, d.Number); err == nil && is == nil {
-			fmt.Fprintf(stderr, "radar: warning: #%d isn't in the index yet; run `radar sync` to see it in candidates\n", d.Number)
+			fmt.Fprintf(stderr, "avizor: warning: #%d isn't in the index yet; run `avizor sync` to see it in candidates\n", d.Number)
 		}
 	}
 
@@ -91,10 +91,10 @@ func cmdDecide(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		return err
 	}
 	if rec == nil {
-		return fmt.Errorf("no item %q; list items with `radar items`", d.Item)
+		return fmt.Errorf("no item %q; list items with `avizor items`", d.Item)
 	}
 	if d.Decision != items.DecisionCleared {
-		// Record what Radar found now, so the queue can notice when it changes.
+		// Record what Avizor found now, so the queue can notice when it changes.
 		it, err := decodeItem(*rec)
 		if err != nil {
 			return err

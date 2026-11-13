@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/YakDriver/radar/internal/index"
-	"github.com/YakDriver/radar/internal/signal"
+	"github.com/YakDriver/avizor/internal/index"
+	"github.com/YakDriver/avizor/internal/signal"
 )
 
 // Input kinds.
@@ -97,7 +97,7 @@ func (r *Reconciler) resolveIssue(ctx context.Context, ref string, n int) (*inpu
 	}
 	if is == nil {
 		if r.Issues == nil {
-			return nil, fmt.Errorf("#%d is not in the index; run `radar sync`", n)
+			return nil, fmt.Errorf("#%d is not in the index; run `avizor sync`", n)
 		}
 		if is, err = r.Issues.FetchIssue(ctx, r.Target.Repo, n); err != nil {
 			return nil, fmt.Errorf("#%d is not in the index and fetching it failed: %w", n, err)
@@ -156,7 +156,7 @@ func fetchPage(ctx context.Context, c *http.Client, u string) (title, desc strin
 	if err != nil {
 		return "", "", err
 	}
-	req.Header.Set("User-Agent", "radar")
+	req.Header.Set("User-Agent", "avizor")
 	resp, err := c.Do(req)
 	if err != nil {
 		return "", "", err

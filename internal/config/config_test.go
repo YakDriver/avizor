@@ -9,7 +9,7 @@ import (
 
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "radar.hcl")
+	p := filepath.Join(t.TempDir(), "avizor.hcl")
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestSourceOverrides(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := Load(writeConfig(t, `
-state_dir = "/data/radar"
+state_dir = "/data/avizor"
 
 target "tfaws" {
   repo = "hashicorp/terraform-provider-aws"
@@ -133,7 +133,7 @@ source "sdk" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.StateDir != "/data/radar" {
+	if cfg.StateDir != "/data/avizor" {
 		t.Errorf("state_dir = %q", cfg.StateDir)
 	}
 	s, err := cfg.Source("sdk")

@@ -15,10 +15,10 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/YakDriver/radar/internal/awssdk"
-	"github.com/YakDriver/radar/internal/enrich"
-	"github.com/YakDriver/radar/internal/reconcile"
-	"github.com/YakDriver/radar/internal/whatsnew"
+	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 //go:embed default.md.tmpl
@@ -33,7 +33,7 @@ type Draft struct {
 	Body   string   `json:"body"`
 	// GHArgs are `gh` arguments that create the issue, reading the body from standard input.
 	GHArgs []string `json:"gh_args"`
-	// Inferred lists every value in the draft that Radar guessed, with why.
+	// Inferred lists every value in the draft that Avizor guessed, with why.
 	Inferred []Inferred `json:"inferred"`
 	// Relates are related candidates the reviewer may want to link. They aren't in the body: they're weak matches.
 	Relates []Relate `json:"relates"`

@@ -14,13 +14,13 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/YakDriver/radar/internal/awssdk"
-	"github.com/YakDriver/radar/internal/config"
-	"github.com/YakDriver/radar/internal/enrich"
-	"github.com/YakDriver/radar/internal/github"
-	"github.com/YakDriver/radar/internal/items"
-	"github.com/YakDriver/radar/internal/smithy"
-	"github.com/YakDriver/radar/internal/whatsnew"
+	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/github"
+	"github.com/YakDriver/avizor/internal/items"
+	"github.com/YakDriver/avizor/internal/smithy"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 func openItems(dir string) (*items.Store, error) {
@@ -163,7 +163,7 @@ func pullWhatsNew(ctx context.Context, src *config.Source, st *items.Store, sinc
 			return nil, err
 		}
 	}
-	c := &whatsnew.Client{URL: src.URL, HTTP: &http.Client{Timeout: time.Minute}, UserAgent: "radar/" + version}
+	c := &whatsnew.Client{URL: src.URL, HTTP: &http.Client{Timeout: time.Minute}, UserAgent: "avizor/" + version}
 	n, err := whatsnew.Pull(ctx, c, items.AnnouncementStore{Store: st, Source: src.Name}, since, logf)
 	if err != nil {
 		return nil, err
@@ -274,7 +274,7 @@ func cmdInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		return err
 	}
 	if r == nil {
-		return fmt.Errorf("no item %q; list items with `radar items`", pos[0])
+		return fmt.Errorf("no item %q; list items with `avizor items`", pos[0])
 	}
 	it, err := decodeItem(*r)
 	if err != nil {
@@ -348,7 +348,7 @@ func announcements(dir string, stderr io.Writer) *whatsnew.Matcher {
 		st.Close()
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "radar: warning: announcements unavailable: %v\n", err)
+		fmt.Fprintf(stderr, "avizor: warning: announcements unavailable: %v\n", err)
 	}
 	matchers[dir] = m
 	return m

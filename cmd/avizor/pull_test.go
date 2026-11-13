@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YakDriver/radar/internal/config"
-	"github.com/YakDriver/radar/internal/items"
+	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/items"
 )
 
 func TestPullWhatsNewCheckpoint(t *testing.T) {
