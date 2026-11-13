@@ -5,6 +5,7 @@ package enrich
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"os/exec"
@@ -18,6 +19,7 @@ import (
 	"github.com/YakDriver/radar/internal/awssdk"
 	"github.com/YakDriver/radar/internal/services"
 	"github.com/YakDriver/radar/internal/smithy"
+	"github.com/YakDriver/radar/internal/whatsnew"
 )
 
 // Service statuses.
@@ -62,6 +64,10 @@ type Result struct {
 	Availability *Availability `json:"availability,omitempty"`
 	// Work lists inferred kinds of provider work, one per operation group or changed shape member.
 	Work []Work `json:"work"`
+	// Announcement is the What's New post the item most likely belongs to, by text similarity. It's an inference.
+	// AnnouncementsMatched is whether announcements were available to match against.
+	Announcement         *whatsnew.Match `json:"announcement,omitempty"`
+	AnnouncementsMatched bool            `json:"announcements_matched"`
 	// CodeSearched is true when the model loaded and the code search ran without error, so work with no UsedBy is
 	// known not to touch the target's code. It's false when either was skipped or failed.
 	CodeSearched bool     `json:"code_searched"`
@@ -124,6 +130,8 @@ type Enricher struct {
 	Models *awssdk.ModelsRepo
 	// NoCode skips searching the checkout for operation calls.
 	NoCode bool
+	// Announcements matches the item to a What's New announcement. Nil skips that.
+	Announcements *whatsnew.Matcher
 
 	rgPath string
 }
@@ -158,6 +166,10 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 		warnf("no model to find which operations changed members reach; run `radar pull` to clone the models")
 	}
 	res.Work = work(it.Diff, usages)
+	if e.Announcements != nil {
+		res.AnnouncementsMatched = true
+		res.Announcement = e.Announcements.Match(itemText(it), cmp.Or(it.Service.SDKID, it.Service.Module), it.Release.PublishedAt)
+	}
 
 	if !e.NoCode && e.Checkout != "" && res.Service.Status == ServiceImplemented {
 		if err := e.usedBy(ctx, res.Service.Package, res.Work); err != nil {
@@ -420,4 +432,15 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return string(out), nil
+}
+
+// itemText is the item's release notes, without the new-module marker.
+func itemText(it *awssdk.Item) string {
+	var notes []string
+	for _, n := range it.Notes {
+		if n.Text != awssdk.NewModuleNote {
+			notes = append(notes, n.Text)
+		}
+	}
+	return strings.Join(notes, " ")
 }

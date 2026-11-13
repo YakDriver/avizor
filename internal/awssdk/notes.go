@@ -5,6 +5,9 @@ import (
 	"strings"
 )
 
+// NewModuleNote is the release note for a new SDK service module.
+const NewModuleNote = "New AWS service client module"
+
 // ServiceNotes are one service module's entries in an SDK release's notes.
 type ServiceNotes struct {
 	// Module is the module name under github.com/aws/aws-sdk-go-v2/service/, e.g. "fsx".

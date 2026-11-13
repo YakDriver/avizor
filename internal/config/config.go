@@ -43,6 +43,8 @@ type Config struct {
 // Source types.
 const (
 	SourceAWSSDKGoV2 = "aws-sdk-go-v2"
+	// SourceAWSWhatsNew is AWS What's New announcements. They don't become items; enrichment matches them to items.
+	SourceAWSWhatsNew = "aws-whats-new"
 )
 
 // Source defaults.
@@ -53,6 +55,10 @@ const (
 	DefaultModelsDir    = "sources/api-models-aws.git"
 	DefaultModelsBranch = "main"
 	DefaultStart        = "30d"
+
+	DefaultWhatsNewName = "aws-whats-new"
+	// DefaultWhatsNewURL is whatsnew.DefaultURL, repeated to keep config free of other packages.
+	DefaultWhatsNewURL = "https://aws.amazon.com/api/dirs/items/search?item.directoryId=whats-new-v2&sort_by=item.additionalFields.postDateTime&sort_order=desc&item.locale=en_US"
 )
 
 // Source produces items. Every setting except type has a default; a config with no source blocks gets one
@@ -76,6 +82,9 @@ type Source struct {
 	Services []string `hcl:"services,optional"`
 	// ExcludeServices drops items for these modules.
 	ExcludeServices []string `hcl:"exclude_services,optional"`
+
+	// URL is an aws-whats-new source's directory search URL.
+	URL string `hcl:"url,optional"`
 }
 
 // FetchModels reports whether to fetch the models clone before pulling.
@@ -94,8 +103,19 @@ func (s *Source) ModelsPath(stateDir string) string {
 func (s *Source) setDefaults() error {
 	switch s.Type {
 	case SourceAWSSDKGoV2:
+	case SourceAWSWhatsNew:
+		if s.URL == "" {
+			s.URL = DefaultWhatsNewURL
+		}
+		if s.Start == "" {
+			s.Start = DefaultStart
+		}
+		if _, err := ParseSince(s.Start, time.Now()); err != nil {
+			return fmt.Errorf("source %q: start: %w", s.Name, err)
+		}
+		return nil
 	default:
-		return fmt.Errorf("source %q: unknown type %q (supported: %q)", s.Name, s.Type, SourceAWSSDKGoV2)
+		return fmt.Errorf("source %q: unknown type %q (supported: %q, %q)", s.Name, s.Type, SourceAWSSDKGoV2, SourceAWSWhatsNew)
 	}
 	if s.ReleasesRepo == "" {
 		s.ReleasesRepo = DefaultReleasesRepo
@@ -255,7 +275,7 @@ func Load(path string) (*Config, error) {
 		cfg.StateDir = expandHome(cfg.StateDir)
 	}
 	if len(cfg.Sources) == 0 {
-		cfg.Sources = []Source{{Name: DefaultSourceName, Type: SourceAWSSDKGoV2}}
+		cfg.Sources = []Source{{Name: DefaultSourceName, Type: SourceAWSSDKGoV2}, {Name: DefaultWhatsNewName, Type: SourceAWSWhatsNew}}
 	}
 	seenSources := map[string]bool{}
 	for i := range cfg.Sources {

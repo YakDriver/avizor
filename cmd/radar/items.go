@@ -7,8 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/YakDriver/radar/internal/github"
 	"github.com/YakDriver/radar/internal/items"
 	"github.com/YakDriver/radar/internal/smithy"
+	"github.com/YakDriver/radar/internal/whatsnew"
 )
 
 func openItems(dir string) (*items.Store, error) {
@@ -29,7 +32,7 @@ func cmdPull(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	fs.SetOutput(stderr)
 	var c common
 	c.register(fs)
-	sinceFlag := fs.String("since", "", "pull releases published since a date, RFC 3339 time, or age (30d); doesn't move the checkpoint")
+	sinceFlag := fs.String("since", "", "pull releases or announcements published since a date, RFC 3339 time, or age (30d); doesn't move the checkpoint")
 	noFetch := fs.Bool("no-fetch", false, "don't fetch the models clone first")
 	quiet := fs.Bool("quiet", false, "suppress progress messages")
 	pos, err := parseInterspersed(fs, args)
@@ -50,31 +53,71 @@ func cmdPull(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if err != nil {
 		return err
 	}
-	name := ""
+	// With no name, pull every source.
+	srcs := make([]*config.Source, 0, len(cfg.Sources))
 	if len(pos) == 1 {
-		name = pos[0]
-	}
-	src, err := cfg.Source(name)
-	if err != nil {
-		return err
+		src, err := cfg.Source(pos[0])
+		if err != nil {
+			return err
+		}
+		srcs = append(srcs, src)
+	} else {
+		for i := range cfg.Sources {
+			srcs = append(srcs, &cfg.Sources[i])
+		}
 	}
 	st, err := openItems(dir)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-
-	gh, err := github.NewClient(ctx)
-	if err != nil {
-		return err
-	}
 	logf := func(format string, args ...any) {
 		if !*quiet {
 			fmt.Fprintf(stderr, format+"\n", args...)
 		}
 	}
-	gh.Log = logf
 
+	var results []any
+	for _, src := range srcs {
+		var res any
+		switch src.Type {
+		case config.SourceAWSWhatsNew:
+			res, err = pullWhatsNew(ctx, src, st, since, logf)
+		default:
+			res, err = pullSDK(ctx, src, dir, st, since, *noFetch, logf)
+		}
+		if err != nil {
+			return fmt.Errorf("source %s: %w", src.Name, err)
+		}
+		results = append(results, res)
+		if c.format == "text" {
+			switch r := res.(type) {
+			case *awssdk.PullResult:
+				fmt.Fprintf(stdout, "pulled %s since %s: %d release(s), %d new item(s), %d skipped, in %s\n",
+					r.Source, r.Since, r.Releases, r.New, r.Skipped, r.Duration)
+				for _, w := range r.Warnings {
+					fmt.Fprintf(stdout, "warning: %s\n", w)
+				}
+			case *whatsNewResult:
+				fmt.Fprintf(stdout, "pulled %s since %s: %d announcement(s), in %s\n", r.Source, r.Since, r.Announcements, r.Duration)
+			}
+		}
+	}
+	if c.format == "text" {
+		return nil
+	}
+	if len(results) == 1 {
+		return writeJSON(stdout, results[0])
+	}
+	return writeJSON(stdout, results)
+}
+
+func pullSDK(ctx context.Context, src *config.Source, dir string, st *items.Store, since time.Time, noFetch bool, logf func(string, ...any)) (*awssdk.PullResult, error) {
+	gh, err := github.NewClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	gh.Log = logf
 	p := &awssdk.Puller{
 		Source:   src,
 		Models:   &awssdk.ModelsRepo{Dir: src.ModelsPath(dir), URL: src.ModelsURL, Branch: src.ModelsBranch},
@@ -84,22 +127,54 @@ func cmdPull(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		Version:  version,
 		Log:      logf,
 	}
-	res, err := p.Pull(ctx, awssdk.PullOptions{Since: since, NoFetch: *noFetch})
+	res, err := p.Pull(ctx, awssdk.PullOptions{Since: since, NoFetch: noFetch})
+	if err != nil && res != nil && res.Releases > 0 {
+		logf("partial pull: %d release(s) stored before the error; progress is saved", res.Releases)
+	}
+	return res, err
+}
+
+type whatsNewResult struct {
+	Source        string `json:"source"`
+	Since         string `json:"since"`
+	Announcements int    `json:"announcements"`
+	Duration      string `json:"duration"`
+}
+
+// whatsNewOverlap is how far before the checkpoint a pull starts again, for posts published late or back-dated.
+const whatsNewOverlap = 7 * 24 * time.Hour
+
+func pullWhatsNew(ctx context.Context, src *config.Source, st *items.Store, since time.Time, logf func(string, ...any)) (*whatsNewResult, error) {
+	start := time.Now()
+	key := "checkpoint:" + src.Name
+	explicit := !since.IsZero()
+	if !explicit {
+		v, err := st.Meta(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if v != "" {
+			cp, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid checkpoint %q: %w", v, err)
+			}
+			since = cp.Add(-whatsNewOverlap)
+		} else if since, err = config.ParseSince(src.Start, start); err != nil {
+			return nil, err
+		}
+	}
+	c := &whatsnew.Client{URL: src.URL, HTTP: &http.Client{Timeout: time.Minute}, UserAgent: "radar/" + version}
+	n, err := whatsnew.Pull(ctx, c, items.AnnouncementStore{Store: st, Source: src.Name}, since, logf)
 	if err != nil {
-		if res != nil && res.Releases > 0 {
-			logf("partial pull: %d release(s) stored before the error; progress is saved", res.Releases)
-		}
-		return err
+		return nil, err
 	}
-	if c.format == "text" {
-		fmt.Fprintf(stdout, "pulled %s since %s: %d release(s), %d new item(s), %d skipped, in %s\n",
-			res.Source, res.Since, res.Releases, res.New, res.Skipped, res.Duration)
-		for _, w := range res.Warnings {
-			fmt.Fprintf(stdout, "warning: %s\n", w)
+	if !explicit {
+		if err := st.SetMeta(ctx, key, start.UTC().Format(time.RFC3339)); err != nil {
+			return nil, err
 		}
-		return nil
 	}
-	return writeJSON(stdout, res)
+	return &whatsNewResult{Source: src.Name, Since: since.UTC().Format(time.RFC3339), Announcements: n,
+		Duration: time.Since(start).Round(time.Millisecond).String()}, nil
 }
 
 func cmdItems(_ context.Context, args []string, stdout, stderr io.Writer) error {
@@ -246,7 +321,37 @@ func newEnricher(cfg *config.Config, dir string, t *config.Target, it *awssdk.It
 			e.Models = &awssdk.ModelsRepo{Dir: p, URL: src.ModelsURL, Branch: src.ModelsBranch}
 		}
 	}
+	e.Announcements = announcements(dir, stderr)
 	return e
+}
+
+var (
+	matchersMu sync.Mutex
+	matchers   = map[string]*whatsnew.Matcher{}
+)
+
+// announcements returns a matcher over the announcements stored in the state directory, built once per process, or
+// nil if there are none.
+func announcements(dir string, stderr io.Writer) *whatsnew.Matcher {
+	matchersMu.Lock()
+	defer matchersMu.Unlock()
+	if m, ok := matchers[dir]; ok {
+		return m
+	}
+	var m *whatsnew.Matcher
+	st, err := openItems(dir)
+	if err == nil {
+		var as []whatsnew.Announcement
+		if as, err = st.Announcements(context.Background()); err == nil && len(as) > 0 {
+			m = whatsnew.NewMatcher(as)
+		}
+		st.Close()
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "radar: warning: announcements unavailable: %v\n", err)
+	}
+	matchers[dir] = m
+	return m
 }
 
 func dirExists(p string) bool {
@@ -273,6 +378,13 @@ func writeEnrichmentText(w io.Writer, e *enrich.Result) error {
 			}
 			p("bumped by:\t%s%s %s (%s, %s)", pr, short(b.Commit), b.Subject, b.Version, b.Time.Format(time.DateOnly))
 		}
+	}
+	switch m := e.Announcement; {
+	case m != nil:
+		p("announcement:\t%s (inferred: %s)", m.Announcement.Headline, m.Basis)
+		p("\t%s", m.Announcement.URL)
+	case e.AnnouncementsMatched:
+		p("announcement:\tnone clearly matches")
 	}
 	if err := tw.Flush(); err != nil {
 		return err

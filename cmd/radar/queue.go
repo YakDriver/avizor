@@ -196,7 +196,8 @@ var queueStates = []string{queue.Resurfaced, queue.Gap, queue.Pending, queue.New
 
 // queueEnricher is newEnricher with a shared service map, for many items from one source.
 func queueEnricher(cfg *config.Config, dir string, t *config.Target, svcs *services.Map, source string, noCode bool) *enrich.Enricher {
-	e := &enrich.Enricher{Target: t.Name, Services: svcs, LabelPrefix: t.ServiceLabelPrefix, Checkout: t.Checkout, Ref: t.Ref, NoCode: noCode}
+	e := &enrich.Enricher{Target: t.Name, Services: svcs, LabelPrefix: t.ServiceLabelPrefix, Checkout: t.Checkout, Ref: t.Ref, NoCode: noCode,
+		Announcements: announcements(dir, io.Discard)}
 	if src, err := cfg.Source(source); err == nil {
 		if p := src.ModelsPath(dir); dirExists(p) {
 			e.Models = &awssdk.ModelsRepo{Dir: p, URL: src.ModelsURL, Branch: src.ModelsBranch}
