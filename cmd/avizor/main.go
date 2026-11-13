@@ -31,10 +31,10 @@ const usage = `avizor finds existing issues, pull requests, and code related to 
 
 Usage:
   avizor sync [flags]                         Refresh the local index from GitHub.
-  avizor candidates [flags] <issue|url>       Reconcile an issue number, issue URL, or other URL.
+  avizor candidates [flags] <issue|url|item>  Reconcile an issue number, issue URL, other URL, or item.
   avizor candidates [flags] --text "..."      Reconcile a free-text description.
   avizor eval [flags] [case...]               Run the evaluation corpus.
-  avizor pull [flags] [source]                Pull new items from a source (default: aws-sdk-go-v2).
+  avizor pull [flags] [source]                Pull new items and announcements (default: every source).
   avizor items [flags]                        List pulled items.
   avizor inspect [flags] <item-id>            Show an item's evidence.
   avizor draft [flags] <item-id>              Draft a new issue for an item.
