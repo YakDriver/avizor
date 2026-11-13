@@ -222,6 +222,14 @@ func TestAnnouncement(t *testing.T) {
 		t.Errorf("body =\n%s\nwant\n%s", d.Body, want)
 	}
 
+	// Asking for an announcement when none matched warns, even with no release notes.
+	if d, err = New(item("widget", NewModuleNote), implemented("widget"), nil, o); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(d.Warnings, func(w string) bool { return strings.Contains(w, "no announcement matched") }) {
+		t.Errorf("warnings without notes = %q", d.Warnings)
+	}
+
 	// Asking for an announcement when none matched warns and keeps the notes.
 	if d, err = New(item("widget", "Adds sizes."), implemented("widget"), nil, o); err != nil {
 		t.Fatal(err)

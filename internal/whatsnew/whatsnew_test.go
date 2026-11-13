@@ -75,6 +75,12 @@ func TestMatch(t *testing.T) {
 		t.Errorf("matched %s outside the window", got.Announcement.ID)
 	}
 
+	// A corpus of one post still matches it.
+	one := NewMatcher(as[:1])
+	if got := one.Match(as[0].Headline+" "+as[0].Body, "KMS", rel); got == nil || got.Announcement.ID != "kms" {
+		t.Errorf("single-post match = %+v", got)
+	}
+
 	// Two equally good posts: no clear winner.
 	twins := NewMatcher([]Announcement{
 		{ID: "a", Headline: "Amazon EKS now supports version rollback", PostedAt: rel},

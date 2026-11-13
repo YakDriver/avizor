@@ -61,6 +61,10 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 
 	switch {
 	case *bodyOnly:
+		// stdout is for piping to gh, so warnings go to stderr.
+		for _, w := range d.Warnings {
+			fmt.Fprintf(stderr, "radar: warning: %s\n", w)
+		}
 		_, err := io.WriteString(stdout, d.Body)
 		return err
 	case c.format == "text":

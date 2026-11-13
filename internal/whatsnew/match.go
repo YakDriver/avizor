@@ -24,6 +24,8 @@ const (
 	DefaultMargin = 1.3
 	// nearDays is how close to the release an announcement scores in full; further ones score 75%.
 	nearDays = 1.5
+	// minIDF is the least a word weighs.
+	minIDF = 0.01
 )
 
 // regionRE matches headlines about availability in more Regions, which repeat an earlier launch's wording.
@@ -66,7 +68,9 @@ func NewMatcher(as []Announcement) *Matcher {
 		}
 	}
 	for w, n := range df {
-		m.idf[w] = math.Log((m.n + 1) / float64(n+1))
+		// A word in every post weighs almost nothing, but not zero: in a corpus of one post, every word is in every
+		// post, and zero weights would leave nothing to match on.
+		m.idf[w] = max(math.Log((m.n+1)/float64(n+1)), minIDF)
 	}
 	for i, a := range as {
 		if RegionExpansion(a.Headline) {

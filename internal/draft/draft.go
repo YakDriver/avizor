@@ -136,9 +136,9 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	case len(data.Notes) > 0:
 		data.Headline = firstSentence(data.Notes[0])
 		infer("headline", data.Headline, "first sentence of the release notes, used in the title; no announcement matched")
-		if opts.Announcement {
-			d.Warnings = append(d.Warnings, "no announcement matched, so the body quotes the release notes")
-		}
+	}
+	if opts.Announcement && en.Announcement == nil {
+		d.Warnings = append(d.Warnings, "--announcement: no announcement matched, so the body has the release notes instead")
 	}
 
 	if av := en.Availability; av != nil {
