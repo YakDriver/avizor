@@ -12,6 +12,7 @@ import (
 	"github.com/YakDriver/avizor/internal/enrich"
 	"github.com/YakDriver/avizor/internal/items"
 	"github.com/YakDriver/avizor/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/signal"
 )
 
 // States. Gap, Pending, and NewService are shown by default; the others are hidden.
@@ -24,6 +25,9 @@ const (
 	NewService = "new_service"
 	// Covered: a confident candidate (already tracked, implemented, or previously considered) matches the item.
 	Covered = "covered"
+	// Partial: a covered item with work nothing accounts for: a new resource whose operations no code or confident
+	// candidate matches, or a new argument whose likely Terraform name the code calling it doesn't use.
+	Partial = "partial"
 	// NoCode: the item's work touches no code the target has and adds no new resource. In the gap sample, items like
 	// these needed no provider work.
 	NoCode = "no_code"
@@ -39,7 +43,7 @@ const (
 
 // Shown reports whether a state or group is in the default queue.
 func Shown(group string) bool {
-	return group == Gap || group == Pending || group == NewService || group == Resurfaced
+	return group == Gap || group == Pending || group == NewService || group == Partial || group == Resurfaced
 }
 
 // Entry is one item in the queue.
@@ -118,7 +122,10 @@ func (e Entry) Group() string {
 
 // Classify sorts an item into a state. d is the item's draft; its title, labels, and related matches are copied.
 // An item is NoCode only if en.CodeSearched: without a complete code search, nothing is known not to touch code.
-func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draft.Draft) Entry {
+//
+// texts holds the titles and bodies of rec's candidates by number, for finding a covered item's other work in them. Nil
+// uses titles only.
+func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draft.Draft, texts map[int]string) Entry {
 	e := Entry{
 		Item:      it.ID,
 		Published: it.Release.PublishedAt.Format("2006-01-02"),
@@ -165,6 +172,9 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 	switch {
 	case len(e.Covered) > 0:
 		e.State, e.Reason = Covered, strings.Join(e.Covered, ", ")
+		if rest := uncovered(en, rec, texts); en.CodeSearched && len(rest) > 0 && !releaseTracked(it, rec) {
+			e.State, e.Reason = Partial, "no code or candidate found for "+strings.Join(rest, ", ")+"; covered: "+e.Reason
+		}
 	case len(en.Work) == 0:
 		e.State, e.Reason = NoWork, "no inferred work"
 	case en.Service.Status != enrich.ServiceImplemented && newModule:
@@ -191,4 +201,111 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 	}
 	e.Evidence.State, e.Evidence.CodeSearched = e.State, en.CodeSearched
 	return e
+}
+
+// uncovered lists a covered item's work that neither code nor a candidate accounts for:
+//   - new resources (with an operation that deletes, so not tokens or presigned URLs) whose operations no code calls,
+//     no confident candidate matched, and no candidate's text names;
+//   - new arguments of write operations whose likely Terraform name isn't in the files calling them or in a
+//     candidate's text.
+func uncovered(en *enrich.Result, rec *reconcile.Result, texts map[int]string) []string {
+	matched := map[string]bool{}
+	var docs []string
+	if rec != nil {
+		for _, c := range rec.Candidates {
+			doc := c.Title
+			if t, ok := texts[c.Number]; ok && c.Number != 0 {
+				doc = t
+			}
+			docs = append(docs, strings.ToLower(doc))
+			if c.Category == reconcile.CategoryRelated {
+				continue
+			}
+			for _, m := range c.Signals {
+				if m.Type == signal.KindOp {
+					matched[m.Value] = true
+				}
+			}
+		}
+	}
+	named := func(names ...string) bool {
+		return slices.ContainsFunc(docs, func(d string) bool {
+			return slices.ContainsFunc(names, func(n string) bool { return n != "" && hasWord(d, strings.ToLower(n)) })
+		})
+	}
+	// A resource is also named by its noun (ContextGraph) and by Terraform names ending in it (aws_x_context_graph).
+	namedResource := func(w enrich.Work) bool {
+		suffix := "_" + enrich.Snake(w.Subject)
+		return named(append(slices.Clone(w.Operations), w.Subject, enrich.Snake(w.Subject))...) ||
+			slices.ContainsFunc(docs, func(d string) bool { return hasWordEnd(d, suffix) })
+	}
+	var out []string
+	for _, w := range en.Work {
+		switch {
+		case w.Kind == enrich.WorkNewResource && len(w.UsedBy) == 0 && slices.ContainsFunc(w.Operations, deletes) &&
+			!slices.ContainsFunc(w.Operations, func(op string) bool { return matched[op] }) &&
+			!namedResource(w):
+			out = append(out, "resource "+w.Subject)
+		case w.Member != "" && len(w.FoundIn) == 0:
+			_, member, _ := strings.Cut(w.Subject, ".")
+			if a := "argument " + w.Member; !slices.Contains(out, a) && !named(append(enrich.MemberNames(member), member)...) {
+				out = append(out, a)
+			}
+		}
+	}
+	return out
+}
+
+// deleteVerbs start operations that end a resource's life.
+var deleteVerbs = []string{"Delete", "Deregister", "Disassociate", "Disable", "Detach", "Remove"}
+
+func deletes(op string) bool {
+	return slices.ContainsFunc(deleteVerbs, func(v string) bool { return strings.HasPrefix(op, v) })
+}
+
+// hasWordEnd reports whether s contains w with no letter, digit, or underscore after it.
+func hasWordEnd(s, w string) bool {
+	for i := 0; ; {
+		j := strings.Index(s[i:], w)
+		if j < 0 {
+			return false
+		}
+		if end := i + j + len(w); end == len(s) || !isWordByte(s[end]) {
+			return true
+		}
+		i += j + 1
+	}
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+}
+
+// hasWord reports whether s contains w with no letter, digit, or underscore on either side, so the member
+// SystemTableStatuses isn't found in ListSystemTableStatuses.
+func hasWord(s, w string) bool {
+	for i := 0; ; {
+		j := strings.Index(s[i:], w)
+		if j < 0 {
+			return false
+		}
+		start, end := i+j, i+j+len(w)
+		if (start == 0 || !isWordByte(s[start-1])) && (end == len(s) || !isWordByte(s[end])) {
+			return true
+		}
+		i = start + 1
+	}
+}
+
+// releaseTracked reports whether a confident issue cites the item's release commit. Maintainers file one tracker per
+// launch and cite the release, so the tracker covers all of the item's work, including parts Avizor can't find.
+func releaseTracked(it *awssdk.Item, rec *reconcile.Result) bool {
+	if rec == nil || it.Release.CommitURL == "" {
+		return false
+	}
+	return slices.ContainsFunc(rec.Candidates, func(c reconcile.Candidate) bool {
+		return c.Kind == reconcile.KindIssue && c.Category != reconcile.CategoryRelated && slices.ContainsFunc(c.Signals, func(m reconcile.Match) bool {
+			return m.Strength == reconcile.StrengthStrong && m.Value == it.Release.CommitURL
+		})
+	})
 }

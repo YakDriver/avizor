@@ -135,7 +135,7 @@ The source reads the JSON endpoint behind the What's New pages. That endpoint is
 
 - **Service**: the provider package that uses the SDK module, or a service the provider doesn't implement.
 - **Availability**: whether the target's `go.mod` requires the item's SDK version, and the commit and PR that brought it in.
-- **Work** (inferred): new operations grouped into a likely resource, data source, or other operation; new members as arguments or attributes; enum values; type changes; removals. Each kind lists the provider files that call the operations involved.
+- **Work** (inferred): new operations grouped into a likely resource, data source, or other operation; new members as arguments or attributes; enum values; type changes; removals. Each kind lists the provider files that call the operations involved, and for a new argument, whether those files use its likely Terraform name.
 - **Announcement** (inferred): the matched post, with its score and the runner-up's.
 
 ## Queue
@@ -153,13 +153,16 @@ avizor queue --since 90d --service s3 --all --format text
 | `gap` | yes | The work touches code the target has, or adds a resource, and nothing confidently covers it. |
 | `pending` | yes | A gap whose SDK version the target doesn't have yet. |
 | `new_service` | yes | A new SDK module for a service the target doesn't implement. |
+| `partial` | yes | Covered, but some new resource or argument has no code or candidate. |
 | `decided` | no | A decision stands. |
 | `covered` | no | A confident candidate covers it. |
 | `no_code` | no | The work touches no code the target has and adds no resource. |
 | `unimplemented` | no | The target doesn't implement the service. |
 | `no_work` | no | No work inferred, as for documentation-only changes. |
 
-`--all` shows every state, and `--state gap,covered` picks some. An item counts as `no_code` only if the code search ran. With `--no-code`, nothing is hidden as `no_code`.
+`--all` shows every state, and `--state gap,covered` picks some. An item counts as `no_code` only if the code search ran. With `--no-code`, nothing is hidden as `no_code` or shown as `partial`.
+
+For `partial`, a new argument counts as present when the files calling its operations use its likely Terraform name. `avizor inspect` shows where. When a confident issue cites the item's release commit, the item stays `covered`, since that issue tracks the whole launch. Of the 13 `partial` items in a year of releases, 12 had real uncovered work.
 
 A `gap` is a guess. In a hand-checked sample of 20 gaps, 8 were real gaps, 8 needed no provider work, and 4 were already covered. 2 of those 4 had the covering issue or PR in the related list, so check that list before drafting.
 

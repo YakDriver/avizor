@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"text/template"
-	"unicode"
 
 	"github.com/YakDriver/avizor/internal/awssdk"
 	"github.com/YakDriver/avizor/internal/enrich"
@@ -208,10 +207,10 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 		switch w.Kind {
 		case enrich.WorkNewResource:
 			addLabel("new-resource", w.Basis)
-			newTypes = append(newTypes, opts.Prefix+pkg+"_"+snake(w.Subject))
+			newTypes = append(newTypes, opts.Prefix+pkg+"_"+enrich.Snake(w.Subject))
 		case enrich.WorkNewDataSource:
 			// Not labeled: new read operations are usually statuses or sub-resource listings, not data sources.
-			newDataSources = append(newDataSources, opts.Prefix+pkg+"_"+snake(w.Subject))
+			newDataSources = append(newDataSources, opts.Prefix+pkg+"_"+enrich.Snake(w.Subject))
 		case enrich.WorkNewArgument:
 			for _, n := range resourceNames(opts.Checkout, w.UsedBy) {
 				if !slices.Contains(argTypes, n) {
@@ -377,23 +376,6 @@ func firstSentence(text string) string {
 		return strings.TrimSpace(text[:loc[0]+1])
 	}
 	return text
-}
-
-// snake turns a PascalCase noun into snake_case: S3AccessPoint -> s3_access_point, KMSKey -> kms_key.
-func snake(s string) string {
-	rs := []rune(s)
-	var b strings.Builder
-	for i, r := range rs {
-		if unicode.IsUpper(r) && i > 0 {
-			prevLower := unicode.IsLower(rs[i-1]) || unicode.IsDigit(rs[i-1])
-			nextLower := i+1 < len(rs) && unicode.IsLower(rs[i+1])
-			if prevLower || (unicode.IsUpper(rs[i-1]) && nextLower) {
-				b.WriteByte('_')
-			}
-		}
-		b.WriteRune(unicode.ToLower(r))
-	}
-	return b.String()
 }
 
 var blankRunRE = regexp.MustCompile(`\n{3,}`)

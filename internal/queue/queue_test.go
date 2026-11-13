@@ -22,40 +22,60 @@ func TestClassify(t *testing.T) {
 	pending := &enrich.Availability{Status: enrich.Pending, ModulePath: "m", ItemVersion: "v2", ProviderVersion: "v1"}
 	tracked := &reconcile.Result{Candidates: []reconcile.Candidate{{Category: reconcile.CategoryTracked, Number: 7}, {Category: reconcile.CategoryRelated, Number: 8}}}
 	related := &reconcile.Result{Candidates: []reconcile.Candidate{{Category: reconcile.CategoryRelated, Number: 8}}}
+	// A new argument whose name the calling code doesn't use, and one it does.
+	missing := enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateThingRequest.Color", Operations: []string{"CreateThing"}, UsedBy: []string{"thing.go"}, Member: "color"}
+	found := missing
+	found.FoundIn = []string{"thing.go"}
+	policies := enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateThingRequest.Policies", Operations: []string{"CreateThing"}, UsedBy: []string{"thing.go"}, Member: "policies"}
+	gadget := enrich.Work{Kind: enrich.WorkNewResource, Subject: "Gadget", Operations: []string{"CreateGadget", "DeleteGadget"}}
+	trackedText := map[int]string{7: "Track the color argument"}
+	release := "https://github.com/aws/aws-sdk-go-v2/commit/abc"
+	tracker := &reconcile.Result{Candidates: []reconcile.Candidate{{Category: reconcile.CategoryTracked, Kind: reconcile.KindIssue, Number: 7,
+		Signals: []reconcile.Match{{Type: "url", Value: release, Strength: reconcile.StrengthStrong}}}}}
 
 	for name, tc := range map[string]struct {
 		notes    []string
 		en       enrich.Result
 		rec      *reconcile.Result
+		texts    map[int]string
 		noSearch bool
 		state    string
 		reason   string
 	}{
-		"gap":                {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used, unused}}, rec: related, state: Gap, reason: "work in code"},
-		"gap new resource":   {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{resource}}, state: Gap, reason: "new resource"},
-		"gap without code":   {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{unused}}, noSearch: true, state: Gap, reason: "code not searched"},
-		"gap, search failed": {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{unused}, Warnings: []string{"loading model: boom"}}, noSearch: true, state: Gap, reason: "code not searched: loading model: boom"},
-		"pending":            {en: enrich.Result{Service: impl, Availability: pending, Work: []enrich.Work{used}}, state: Pending, reason: "needs m v2"},
-		"covered":            {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used}}, rec: tracked, state: Covered, reason: "already tracked #7"},
-		"no code":            {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{unused}}, state: NoCode},
-		"no code is pending": {en: enrich.Result{Service: impl, Availability: pending, Work: []enrich.Work{unused}}, state: NoCode},
-		"no work":            {en: enrich.Result{Service: impl, Availability: available}, state: NoWork},
-		"new service":        {notes: []string{draft.NewModuleNote, "Initial release."}, en: enrich.Result{Service: none, Work: []enrich.Work{resource}}, state: NewService, reason: "new SDK module; no service"},
-		"unimplemented":      {en: enrich.Result{Service: none, Work: []enrich.Work{resource}}, state: Unimplemented, reason: "no service uses"},
+		"gap":                     {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used, unused}}, rec: related, state: Gap, reason: "work in code"},
+		"gap new resource":        {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{resource}}, state: Gap, reason: "new resource"},
+		"gap without code":        {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{unused}}, noSearch: true, state: Gap, reason: "code not searched"},
+		"gap, search failed":      {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{unused}, Warnings: []string{"loading model: boom"}}, noSearch: true, state: Gap, reason: "code not searched: loading model: boom"},
+		"pending":                 {en: enrich.Result{Service: impl, Availability: pending, Work: []enrich.Work{used}}, state: Pending, reason: "needs m v2"},
+		"covered":                 {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used}}, rec: tracked, state: Covered, reason: "already tracked #7"},
+		"partial argument":        {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{missing}}, rec: tracked, state: Partial, reason: "argument color"},
+		"partial resource":        {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used, gadget}}, rec: tracked, state: Partial, reason: "resource Gadget"},
+		"argument found":          {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{found}}, rec: tracked, state: Covered},
+		"argument named":          {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{missing}}, rec: tracked, texts: trackedText, state: Covered},
+		"resource noun named":     {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used, gadget}}, rec: tracked, texts: map[int]string{7: "Support the Gadget API"}, state: Covered},
+		"resource type named":     {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used, gadget}}, rec: tracked, texts: map[int]string{7: "New resource: aws_widget_gadget"}, state: Covered},
+		"resource name in a word": {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used, gadget}}, rec: tracked, texts: map[int]string{7: "aws_widget_gadget_policy"}, state: Partial},
+		"plural argument named":   {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{policies}}, rec: tracked, texts: map[int]string{7: "Add a policy block"}, state: Covered},
+		"release tracker":         {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{missing, gadget}}, rec: tracker, state: Covered},
+		"no code":                 {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{unused}}, state: NoCode},
+		"no code is pending":      {en: enrich.Result{Service: impl, Availability: pending, Work: []enrich.Work{unused}}, state: NoCode},
+		"no work":                 {en: enrich.Result{Service: impl, Availability: available}, state: NoWork},
+		"new service":             {notes: []string{draft.NewModuleNote, "Initial release."}, en: enrich.Result{Service: none, Work: []enrich.Work{resource}}, state: NewService, reason: "new SDK module; no service"},
+		"unimplemented":           {en: enrich.Result{Service: none, Work: []enrich.Work{resource}}, state: Unimplemented, reason: "no service uses"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			it := &awssdk.Item{ID: "sdk/widget/release-1", Service: awssdk.Service{Module: "widget"}}
+			it := &awssdk.Item{ID: "sdk/widget/release-1", Service: awssdk.Service{Module: "widget"}, Release: awssdk.Release{CommitURL: release}}
 			for _, n := range tc.notes {
 				it.Notes = append(it.Notes, awssdk.Note{Text: n})
 			}
 			tc.en.CodeSearched = !tc.noSearch
-			e := Classify(it, &tc.en, tc.rec, &draft.Draft{Title: "T"})
+			e := Classify(it, &tc.en, tc.rec, &draft.Draft{Title: "T"}, tc.texts)
 			if e.State != tc.state || !strings.Contains(e.Reason, tc.reason) {
 				t.Errorf("state = %s (%s), want %s (%s)", e.State, e.Reason, tc.state, tc.reason)
 			}
-			if Shown(e.State) != (tc.state == Gap || tc.state == Pending || tc.state == NewService) {
+			if Shown(e.State) != (tc.state == Gap || tc.state == Pending || tc.state == NewService || tc.state == Partial) {
 				t.Errorf("Shown(%s) = %v", e.State, Shown(e.State))
 			}
 		})
@@ -71,7 +91,7 @@ func TestClassifyEntry(t *testing.T) {
 	}}
 	d := &draft.Draft{Title: "T", Labels: []string{"enhancement"}, Relates: []draft.Relate{{Number: 3, Kind: reconcile.KindPR}}}
 	en.CodeSearched = true
-	e := Classify(it, en, nil, d)
+	e := Classify(it, en, nil, d, nil)
 	if e.Service != "widget" || e.Work[enrich.WorkNewArgument] != 2 || e.Work[enrich.WorkNewEnumValue] != 1 || e.Title != "T" || len(e.Relates) != 1 {
 		t.Errorf("entry = %+v", e)
 	}

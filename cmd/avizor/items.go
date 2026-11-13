@@ -396,6 +396,12 @@ func writeEnrichmentText(w io.Writer, e *enrich.Result) error {
 			if len(wk.UsedBy) > 0 {
 				fmt.Fprintf(w, "      provider calls these operations in: %s\n", strings.Join(wk.UsedBy, ", "))
 			}
+			switch {
+			case wk.Member != "" && len(wk.FoundIn) > 0:
+				fmt.Fprintf(w, "      %s is used in: %s\n", wk.Member, strings.Join(wk.FoundIn, ", "))
+			case wk.Member != "":
+				fmt.Fprintf(w, "      %s isn't used in those files\n", wk.Member)
+			}
 		}
 	}
 	for _, warn := range e.Warnings {

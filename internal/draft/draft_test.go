@@ -188,8 +188,8 @@ func TestSnake(t *testing.T) {
 	for in, want := range map[string]string{
 		"Channel": "channel", "S3AccessPoint": "s3_access_point", "KMSKey": "kms_key", "KeyLastUsage": "key_last_usage", "VPCEndpoint": "vpc_endpoint",
 	} {
-		if got := snake(in); got != want {
-			t.Errorf("snake(%s) = %s, want %s", in, got, want)
+		if got := enrich.Snake(in); got != want {
+			t.Errorf("Snake(%s) = %s, want %s", in, got, want)
 		}
 	}
 }
