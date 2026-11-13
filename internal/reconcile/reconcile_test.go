@@ -590,13 +590,16 @@ func TestRunItemCode(t *testing.T) {
 	if c := find(t, res.Candidates, 0, "internal/service/fsx/s3_access_point_attachment.go"); c.Category != CategoryImplemented {
 		t.Errorf("code category = %s", c.Category)
 	}
+	if !res.CodeSearched {
+		t.Error("code searched = false")
+	}
 	// Without a package, code isn't searched: other services may have an operation of the same name.
 	item.Package = ""
 	if res, err = r.RunItem(context.Background(), item); err != nil {
 		t.Fatal(err)
 	}
-	if slices.ContainsFunc(res.Candidates, func(c Candidate) bool { return c.Path != "" }) {
-		t.Errorf("code searched without a package: %v", summarizeCandidates(res.Candidates))
+	if slices.ContainsFunc(res.Candidates, func(c Candidate) bool { return c.Path != "" }) || res.CodeSearched {
+		t.Errorf("code searched without a package (%v): %v", res.CodeSearched, summarizeCandidates(res.Candidates))
 	}
 }
 
@@ -611,8 +614,8 @@ func TestRunItemCodeMissingPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if slices.ContainsFunc(res.Candidates, func(c Candidate) bool { return c.Path != "" }) {
-		t.Errorf("code from another package: %v", summarizeCandidates(res.Candidates))
+	if slices.ContainsFunc(res.Candidates, func(c Candidate) bool { return c.Path != "" }) || res.CodeSearched {
+		t.Errorf("code from another package (searched %v): %v", res.CodeSearched, summarizeCandidates(res.Candidates))
 	}
 	if !slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "internal/service/s3control") }) {
 		t.Errorf("warnings = %q", res.Warnings)

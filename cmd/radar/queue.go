@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -75,10 +76,31 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	decisions, err := ist.Current(ctx, t.Name)
-	ist.Close()
 	if err != nil {
+		ist.Close()
 		return err
 	}
+	// Decided items published before --since can still re-surface: a deferral comes due, or the evidence changes.
+	// They're evaluated too, and kept only if they re-surface or decided items were asked for.
+	inWindow := len(recs)
+	listed := map[string]bool{}
+	for _, r := range recs {
+		listed[r.ID] = true
+	}
+	for _, id := range slices.Sorted(maps.Keys(decisions)) {
+		if listed[id] {
+			continue
+		}
+		r, err := ist.Get(ctx, id)
+		if err != nil {
+			ist.Close()
+			return err
+		}
+		if r != nil && r.Status == items.StatusNew && (f.Service == "" || r.Service == f.Service) && (f.Source == "" || r.Source == f.Source) {
+			recs = append(recs, *r)
+		}
+	}
+	ist.Close()
 
 	svcs := loadServices(t, stderr)
 	// Without the service map, every item's service is unknown and would be hidden as unimplemented.
@@ -134,6 +156,7 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	}
 	counts := map[string]int{}
 	var shown []queue.Entry
+	total := inWindow
 	for i, e := range entries {
 		if errs[i] != nil {
 			return fmt.Errorf("%s: %w", recs[i].ID, errs[i])
@@ -142,6 +165,12 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 			queue.Resurface(&e, d, lookup, now)
 		}
 		g := e.Group()
+		if i >= inWindow {
+			if g != queue.Resurfaced && !slices.Contains(want, queue.Decided) {
+				continue
+			}
+			total++
+		}
 		counts[g]++
 		if (want == nil && (*all || queue.Shown(g))) || slices.Contains(want, g) {
 			shown = append(shown, e)
@@ -159,7 +188,7 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if c.format != "text" {
 		return writeJSON(stdout, shown)
 	}
-	return writeQueueText(stdout, shown, counts, len(recs), *all || want != nil)
+	return writeQueueText(stdout, shown, counts, total, *all || want != nil)
 }
 
 // queueStates are the queue states in the order they're reported.

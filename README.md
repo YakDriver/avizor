@@ -182,7 +182,7 @@ A decision takes the item off the default queue. Radar records who decided (`--b
 - it's a `duplicate` and the covering issue was closed other than as completed, or the covering PR was closed unmerged;
 - it's `skipped` or `deferred` and what Radar finds changed, such as the SDK version becoming available or a new tracking issue.
 
-`created` stands otherwise. `--state decided` lists decided items, and `radar decisions --history` lists every decision, including cleared ones.
+`created` stands otherwise. Decided items published before `--since` are checked too, so a deferral comes back when it's due; they're listed only if they re-surface or `--state decided` asks for them. `--state decided` lists decided items, and `radar decisions --history` lists every decision, including cleared ones.
 
 ### Draft an issue
 

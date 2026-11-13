@@ -71,11 +71,13 @@ type Entry struct {
 
 // Evidence is the part of an entry that a skipped or deferred decision depends on.
 type Evidence struct {
-	// CodeSearched is the enrichment's: whether the target's code was searched. State and code candidates depend on it.
-	CodeSearched bool       `json:"code_searched"`
-	State        string     `json:"state"`
-	Availability string     `json:"availability,omitempty"`
-	Covering     []Covering `json:"covering,omitempty"`
+	// CodeSearched is the enrichment's: whether the model loaded and the code search ran, which no_code depends on.
+	CodeSearched bool `json:"code_searched"`
+	// CodeCandidates is reconciliation's: whether it searched the checkout for code candidates without errors.
+	CodeCandidates bool       `json:"code_candidates"`
+	State          string     `json:"state"`
+	Availability   string     `json:"availability,omitempty"`
+	Covering       []Covering `json:"covering,omitempty"`
 }
 
 // Covering is a confident candidate.
@@ -144,6 +146,9 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 	}
 	if en.Availability != nil {
 		e.Evidence.Availability = en.Availability.Status
+	}
+	if rec != nil {
+		e.Evidence.CodeCandidates = rec.CodeSearched
 	}
 
 	newModule := slices.ContainsFunc(it.Notes, func(n awssdk.Note) bool { return n.Text == draft.NewModuleNote })

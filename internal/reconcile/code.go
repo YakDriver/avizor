@@ -25,6 +25,7 @@ func (r *Reconciler) searchCode(ctx context.Context, ops, tfNames, pkgs []string
 	}
 	if _, err := os.Stat(co); err != nil {
 		r.warnf("checkout %s is unavailable: %v", co, err)
+		r.codeFailed = true
 		return nil
 	}
 
@@ -50,6 +51,7 @@ func (r *Reconciler) searchCode(ctx context.Context, ops, tfNames, pkgs []string
 		files, err := r.grep(ctx, `("`+name+`"`, r.servicePaths(pkgs))
 		if err != nil {
 			r.warnf("code search for %s failed: %v", name, err)
+			r.codeFailed = true
 			continue
 		}
 		for _, f := range files {
@@ -62,6 +64,7 @@ func (r *Reconciler) searchCode(ctx context.Context, ops, tfNames, pkgs []string
 		files, err := r.grepWord(ctx, op, r.servicePaths(pkgs))
 		if err != nil {
 			r.warnf("code search for %s failed: %v", op, err)
+			r.codeFailed = true
 			continue
 		}
 		if len(files) > maxCodeFiles {

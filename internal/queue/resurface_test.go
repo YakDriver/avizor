@@ -16,7 +16,7 @@ func TestResurface(t *testing.T) {
 
 	now := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
 	ev := func(e Evidence) json.RawMessage { b, _ := json.Marshal(e); return b }
-	gap := Evidence{CodeSearched: true, State: Gap, Availability: "pending"}
+	gap := Evidence{CodeSearched: true, CodeCandidates: true, State: Gap, Availability: "pending"}
 	issues := map[int]*index.Issue{
 		1: {Kind: index.KindIssue, State: "open"},
 		2: {Kind: index.KindIssue, State: "closed", StateReason: "not_planned"},
@@ -41,7 +41,7 @@ func TestResurface(t *testing.T) {
 		"duplicate of merged PR":       {d: items.Disposition{Decision: items.DecisionDuplicate, Number: 5}},
 		"duplicate not in index":       {d: items.Disposition{Decision: items.DecisionDuplicate, Number: 6}},
 		"skipped, same evidence":       {d: items.Disposition{Decision: items.DecisionSkipped, Evidence: ev(gap)}, now: gap},
-		"skipped, availability change": {d: items.Disposition{Decision: items.DecisionSkipped, Evidence: ev(gap)}, now: Evidence{CodeSearched: true, State: Gap, Availability: "available"}, want: "availability pending → available"},
+		"skipped, availability change": {d: items.Disposition{Decision: items.DecisionSkipped, Evidence: ev(gap)}, now: Evidence{CodeSearched: true, CodeCandidates: true, State: Gap, Availability: "available"}, want: "availability pending → available"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -65,11 +65,11 @@ func TestResurface(t *testing.T) {
 func TestChanges(t *testing.T) {
 	t.Parallel()
 
-	was := Evidence{CodeSearched: true, State: Gap, Availability: "available", Covering: []Covering{
+	was := Evidence{CodeSearched: true, CodeCandidates: true, State: Gap, Availability: "available", Covering: []Covering{
 		{Category: "already_implemented", Path: "internal/service/x/a.go"},
 		{Category: "already_tracked", Number: 5, State: "open"},
 	}}
-	now := Evidence{CodeSearched: true, State: Covered, Availability: "available", Covering: []Covering{
+	now := Evidence{CodeSearched: true, CodeCandidates: true, State: Covered, Availability: "available", Covering: []Covering{
 		{Category: "already_tracked", Number: 5, State: "closed"},
 		{Category: "already_tracked", Number: 7, State: "open"},
 	}}
@@ -87,5 +87,14 @@ func TestChanges(t *testing.T) {
 	noCode := Evidence{State: Covered, Availability: "available", Covering: []Covering{{Category: "already_tracked", Number: 5, State: "open"}}}
 	if got := Changes(was, noCode); got != nil {
 		t.Errorf("changes across code search = %q", got)
+	}
+
+	// A failed model load leaves the enrichment incomplete while reconciliation still finds code. A later run
+	// without code search isn't comparable on code either.
+	modelFailed := Evidence{CodeCandidates: true, State: Covered, Availability: "available",
+		Covering: []Covering{{Category: "already_implemented", Path: "internal/service/x/a.go"}}}
+	later := Evidence{State: Gap, Availability: "available"}
+	if got := Changes(modelFailed, later); got != nil {
+		t.Errorf("changes after a failed model load = %q", got)
 	}
 }

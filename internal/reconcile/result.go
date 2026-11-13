@@ -50,8 +50,10 @@ type Result struct {
 	Inferences []Inference `json:"inferences"`
 	Candidates []Candidate `json:"candidates"`
 	Summary    Summary     `json:"summary"`
-	Warnings   []string    `json:"warnings,omitempty"`
-	Provenance Provenance  `json:"provenance"`
+	// CodeSearched is true when the checkout was searched for code candidates and no search failed.
+	CodeSearched bool       `json:"code_searched"`
+	Warnings     []string   `json:"warnings,omitempty"`
+	Provenance   Provenance `json:"provenance"`
 }
 
 // InputInfo describes what was reconciled.

@@ -394,7 +394,8 @@ Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hu
 - **Evidence is stored readably, not as a hash.** A hash only says that something changed. The stored evidence lets the queue say what: "availability pending → available", "new: already tracked #5".
 - **Resurfacing depends on the decision.** A single fingerprint would re-surface every `created` item as soon as its new issue was indexed, because that issue becomes a confident candidate. So `created` stands, `duplicate` watches the covering issue or PR, and only `skipped` and `deferred` compare evidence.
 - **No `last_evaluated_at`.** The queue reads decisions without writing, and comparing evidence doesn't need it.
-- **Evidence from runs with and without a code search isn't compared on code.** Only availability and issue or PR candidates count then, so `--no-code` doesn't re-surface everything.
+- **Evidence from runs with different code searches isn't compared on code.** Evidence records whether enrichment searched code (which `no_code` depends on) and, separately, whether reconciliation did (which code candidates depend on). Code candidates are compared only when both runs searched, and the state only when both runs did the same searches. Availability and issue or PR candidates are always compared, so `--no-code` or a failed model load doesn't re-surface everything.
+- **Decisions aren't limited to the queue's window.** Decided items published before `--since` are evaluated too, and listed if they re-surface, so a 30-day deferral of a 20-day-old item still comes back.
 - **`commented` is gone** (see [Draft](#draft)), and `cleared` withdraws a decision without deleting history.
 - **Turning decisions into eval cases** is left for later. It needs a rule for which decisions make good labels; see Open questions.
 

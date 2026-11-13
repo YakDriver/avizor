@@ -46,19 +46,20 @@ func Resurface(e *Entry, d items.Disposition, lookup IssueLookup, now time.Time)
 	e.Resurfaced = strings.Join(why, "; ")
 }
 
-// Changes describes how evidence changed, or returns nil if it didn't. If only one side searched the target's code,
-// the state and code candidates aren't comparable, so only availability and issue or PR candidates are.
+// Changes describes how evidence changed, or returns nil if it didn't. Code candidates are compared only if both
+// reconciliations searched code, and the state only if both enrichments and reconciliations did the same searches,
+// since a code candidate can make an item covered. Availability and issue or PR candidates are always compared.
 func Changes(was, now Evidence) []string {
 	var out []string
-	comparable := was.CodeSearched == now.CodeSearched
-	if comparable && was.State != now.State {
+	sameCode := was.CodeCandidates == now.CodeCandidates
+	if sameCode && was.CodeSearched == now.CodeSearched && was.State != now.State {
 		out = append(out, fmt.Sprintf("state %s → %s", was.State, now.State))
 	}
 	if was.Availability != now.Availability {
 		out = append(out, fmt.Sprintf("availability %s → %s", cmp(was.Availability, "unknown"), cmp(now.Availability, "unknown")))
 	}
 	keep := func(cs []Covering) []Covering {
-		if comparable {
+		if sameCode && now.CodeCandidates {
 			return cs
 		}
 		return slices.DeleteFunc(slices.Clone(cs), func(c Covering) bool { return c.Number == 0 })

@@ -74,6 +74,8 @@ type Reconciler struct {
 	view     *index.Store
 	warnings []string
 	rgPath   string
+	// codeRan and codeFailed record this run's code search, for Result.CodeSearched.
+	codeRan, codeFailed bool
 }
 
 func (r *Reconciler) warnf(format string, args ...any) {
@@ -93,6 +95,7 @@ func (r *Reconciler) Run(ctx context.Context, arg, text string) (*Result, error)
 // begin resets per-run state.
 func (r *Reconciler) begin() {
 	r.warnings = nil
+	r.codeRan, r.codeFailed = false, false
 	r.view = r.Store
 	if !r.AsOf.IsZero() {
 		r.view = r.Store.AsOf(r.AsOf)
@@ -319,6 +322,7 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 		if in.item.Package != "" {
 			dir := filepath.Join("internal", "service", in.item.Package)
 			if fi, err := os.Stat(filepath.Join(r.Target.Checkout, dir)); err == nil && fi.IsDir() {
+				r.codeRan = true
 				code = r.searchCode(ctx, in.item.NewOperations, nil, []string{in.item.Package})
 				// searchCode falls back to all services when a package's directory is missing; keep only this one.
 				code = slices.DeleteFunc(code, func(c Candidate) bool { return !strings.HasPrefix(c.Path, filepath.ToSlash(dir)+"/") })
@@ -344,6 +348,7 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 				ops = append(ops, sg.Value)
 			}
 		}
+		r.codeRan = r.Target.Checkout != ""
 		code := r.searchCode(ctx, ops, tfNames, pkgs)
 		// Existing code for a named type answers a request for that type, but is only context for a change to it.
 		if request != RequestNewType {
@@ -358,6 +363,7 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 	res.Candidates = limitRelated(out, relatedLimit)
 	res.Summary = summarize(res.Candidates)
 	res.Warnings = r.warnings
+	res.CodeSearched = r.codeRan && !r.codeFailed
 	return res, nil
 }
 
