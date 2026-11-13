@@ -100,7 +100,7 @@ A second, agent stage reads the top candidates and judges them. Avizor doesn't r
 
 ### Queue
 
-The queue enriches and reconciles recent items with API changes (not skipped ones) and gives each one a state. `gap`, `pending`, `new_service`, and `resurfaced` items are shown. `covered`, `no_code`, `unimplemented`, `no_work`, and `decided` items are hidden. An item is `no_code` only if both the model load and the code search succeeded, so a failure never hides an item.
+The queue enriches and reconciles recent items with API changes (not skipped ones) and gives each one a state. `gap`, `pending`, `new_service`, `partial`, and `resurfaced` items are shown. `covered`, `no_code`, `unimplemented`, `no_work`, and `decided` items are hidden. A covered item is `partial` when a new resource or argument has no code and no candidate, unless a confident issue cites the release commit. An item is `no_code` only if both the model load and the code search succeeded, so a failure never hides an item.
 
 ### Decisions
 
@@ -259,7 +259,15 @@ The gap sample checked the claim "no existing work". This sample checked the opp
   - **In the sample**, all 25 wrong candidates were demoted. So were 3 right ones: two copies of the closed original request for CloudWatch Logs S3 Tables, whose title doesn't say "new resource", and an OTel enrichment update PR. All 46 remaining confident candidates are right.
   - **In the other 69 covered items**, 34 candidates were demoted. All of them were bug fixes and later enhancements. That holds after adding the "new service" exception, which keeps the Network Security Manager request.
   - **Elsewhere:** no queue state changed across all 1,487 items. The eval is unchanged, because its cases don't search current code.
-- **Partial coverage is the next fix.** Searching the files that call an item's operations for its new members' names finds all 6 implemented arguments in the sample and none of the 4 missing ones.
+- **Partial coverage.** A covered item is now `partial`, and shown, when some of its work has no code and no candidate:
+  - a new resource with a delete operation, whose operations no code calls, no confident candidate matched, and no candidate's text names;
+  - a new argument of a write operation, whose likely Terraform name isn't in the files that call it or in any candidate's text. Enrichment checks the name as a quoted string, a `names.Attr` constant, and a singular form.
+
+  When a confident issue cites the item's release commit, the item stays `covered`. That issue is a maintainer tracker for the whole launch.
+  - **On all 1,487 items,** 13 covered items became `partial`, and nothing else changed. By hand check, 12 have real uncovered work, and 1 is covered by its trackers (SES tenant suppression attributes). In 2 of the 12, part of the work has an open PR that Avizor didn't cite.
+  - **The release-tracker rule came from a first run.** It flagged 24 items. 10 of those were launches with a maintainer tracker that covers everything, such as "AWS CloudFormation Express mode" and "EKS Kubernetes version rollback". 9 of the 10 cite the release commit. The rule also drops 2 flags that look real: AgentCore capacity providers and Resilience Hub service function resources. Each has a release tracker that may cover it.
+  - **In the covered sample,** all 5 partly covered items are flagged. 2 more are flagged that I first labeled covered: Network Firewall rule group arguments, which the policy v2 tracker doesn't mention, and DevOps Agent private connections and operator app. After reading the code and issues again, I count both as real. Relabeling after seeing the output could bias this.
+  - **The member search** finds all 6 implemented arguments in the sample, and a name match never hides work by itself.
 
 ### Next
 
@@ -270,7 +278,7 @@ The agent contract. Avizor would write the step 5 packet itself (input, candidat
 - **Agent contract.** The step 5 packet worked on duplicates. Should it carry Avizor's evidence and ask for justifications that cite it?
 - **Announcement-only work.** How often does provider work come from a post with no SDK change? Those posts aren't queued.
 - **Announcements in reconciliation.** Would the matched URL find trackers that cite only the announcement, without wrong confident matches?
-- **New members in code.** Searching the files that call an item's operations for its new members' names would catch 2 of the 4 `item-covered` misses and could show partly covered items. Generic names like `tags` risk false matches.
+- **New members for gaps.** The member search now shows partly covered items. It could also mark gaps as implemented, which would catch 2 of the 4 `item-covered` misses. That would make a name match hide work, and generic names like `tags` would then be confidently wrong.
 - **Item granularity.** One item per service per release merges unrelated features. Both wrong tracker matches in step 4 came from such releases.
 - **Decisions as eval cases.** Which decisions make good labels without tuning the corpus to Avizor's output?
 - **Constraint changes.** Should skipped length, range, and pattern changes get their own lower-priority state?
