@@ -94,7 +94,7 @@ Candidates come from the index and the checkout. Each one gets a category instea
 
 Only strong signals set a category. The README lists the signals. A PR that references a strongly matched issue inherits the match. Signals found in more than 40 records are dropped as boilerplate.
 
-Items use their own signals. New operation names and the release commit are strong only with the item's service label. The SDK bump PR is always `related`. Code search covers only new operations in the item's package.
+Items use their own signals. New operation names and the release commit are strong only with the item's service label. The SDK bump PR is always `related`. Code search covers only new operations in the item's package. When the code already calls an operation, an issue or PR matching only on it is `related` unless its title asks for or adds a new type or service.
 
 A second, agent stage reads the top candidates and judges them. Avizor doesn't run that stage. [Step 5](#step-5-agent-experiment) measured it by hand.
 
@@ -243,6 +243,24 @@ The question was whether an agent reading the candidate list catches what the ca
 - **Meaning.** With an agent reading the list, wrong categories on duplicates stop mattering, and retrieval recall becomes the limit. [#3](https://github.com/YakDriver/avizor/issues/3) still matters for people who read only the categories.
 - **Limits.** 20 cases, one model, one run, on public issues the model may have seen in training.
 
+### After milestone 4: the covered sample
+
+The gap sample checked the claim "no existing work". This sample checked the opposite claim, `covered`, which hides an item, so a wrong one hides a gap.
+
+- **Sample.** I picked 30 of the 61 `covered` items that aren't eval cases at random (seed 13). For each one, I compared the inferred work with the confident candidates, the checkout, and the index.
+- **Items:**
+  - 25 were covered. In 3 of these, part of the work is tracked by an issue or PR that Avizor didn't cite.
+  - 5 were partly covered. The main work exists, but secondary work with no issue is hidden along with it:
+    - new arguments in 4 items: the Athena workgroup, the AgentCore online evaluation config, `aws_instance` secondary interfaces, and the Observability Admin context graph;
+    - two ODB resources in 1 item.
+  - None was wrongly covered.
+- **Candidates.** 49 of the 74 confident issues and PRs were right. Nearly all of the 25 wrong ones were bug reports, enhancements, and fixes for a resource that already existed. They matched because they name its operations. Examples are an MSK topic partition bug and ten S3 Files bug reports. The code candidate covered the item anyway, so these never caused a wrong `covered`, but they misled anyone reading the list.
+- **Fix.** Suppose the item's code search finds an operation. An issue or PR whose only strong signals are that operation, or references to issues demoted this way, becomes `related`. Titles that ask for or add a new type or service keep their category.
+  - **In the sample**, all 25 wrong candidates were demoted. So were 3 right ones: two copies of the closed original request for CloudWatch Logs S3 Tables, whose title doesn't say "new resource", and an OTel enrichment update PR. All 46 remaining confident candidates are right.
+  - **In the other 69 covered items**, 34 candidates were demoted. All of them were bug fixes and later enhancements. That holds after adding the "new service" exception, which keeps the Network Security Manager request.
+  - **Elsewhere:** no queue state changed across all 1,487 items. The eval is unchanged, because its cases don't search current code.
+- **Partial coverage is the next fix.** Searching the files that call an item's operations for its new members' names finds all 6 implemented arguments in the sample and none of the 4 missing ones.
+
 ### Next
 
 The agent contract. Avizor would write the step 5 packet itself (input, candidates, evidence, and the verdict format), and `avizor eval` would score a file of agent verdicts. Agent setups could then be compared on the same cases, as retrieval changes are.
@@ -252,7 +270,7 @@ The agent contract. Avizor would write the step 5 packet itself (input, candidat
 - **Agent contract.** The step 5 packet worked on duplicates. Should it carry Avizor's evidence and ask for justifications that cite it?
 - **Announcement-only work.** How often does provider work come from a post with no SDK change? Those posts aren't queued.
 - **Announcements in reconciliation.** Would the matched URL find trackers that cite only the announcement, without wrong confident matches?
-- **New members in code.** Searching the files that call an item's operations for its new members' names would catch 2 of the 4 `item-covered` misses. Generic names like `tags` risk false matches.
+- **New members in code.** Searching the files that call an item's operations for its new members' names would catch 2 of the 4 `item-covered` misses and could show partly covered items. Generic names like `tags` risk false matches.
 - **Item granularity.** One item per service per release merges unrelated features. Both wrong tracker matches in step 4 came from such releases.
 - **Decisions as eval cases.** Which decisions make good labels without tuning the corpus to Avizor's output?
 - **Constraint changes.** Should skipped length, range, and pattern changes get their own lower-priority state?

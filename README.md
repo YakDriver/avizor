@@ -97,7 +97,7 @@ Weak signals are title keywords, `service/*` labels, cross-references, GitHub UR
 
 Categories are often wrong, so check the signals. On the [eval](eval/README.md) corpus, 78% of confident categories are right. That drops to 30% on duplicate reports, where Avizor finds the duplicate but often marks other work as tracked. In an [experiment](docs/design/avizor.md#step-5-agent-experiment), an agent reading the top 10 candidates found the duplicate in 19 of 20 cases and rejected every wrong confident category.
 
-For an item, the signals are different. A new operation name and the SDK release commit are strong only with the item's service label. The SDK bump PR is always `related`, because it makes the change available but doesn't implement it. Code search covers only new operations in the item's package.
+For an item, the signals are different. A new operation name and the SDK release commit are strong only with the item's service label. The SDK bump PR is always `related`, because it makes the change available but doesn't implement it. Code search covers only new operations in the item's package. An issue or PR that matches only operations the code already calls is `related` too (`existing_code`), since it's usually a bug or enhancement for that code. Titles that ask for or add a new resource or service keep their category.
 
 ## Pull
 

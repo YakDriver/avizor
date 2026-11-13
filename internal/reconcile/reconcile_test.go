@@ -12,6 +12,7 @@ import (
 	"github.com/YakDriver/avizor/internal/config"
 	"github.com/YakDriver/avizor/internal/index"
 	"github.com/YakDriver/avizor/internal/services"
+	"github.com/YakDriver/avizor/internal/signal"
 )
 
 const repo = "hashicorp/terraform-provider-aws"
@@ -619,5 +620,63 @@ func TestRunItemCodeMissingPackage(t *testing.T) {
 	}
 	if !slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "internal/service/s3control") }) {
 		t.Errorf("warnings = %q", res.Warnings)
+	}
+}
+
+func TestDemoteExisting(t *testing.T) {
+	t.Parallel()
+
+	op := func(v string) Match { return Match{Type: signal.KindOp, Value: v, Strength: StrengthStrong} }
+	cands := []Candidate{
+		{Kind: KindCode, Path: "internal/service/kafka/topic.go", Category: CategoryImplemented, Signals: []Match{op("CreateTopic")}},
+		// A bug report on the existing resource, matched only by an operation its code calls.
+		{Kind: KindIssue, Number: 1, Title: "r/aws_msk_topic: Reducing the partition count should force a new resource", Category: CategoryTracked, Signals: []Match{op("CreateTopic")}},
+		// A PR that references it.
+		{Kind: KindPR, Number: 2, Title: "r/aws_msk_topic: Force new when partitions shrink", Category: CategoryTracked, Signals: []Match{{Type: matchReferencesCandidate, Value: "#1", Strength: StrengthStrong}}},
+		// The PR that added the resource keeps its category.
+		{Kind: KindPR, Number: 3, Title: "Added msk_aws_topic resource and data source", Category: CategoryConsidered, Signals: []Match{op("CreateTopic")}},
+		{Kind: KindIssue, Number: 4, Title: "[New Service]: Amazon MSK topics", Category: CategoryConsidered, Signals: []Match{op("CreateTopic")}},
+		// Another strong signal, such as an operation the code doesn't call, keeps it.
+		{Kind: KindIssue, Number: 5, Title: "Support topic configs", Category: CategoryTracked, Signals: []Match{op("CreateTopic"), op("UpdateTopicConfig")}},
+	}
+	demoteExisting(cands, map[string]bool{"CreateTopic": true})
+
+	want := map[int]string{1: CategoryRelated, 2: CategoryRelated, 3: CategoryConsidered, 4: CategoryConsidered, 5: CategoryTracked}
+	for _, c := range cands[1:] {
+		if c.Category != want[c.Number] {
+			t.Errorf("#%d category = %s, want %s", c.Number, c.Category, want[c.Number])
+		}
+		if c.Category == CategoryRelated && !slices.ContainsFunc(c.Signals, func(m Match) bool { return m.Type == MatchExistingCode }) {
+			t.Errorf("#%d has no %s signal", c.Number, MatchExistingCode)
+		}
+	}
+	if cands[0].Category != CategoryImplemented {
+		t.Errorf("code category = %s", cands[0].Category)
+	}
+}
+
+func TestAddsType(t *testing.T) {
+	t.Parallel()
+
+	for title, want := range map[string]bool{
+		"New Resource: `aws_cloudwatch_alarm_mute_rule`":                            true,
+		"feat(odb): add Autonomous Database resource and data source":               true,
+		"feat: add aws_observabilityadmin_s3_table_integration and more":            true,
+		"[New Service]: AWS Network Security Manager":                               true,
+		"r/aws_ec2_secondary_network: add list resource support":                    false,
+		"r/aws_msk_topic: Reducing the partition count should force a new resource": false,
+		"[Enhancement]: aws_msk_topic: Add tags argument":                           false,
+		"Fix(bedrockagentcore): handle computed harness environment variables":      false,
+		"r/aws_bedrockdataautomation_library: New resource and list resource":       true,
+		"Added msk_aws_topic resource and data source":                              true,
+		"Add odb_network_arn to aws_route resource and data source":                 false,
+		"add aws_msk_topic tags support":                                            false,
+		"add resource policy support":                                               false,
+		"New list resource: aws_ec2_secondary_network":                              false,
+		"feat: add aws_ec2_secondary_network list resource support":                 false,
+	} {
+		if got := addsType(title); got != want {
+			t.Errorf("addsType(%q) = %t, want %t", title, got, want)
+		}
 	}
 }
