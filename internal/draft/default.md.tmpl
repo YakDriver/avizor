@@ -1,5 +1,9 @@
 {{- /* Body of a new issue for an SDK item. Data: see draft.Data. */ -}}
-{{- range .Notes}}> {{.}}
+{{- if .Announcement}}> {{.Announcement.Headline}}
 
-{{end -}}
+* [Announcement]({{.Announcement.URL}})
+
+{{else}}{{range .Notes}}> {{.}}
+
+{{end}}{{end -}}
 Requires AWS SDK for Go v2 [{{.Release}}]({{.ReleaseURL}}){{if .BumpPRURL}}: {{.BumpPRURL}}{{end}}.
