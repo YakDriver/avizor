@@ -56,7 +56,7 @@ case "dup-41552" {
   same      = [41782]          # also the same work: a confident category is correct
   different = [43195]          # not the same work: may appear only as "related"
   unmatched = false            # optional: expected summary.unmatched
-  state     = "covered"        # optional, items only: expected queue state
+  # state   = "covered"        # item cases only: expected queue state
 }
 ```
 
