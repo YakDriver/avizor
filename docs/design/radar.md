@@ -412,11 +412,35 @@ Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hu
 - **Decisions watch the match.** Evidence records the matched announcement, so a skipped or deferred item re-surfaces when a match appears or changes. Evidence from before announcements were pulled isn't compared on it.
 - **Not yet in reconciliation.** Maintainer trackers link the announcement, so its URL could find trackers that don't cite the release commit, which [item-covered](../../eval/README.md) misses. A wrong match with the service label could then be confidently wrong, so that needs its own eval run.
 
+**Step 5: agent experiment.** The question was whether an agent reading Radar's candidate list catches what Radar's categories get wrong. That claim is why "related" is an acceptable answer.
+
+- **Setup.** I used the 20 `duplicate` eval cases. Each agent got a packet holding the input issue (title, labels, date, and body up to 2,500 characters) and Radar's top 10 candidates (title, kind, labels, date, and body up to 1,200 characters), as of the case's time.
+  - The agent had to name the candidate the input duplicates, or none, and judge every candidate as `same`, `different`, or `unsure`. The instructions said misleading answers are worse than none.
+  - The agents used only the packet: no web, no GitHub, and no eval files. Both reported using only read and write tools.
+  - One run hid Radar's categories (blind). The other showed them as hints.
+- **Labels.** The agents marked 8 unlabeled candidates `same`, such as the PR that fixed the input's bug and a second duplicate report. I read each one, and all 8 are the same work, so I counted them as `same`. Labeling after seeing the agent's answers could bias the result, so the details below say which ones they are.
+- **Result, blind run:**
+  - It picked a correct duplicate in 19 of 20 cases. Radar's top-ranked candidate is correct in 11.
+  - The remaining case (#43223) has no correct candidate in Radar's top 10, and the agent answered none.
+  - All 29 of its `same` verdicts were correct.
+  - It judged all 16 of Radar's confidently wrong candidates `different`.
+- **Result, run with categories:** the same answers. It dropped one case from its output (19 of 20 written), so output format needs checking.
+- **What it means.** On duplicates, the agent fixed every confidently wrong category without adding new errors, and the recall limit was Radar's retrieval: 19 of 20 cases had a correct candidate in the top 10. So [#3](https://github.com/YakDriver/radar/issues/3) matters less for duplicate cases when an agent reads the list. Retrieval recall, and keeping humans who read only categories from being misled, still matter.
+- **Limits.** The sample is 20 cases from one model, in one run, and the issues are public, so the model may have seen them in training. The candidates the agent marked `same` and I then labeled are:
+  - dup-41782: #41725
+  - dup-42605: #42536
+  - dup-45838: #44857
+  - dup-46606: #46285
+  - dup-48354: #48344 and #48345
+  - dup-49183: #43621
+  - dup-49894: #48785
+- **Next.** Answer the open question on the agent contract. Radar could write this packet itself (input, candidates with evidence, and the verdict format), and `radar eval` could score a file of agent verdicts. Then agent strategies could be compared on the same cases the way retrieval changes are.
+
 ## Open questions
 
 - **Item granularity**: is one item per service per SDK release right, or do multi-feature releases need splitting?
 - **Comment indexing**: is extracting URLs and identifiers enough, or does full comment text improve recall enough to justify the cost?
-- **Agent evaluation contract**: what input and output format should the stage-2 agent use so its justifications are checkable?
+- **Agent evaluation contract**: what input and output format should the stage-2 agent use so its justifications are checkable? Step 5's packet (input, top 10 candidates with text, and a verdict per candidate) worked on duplicates; it doesn't yet carry Radar's evidence or ask for cited justifications.
 - **Announcement-only changes**: how often does provider work come from announcements with no SDK model change? The corpus should answer whether the What's New source is worth adding.
 - **Checkout branch**: code matches and availability reflect whatever the checkout's `ref` points to (default `HEAD`). Should Radar default to `main`, or verify it?
 - **Item labels without release commits**: trackers that cite only an announcement can't be tied to an item from history alone. Announcement matching (milestone 4, step 4) could add them as cases, at the matcher's error rate.
