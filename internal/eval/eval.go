@@ -18,9 +18,15 @@ var Ks = []int{1, 3, 5}
 // passK is the cutoff a case's expected candidates must fall within to pass.
 const passK = 5
 
-// ItemSource resolves an item ID to the item to reconcile.
+// ItemSource resolves an item ID to the item to reconcile. code says whether enrichment may search the checkout.
 type ItemSource interface {
-	Item(ctx context.Context, id string) (*reconcile.Item, error)
+	Item(ctx context.Context, id string, code bool) (*reconcile.Item, error)
+}
+
+// StateSource classifies an item for the queue, given its reconciliation and the text of its candidates by number.
+// Cases that expect a state need one.
+type StateSource interface {
+	State(ctx context.Context, id string, code bool, rec *reconcile.Result, texts map[int]string) (state, reason string, err error)
 }
 
 // Runner evaluates cases with a reconciler. Each case runs on a copy of Base with AsOf and NoCode set from the case.
@@ -48,6 +54,10 @@ type CaseResult struct {
 	// Unmatched is the result's summary.unmatched; UnmatchedOK is set when the case has an expectation for it.
 	Unmatched   bool  `json:"unmatched"`
 	UnmatchedOK *bool `json:"unmatched_ok,omitempty"`
+	// State and StateReason are the item's queue state, when the case expects one; StateOK says whether it matched.
+	State       string `json:"state,omitempty"`
+	StateReason string `json:"state_reason,omitempty"`
+	StateOK     *bool  `json:"state_ok,omitempty"`
 	// Top lists the first candidates returned, for inspecting failures.
 	Top      []Returned `json:"top"`
 	Failures []string   `json:"failures,omitempty"`
@@ -105,6 +115,9 @@ type Metrics struct {
 	// UnmatchedLabeled and UnmatchedAccuracy cover cases that label summary.unmatched.
 	UnmatchedLabeled  int     `json:"unmatched_labeled"`
 	UnmatchedAccuracy float64 `json:"unmatched_accuracy"`
+	// StateLabeled and StateAccuracy cover item cases that label a queue state.
+	StateLabeled  int     `json:"state_labeled"`
+	StateAccuracy float64 `json:"state_accuracy"`
 	// Confident counts candidates returned above "related". Each is correct (expected or labeled the same work),
 	// wrong (labeled different work), or unjudged. Precision is correct / (correct + wrong): how often a confident
 	// category is on the right work.
@@ -190,7 +203,7 @@ func (r *Runner) runCase(ctx context.Context, cs *Case) CaseResult {
 		if r.Items == nil {
 			return fail(errors.New("no item source: item cases need pulled items"))
 		}
-		it, err := r.Items.Item(ctx, cs.Item)
+		it, err := r.Items.Item(ctx, cs.Item, cs.Code)
 		if err != nil {
 			return fail(err)
 		}
@@ -198,11 +211,52 @@ func (r *Runner) runCase(ctx context.Context, cs *Case) CaseResult {
 		if err != nil {
 			return fail(err)
 		}
+		if cs.State != "" {
+			if err := r.state(ctx, cs, &rc, res, &cr); err != nil {
+				return fail(err)
+			}
+		}
 	} else if res, err = rc.Run(ctx, cs.Input, cs.Text); err != nil {
 		return fail(err)
 	}
 	score(cs, res, &cr)
 	return cr
+}
+
+// state classifies an item case for the queue and checks the expected state. Candidate text comes from the index as
+// the case sees it.
+func (r *Runner) state(ctx context.Context, cs *Case, rc *reconcile.Reconciler, res *reconcile.Result, cr *CaseResult) error {
+	ss, ok := r.Items.(StateSource)
+	if !ok {
+		return errors.New("no state source: cases with state need one")
+	}
+	st := rc.Store
+	if !rc.AsOf.IsZero() {
+		st = st.AsOf(rc.AsOf)
+	}
+	texts := map[int]string{}
+	for _, c := range res.Candidates {
+		if c.Number == 0 {
+			continue
+		}
+		is, err := st.Issue(ctx, c.Number)
+		if err != nil {
+			return err
+		}
+		if is != nil {
+			texts[c.Number] = is.Title + "\n" + is.Body
+		}
+	}
+	got, reason, err := ss.State(ctx, cs.Item, cs.Code, res, texts)
+	if err != nil {
+		return err
+	}
+	stateOK := got == cs.State
+	cr.State, cr.StateReason, cr.StateOK = got, reason, &stateOK
+	if !stateOK {
+		cr.Failures = append(cr.Failures, fmt.Sprintf("state = %s (%s), want %s", got, reason, cs.State))
+	}
+	return nil
 }
 
 func score(cs *Case, res *reconcile.Result, cr *CaseResult) {
@@ -286,7 +340,7 @@ func score(cs *Case, res *reconcile.Result, cr *CaseResult) {
 func aggregate(crs []CaseResult) Metrics {
 	m := Metrics{Hit: map[int]float64{}}
 	hits := map[int]int{}
-	var expects, found, catOK, unmatchedOK int
+	var expects, found, catOK, unmatchedOK, stateOK int
 	for _, cr := range crs {
 		m.Cases++
 		if cr.Pass {
@@ -328,6 +382,12 @@ func aggregate(crs []CaseResult) Metrics {
 				unmatchedOK++
 			}
 		}
+		if cr.StateOK != nil {
+			m.StateLabeled++
+			if *cr.StateOK {
+				stateOK++
+			}
+		}
 		for _, j := range cr.Confident {
 			m.Confident++
 			switch j.Verdict {
@@ -346,6 +406,7 @@ func aggregate(crs []CaseResult) Metrics {
 	m.Recall = ratio(found, expects)
 	m.CategoryAccuracy = ratio(catOK, m.CategoryLabeled)
 	m.UnmatchedAccuracy = ratio(unmatchedOK, m.UnmatchedLabeled)
+	m.StateAccuracy = ratio(stateOK, m.StateLabeled)
 	m.ConfidentPrecision = ratio(m.ConfidentCorrect, m.ConfidentCorrect+m.ConfidentWrong)
 	return m
 }

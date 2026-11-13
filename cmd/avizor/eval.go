@@ -8,9 +8,12 @@ import (
 	"strings"
 
 	"github.com/YakDriver/avizor"
+	"github.com/YakDriver/avizor/internal/awssdk"
 	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/draft"
 	"github.com/YakDriver/avizor/internal/enrich"
 	"github.com/YakDriver/avizor/internal/eval"
+	"github.com/YakDriver/avizor/internal/queue"
 	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
@@ -63,7 +66,8 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if *fetch {
 		base.HTTP = defaultHTTP()
 	}
-	rep, err := (&eval.Runner{Base: base, Items: evalItems{c: &c, t: t, stderr: stderr}}).Run(ctx, corpus, name)
+	items := &evalItems{c: &c, t: t, stderr: stderr, items: map[string]*awssdk.Item{}, enriched: map[string]*enrich.Result{}}
+	rep, err := (&eval.Runner{Base: base, Items: items}).Run(ctx, corpus, name)
 	if err != nil {
 		return err
 	}
@@ -104,13 +108,13 @@ func writeEvalText(w io.Writer, rep *eval.Report, failuresOnly bool) error {
 		}
 	}
 
-	fmt.Fprintf(w, "\n%-18s %5s %5s %6s %6s %6s %6s %8s %7s %9s %5s %8s\n", "kind", "cases", "pass", "hit@1", "hit@3", "hit@5",
-		"recall", "category", "unmatch", "precision", "wrong", "unjudged")
+	fmt.Fprintf(w, "\n%-18s %5s %5s %6s %6s %6s %6s %8s %7s %6s %9s %5s %8s\n", "kind", "cases", "pass", "hit@1", "hit@3", "hit@5",
+		"recall", "category", "unmatch", "state", "precision", "wrong", "unjudged")
 	row := func(name string, m *eval.Metrics) {
-		fmt.Fprintf(w, "%-18s %5d %5d %6s %6s %6s %6s %8s %7s %9s %5d %8d\n", name, m.Cases, m.Passed,
+		fmt.Fprintf(w, "%-18s %5d %5d %6s %6s %6s %6s %8s %7s %6s %9s %5d %8d\n", name, m.Cases, m.Passed,
 			pct(m.Hit[1], m.WithExpect), pct(m.Hit[3], m.WithExpect), pct(m.Hit[5], m.WithExpect),
 			pct(m.Recall, m.WithExpect), pct(m.CategoryAccuracy, m.CategoryLabeled),
-			pct(m.UnmatchedAccuracy, m.UnmatchedLabeled), pct(m.ConfidentPrecision, m.ConfidentCorrect+m.ConfidentWrong),
+			pct(m.UnmatchedAccuracy, m.UnmatchedLabeled), pct(m.StateAccuracy, m.StateLabeled), pct(m.ConfidentPrecision, m.ConfidentCorrect+m.ConfidentWrong),
 			m.ConfidentWrong, m.ConfidentUnjudged)
 	}
 	for _, k := range rep.Kinds() {
@@ -165,17 +169,47 @@ func shortCategory(c string) string {
 	return strings.TrimPrefix(strings.TrimPrefix(c, "already_"), "previously_")
 }
 
-// evalItems resolves item cases from pulled items, enriched for the target without searching code.
+// evalItems resolves item cases from pulled items, enriched for the target, and classifies them for the queue.
+// Enrichment searches the checkout only for cases with code = true.
 type evalItems struct {
 	c      *common
 	t      *config.Target
 	stderr io.Writer
+
+	items    map[string]*awssdk.Item
+	enriched map[string]*enrich.Result
 }
 
-func (e evalItems) Item(ctx context.Context, id string) (*reconcile.Item, error) {
-	it, en, err := e.c.enrichedItem(ctx, e.t, id, true, e.stderr)
+func (e *evalItems) enrich(ctx context.Context, id string, code bool) (*awssdk.Item, *enrich.Result, error) {
+	key := fmt.Sprintf("%s %t", id, code)
+	if en, ok := e.enriched[key]; ok {
+		return e.items[key], en, nil
+	}
+	it, en, err := e.c.enrichedItem(ctx, e.t, id, !code, e.stderr)
+	if err != nil {
+		return nil, nil, err
+	}
+	e.items[key], e.enriched[key] = it, en
+	return it, en, nil
+}
+
+func (e *evalItems) Item(ctx context.Context, id string, code bool) (*reconcile.Item, error) {
+	it, en, err := e.enrich(ctx, id, code)
 	if err != nil {
 		return nil, err
 	}
 	return enrich.ReconcileItem(it, en), nil
+}
+
+func (e *evalItems) State(ctx context.Context, id string, code bool, rec *reconcile.Result, texts map[int]string) (string, string, error) {
+	it, en, err := e.enrich(ctx, id, code)
+	if err != nil {
+		return "", "", err
+	}
+	d, err := draft.New(it, en, rec, draft.Options{Repo: e.t.Repo, Checkout: e.t.Checkout, Prefix: e.t.TypePrefix, LabelPrefix: e.t.ServiceLabelPrefix})
+	if err != nil {
+		return "", "", err
+	}
+	q := queue.Classify(it, en, rec, d, texts)
+	return q.State, q.Reason, nil
 }

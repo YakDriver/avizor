@@ -349,3 +349,70 @@ func TestScoreConfident(t *testing.T) {
 		t.Errorf("precision = %v, want %v", m.ConfidentPrecision, want)
 	}
 }
+
+// fakeItems resolves one item with no signals and classifies every item as state, recording what it was given.
+type fakeItems struct {
+	state string
+	code  []bool
+	texts map[int]string
+}
+
+func (f *fakeItems) Item(_ context.Context, id string, code bool) (*reconcile.Item, error) {
+	f.code = append(f.code, code)
+	return &reconcile.Item{ID: id, Title: "unrelated gadget"}, nil
+}
+
+func (f *fakeItems) State(_ context.Context, _ string, code bool, _ *reconcile.Result, texts map[int]string) (string, string, error) {
+	f.code = append(f.code, code)
+	f.texts = texts
+	return f.state, "because", nil
+}
+
+func TestRunState(t *testing.T) {
+	t.Parallel()
+
+	path := writeCorpus(t, `
+target = "t"
+
+case "item-right" {
+  item  = "sdk/widget/release-1"
+  code  = true
+  kind  = "item-partial"
+  state = "partial"
+}
+
+case "item-wrong" {
+  item  = "sdk/widget/release-2"
+  kind  = "item-partial"
+  state = "covered"
+}
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := &fakeItems{state: "partial"}
+	r := &Runner{Base: &reconcile.Reconciler{Store: seed(t), Target: &config.Target{Name: "t", Repo: repo, ServiceLabelPrefix: "service/"}}, Items: items}
+	rep, err := r.Run(context.Background(), c, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cr := rep.Cases[0]; !cr.Pass || cr.State != "partial" || cr.StateOK == nil || !*cr.StateOK {
+		t.Errorf("item-right = %+v", cr)
+	}
+	if cr := rep.Cases[1]; cr.Pass || !slices.ContainsFunc(cr.Failures, func(f string) bool { return strings.Contains(f, "state = partial (because), want covered") }) {
+		t.Errorf("item-wrong = %+v", cr)
+	}
+	// Item and State see the case's code setting.
+	if !slices.Equal(items.code, []bool{true, true, false, false}) {
+		t.Errorf("code = %v", items.code)
+	}
+	if m := rep.ByKind["item-partial"]; m.StateLabeled != 2 || m.StateAccuracy != 0.5 {
+		t.Errorf("item-partial = %+v", m)
+	}
+
+	// State needs a StateSource and an item.
+	if _, err := Load(writeCorpus(t, `target = "t"`+"\n"+`case "a" {`+"\n"+`input = "1"`+"\n"+`kind = "k"`+"\n"+`state = "gap"`+"\n}")); err == nil || !strings.Contains(err.Error(), "state needs an item") {
+		t.Errorf("state on input: err = %v", err)
+	}
+}

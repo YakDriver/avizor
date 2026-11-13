@@ -122,7 +122,7 @@ Guesses go to the reviewer, never into the body: the title, Terraform names, lab
 
 ## Evaluation
 
-[`eval/tfaws.hcl`](../../eval/tfaws.hcl) has 158 cases labeled from provider history, and `avizor eval` scores them. Every confident candidate is judged `same` or `different`, so the eval reports the precision of confident categories. [eval/README.md](../../eval/README.md) covers the case kinds, metrics, and results. Currently 124 cases pass, hit@5 is 93%, recall is 96%, and confident precision is 78%. On duplicate reports, confident precision is 30%.
+[`eval/tfaws.hcl`](../../eval/tfaws.hcl) has 203 cases labeled from provider history, and `avizor eval` scores them. Every confident candidate is judged `same` or `different`, so the eval reports the precision of confident categories. Item cases can also label the queue state. [eval/README.md](../../eval/README.md) covers the case kinds, metrics, and results. Currently 166 cases pass, hit@5 is 93%, recall is 96%, confident precision is 89%, and 98% of labeled queue states are right. On duplicate reports, confident precision is 30%.
 
 ## Configuration and state
 
@@ -258,7 +258,7 @@ The gap sample checked the claim "no existing work". This sample checked the opp
 - **Fix.** Suppose the item's code search finds an operation. An issue or PR whose only strong signals are that operation, or references to issues demoted this way, becomes `related`. Titles that ask for or add a new type or service keep their category.
   - **In the sample**, all 25 wrong candidates were demoted. So were 3 right ones: two copies of the closed original request for CloudWatch Logs S3 Tables, whose title doesn't say "new resource", and an OTel enrichment update PR. All 46 remaining confident candidates are right.
   - **In the other 69 covered items**, 34 candidates were demoted. All of them were bug fixes and later enhancements. That holds after adding the "new service" exception, which keeps the Network Security Manager request.
-  - **Elsewhere:** no queue state changed across all 1,487 items. The eval is unchanged, because its cases don't search current code.
+  - **Elsewhere:** no queue state changed across all 1,487 items. The eval was unchanged, because no case searched current code at the time. The covered-sample cases now do.
 - **Partial coverage.** A covered item is now `partial`, and shown, when some of its work has no code and no candidate:
   - a new resource with a delete operation, whose operations no code calls, no confident candidate matched, and no candidate's text names;
   - a new argument of a write operation, whose likely Terraform name isn't in the files that call it or in any candidate's text. Enrichment checks the name as a quoted string, a `names.Attr` constant, and a singular form.
@@ -268,6 +268,8 @@ The gap sample checked the claim "no existing work". This sample checked the opp
   - **The release-tracker rule came from a first run.** It flagged 24 items. 10 of those were launches with a maintainer tracker that covers everything, such as "AWS CloudFormation Express mode" and "EKS Kubernetes version rollback". 9 of the 10 cite the release commit. The rule also drops 2 flags that look real: AgentCore capacity providers and Resilience Hub service function resources. Each has a release tracker that may cover it.
   - **In the covered sample,** all 5 partly covered items are flagged. 2 more are flagged that I first labeled covered: Network Firewall rule group arguments, which the policy v2 tracker doesn't mention, and DevOps Agent private connections and operator app. After reading the code and issues again, I count both as real. Relabeling after seeing the output could bias this.
   - **The member search** finds all 6 implemented arguments in the sample, and a name match never hides work by itself.
+
+- **Eval cases.** The covered sample and the hand-checked partials are now 45 eval cases (`item-covered-sample`, `item-partial`) that run against the current checkout and label the queue state. Without the existing-code rule they'd have 25 more wrong candidates, and without `partial`, state accuracy drops from 98% to 73%.
 
 ### Next
 
