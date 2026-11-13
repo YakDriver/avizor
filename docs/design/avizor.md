@@ -1,450 +1,260 @@
-# Avizor: design notes
+# Avizor design
 
-Status: milestones 1 (index and reconcile) and 2 (evaluation) implemented. See [Milestone 1 notes](#milestone-1-notes) and [Milestone 2 notes](#milestone-2-notes).
+Status: milestones 1–4 done. The next step is the [agent contract](#next).
+
+The first part of this document describes how Avizor works now. [Decisions and measurements](#decisions-and-measurements) records what each milestone changed from the plan and why. Avizor was called Radar until 2026-11-13.
 
 ## Problem
 
-AWS ships new APIs every weekday. For the Terraform AWS Provider, many of those changes should become a GitHub issue, such as [hashicorp/terraform-provider-aws#45362](https://github.com/hashicorp/terraform-provider-aws/issues/45362). Opening a good one by hand takes several steps:
+AWS ships API changes every weekday. Many of them should become a Terraform AWS Provider issue, like [#45362](https://github.com/hashicorp/terraform-provider-aws/issues/45362). Filing one by hand takes these steps:
 
 1. Notice the change and work out which service and API it touches.
-2. Find the AWS SDK release that added the API, and the provider PR that bumps the SDK.
-3. Decide whether the work is a new resource or a new argument on an existing one, and name it.
-4. Search open and closed issues, PRs, and the code itself to see whether it's already tracked or built.
-5. Write the issue, link the announcement and blog post, and apply labels.
+2. Find the SDK release that added it and the provider PR that bumped the SDK.
+3. Decide whether the work is a new resource or a new argument, and name it.
+4. Search issues, PRs, and code for existing work.
+5. Write the issue, link the announcement, and label it.
 
-Step 4 is the hardest. Community issues rarely use AWS's wording, so a deterministic duplicate check misses real matches, while a human or AI agent reading a short list of candidates catches them easily.
+Step 4 is the hard one. Community issues rarely use AWS's wording, so a deterministic check misses real duplicates. A person or agent reading a short candidate list catches them.
+
+Volume is the other problem. A year of SDK releases has 1,487 items with API changes, about 130 a month, and only a small share needs an issue. Choosing which items need one matters more than writing any single issue well.
 
 ## Goal
 
-Avizor finds what is already known about new information, gathers supporting evidence, and prepares the next action for review.
+Avizor gathers evidence and drafts, and a person or agent decides. A good result reads like this:
 
-Avizor gathers evidence and drafts. It does not decide. A good result reads like:
+> AWS added `CreateAndAttachS3AccessPoint`, `DescribeS3AccessPointAttachments`, and `DetachAndDeleteS3AccessPoint` to FSx in aws-sdk-go-v2 release 2025-12-02. The provider picked up that release in #45358. Issue #45362 tracks this. `internal/service/fsx` already calls `CreateAndAttachS3AccessPoint`. No new issue appears necessary.
 
-> AWS added `CreateAndAttachS3AccessPoint`, `DescribeS3AccessPointAttachments`, and `DetachAndDeleteS3AccessPoint` to FSx in aws-sdk-go-v2 release 2025-12-02. The provider picked up that release in #45358. Issue #45362 tracks this capability. `internal/service/fsx` already calls `CreateAndAttachS3AccessPoint`. No new issue appears necessary.
+A wrong confident claim is worse than a weak one. When Avizor isn't sure, it says "related" and shows its evidence.
 
-That explains the situation and makes the next action obvious, while leaving the decision to the human or supervising agent.
+Non-goals:
 
-### Non-goals
-
-- Deciding by itself whether something is a duplicate.
-- Writing to GitHub. Avizor produces the issue content and `gh` command arguments, and a human or agent runs them.
-- A general-purpose ingestion framework up front. Avizor keeps interfaces that allow other sources and targets, but only AWS and the Terraform AWS Provider are built until a second use case needs more.
+- Deciding duplicates on its own.
+- Writing to GitHub. Avizor prints `gh` commands for someone else to run.
+- A general ingestion framework. Interfaces allow other sources and targets, but only AWS and the Terraform AWS Provider are built.
 
 ## Milestones
 
-Reconciliation is the hardest and most valuable part, and it's useful on its own, so it comes first.
+1. **Index and reconcile.** Find existing work for an issue, URL, or text. Done.
+2. **Evaluate.** Build a labeled corpus from provider history and measure before tuning. Done.
+3. **SDK items and drafts.** Turn SDK releases into items, relate them to the provider, and draft issues. Done.
+4. **Queue and decisions.** Queue the items that need a decision, record decisions, and match announcements. Also measure the gap claim and test an agent on duplicates. Done.
+5. **Generalize.** Add other sources or targets when a real use case needs them.
 
-1. **Index and reconcile.** Given an issue number, URL, or free text, find related issues, PRs, and existing code. This is useful immediately for triaging incoming community issues.
-2. **Evaluate.** Build the evaluation corpus (see [Evaluation](#evaluation)) and measure reconciliation before tuning anything.
-3. **SDK source and draft.** Turn aws-sdk-go-v2 changes into items, enrich them, and draft issues.
-4. **Queue and decisions.** List the items that need a decision, record dispositions, revisit deferred items, and add the announcement feed as a secondary source. See [Milestone 4 plan](#milestone-4-plan).
-5. **Generalize.** Add other sources or targets only when a concrete use case needs them.
-
-## Concepts
+## How it works
 
 ```
- source ──> item ──> enrichers ──> reconcile ──> draft
-                      (evidence,     (candidates)    │
-                       inference)        ^           v
-                                         │       disposition
-                                       index
-                              (issues, PRs, code, docs)
+ sources ──> items ──> enrich ──> reconcile ──> queue ──> draft
+ (SDK, What's New)    (service,    (candidates)    │
+                       availability,    ^          v
+                       work, announcement)  │       decisions
+                                          index
+                              (issues, PRs, checkout)
 ```
 
-### Findings: evidence, inference, candidate, disposition
+### Findings
 
-Avizor's output mixes statements of very different reliability. It keeps them apart so a reader, especially an agent, can tell observed facts from educated guesses.
+Avizor keeps statements of different reliability apart, so a reader can tell facts from guesses.
 
-| Kind | Example | Produced by |
+| Kind | Example | From |
 |---|---|---|
-| Evidence | aws-sdk-go-v2 release 2025-12-02 adds FSx operation `CreateAndAttachS3AccessPoint` | Sources, enrichers |
-| Inference | A new `Create*`/`Delete*`/`Describe*` set suggests a new resource, likely `aws_fsx_s3_access_point_attachment` | Enrichers |
-| Candidate | Issue #45362 may already track this (matched: operation name, `service/fsx` label) | Reconcile |
-| Disposition | #45362 is the existing tracker | Human or agent |
+| Evidence | Release 2025-12-02 adds FSx operation `CreateAndAttachS3AccessPoint` | Sources, enrichment |
+| Inference | The new create, describe, and delete operations suggest a resource, `aws_fsx_s3_access_point_attachment` | Enrichment |
+| Candidate | #45362 may track this (matched the operation name and `service/fsx`) | Reconcile |
+| Decision | #45362 is the tracker | Person or agent |
 
-Every finding records **provenance**: which component produced it, from which inputs (URLs, release tags, file paths), and when.
+Each finding records its provenance: inputs, tool version, and time.
 
-### Source
+### Sources
 
-A source produces items. Sources are compiled-in Go types behind one interface.
+- **AWS SDK for Go v2 releases.** A feature can't be built until it's in the SDK, so the SDK is the trigger. The releases API gives module versions and notes. A local bare clone of `aws/api-models-aws` gives the model diff. One item is created per service per release.
+- **AWS What's New.** Posts are matched to items as evidence. They don't become items.
+- **Ad hoc input.** `avizor candidates` also takes an issue, a URL, or text.
 
-**Primary: aws-sdk-go-v2 releases.** A feature isn't buildable until it's in the SDK, so the SDK is the natural trigger.
+### Enrichment
 
-- Releases are daily, tagged `release-YYYY-MM-DD`, at about 20:00 UTC. The release body lists each changed module with a one-line **Feature** or **Bug Fix** note.
-- The release notes are prose. The structured detail comes from diffing the service model (`codegen/sdk-codegen/aws-models/<service>.json`) between consecutive release tags: new operations, new shapes, new members on existing shapes, new enum values.
-- `aws/api-models-aws` publishes the Smithy models about an hour before the SDK release. AWS doesn't publish anything earlier.
-- The SDK is noisy. Many entries are protocol or serialization changes ("adds Smithy RPC v2 CBOR as an additional protocol", "Enable schema-based (de)serialization"). A model diff with no new operations, members, or enum values filters these out.
-
-**Secondary: AWS What's New feed** (RSS). Some announcements need provider work without new SDK operations or members, for example a behavior change behind an existing field. The feed catches those. It's added in milestone 4.
-
-**Ad hoc input:** an issue number, URL, or `--text` description given on the command line. This needs no source configuration and is what milestone 1 uses.
-
-### Item
-
-The normalized unit of work.
-
-- `id`: stable key. For SDK items, `aws-sdk-go-v2/<service>/<release-tag>`. For feed items, the canonical URL.
-- `source`, `title`, `summary`, `url`, `published`.
-- `findings`: evidence and inferences attached by the source and enrichers.
-
-One SDK release can contain several independent features for one service, and several announcements can describe one feature. Avizor doesn't model "capabilities" separately yet. One item per service per release is the starting point, and the evaluation corpus will show whether that's too coarse.
-
-### Enricher
-
-An enricher adds findings to an item. This is where AWS and provider knowledge lives.
-
-- **SDK model diff**: evidence of new operations, shapes, members, and enum values.
-- **Service mapping**: SDK service module → provider package and `service/*` labels, from the provider's `names/data/names_data.hcl`.
-- **Provider availability**: whether the provider's `go.mod` includes the SDK version, and which bump PR brought it in. This sets the item's status to "in SDK" or "in provider".
-- **Announcement link**: matching What's New entries and AWS News Blog posts, joined on service and a date window around the release. AWS sometimes updates APIs well before announcing them, so the window is configurable and a missing match is recorded as "no announcement found", not as an error.
-- **Shape classification**: inference only. New `Create*`/`Delete*` operations suggest a new resource; new members on existing inputs suggest a new argument. API changes don't map cleanly onto Terraform resources (a new `Create*` operation can back an existing resource, and a new member can need a standalone resource), so this is always labeled as a guess.
-- **Name suggestion**: inference only. A proposed Terraform resource or argument name following provider conventions.
+- **Service**: maps the item's Go module to a provider package with `names_data.hcl`.
+- **Availability**: whether the checkout's `go.mod` at `ref` requires the item's version, and which first-parent commit and PR brought it in.
+- **Work** (inferred): new operations are grouped by noun. Create or paired verbs mean a resource; reads only mean a data source. New members are arguments if an existing operation's input reaches them, and attributes otherwise. Tagging operations mean tagging support. Each kind lists the provider files that call its operations.
+- **Announcement** (inferred): the What's New post most similar to the release notes, near the release date.
 
 ### Index
 
-A local copy of what already exists in the target, so reconciliation is fast and doesn't hit API rate limits (GitHub search allows about 30 requests a minute).
-
-- Issues and PRs, open and closed, synced with `gh api` and refreshed with `since=`. GitHub's REST issues endpoints return PRs as issues, so the sync tags each record's kind. Sync must handle pagination, edits, and deletions, so a periodic full resync supplements incremental updates.
-- Titles, bodies, and labels are indexed first.
-- Comments are expensive to index in full for a repository this size. People often paste announcement links in comments ("AWS just announced this: ..."), though, so at minimum Avizor extracts URLs and AWS operation names from comments into a separate table.
-- A local checkout of the target repo is searched directly for code and docs. It is not copied into the index.
-
-Storage is SQLite with FTS5. Embeddings wait until the evaluation corpus shows concrete misses. AWS operation names, Terraform resource names, and service aliases are strong lexical anchors.
+SQLite with FTS5, synced from the GitHub REST API. It holds issues and PRs with their titles, bodies, and labels. A signals table holds exact anchors (URLs, operation names, Terraform names, issue references) from titles, bodies, and comments. Comment text isn't stored. Signals and merges record when they happened, so reconciliation can replay the index as of a past time. A full sync drops records GitHub no longer returns. The checkout is searched with ripgrep and isn't copied.
 
 ### Reconcile
 
-Reconciliation runs in two stages.
-
-1. **Retrieval (deterministic, high recall).** Search the index and the checkout using:
-   - announcement and blog URLs
-   - SDK operation and shape names
-   - proposed Terraform names and close variants
-   - `service/*` labels plus key nouns and known service aliases
-2. **Evaluation (optional, agent).** An agent reads the top candidates and the item's findings, and writes a short justification that cites evidence. Avizor narrows the field so the agent reasons over a handful of candidates, not the whole repository.
-
-Candidates are grouped by **match category** instead of one weighted score, because an existing implementation, a merged PR, and an open request mean different things:
+Candidates come from the index and the checkout. Each one gets a category instead of a score, because existing code, an open request, and a closed one mean different things.
 
 | Category | Meaning |
 |---|---|
-| Already implemented | Code, docs, or a merged PR covers the capability. |
-| Already tracked | An open issue or PR describes substantially the same work. |
-| Previously considered | A closed issue or PR addressed it, possibly with a decision worth revisiting. |
-| Related | Relevant work exists but doesn't necessarily cover the item. |
-| Unmatched | No convincing candidate found. |
+| `already_implemented` | A merged PR, code, or docs matches a strong signal. |
+| `already_tracked` | An open issue or PR matches a strong signal. |
+| `previously_considered` | A closed issue or unmerged PR matches a strong signal. |
+| `related` | Only weak signals match. |
 
-Categories are provisional findings, not dispositions. Each candidate lists the signals it matched.
+Only strong signals set a category. The README lists the signals. A PR that references a strongly matched issue inherits the match. Signals found in more than 40 records are dropped as boilerplate.
 
-Example:
+Items use their own signals. New operation names and the release commit are strong only with the item's service label. The SDK bump PR is always `related`. Code search covers only new operations in the item's package.
 
-```
-item: aws-sdk-go-v2/fsx/release-2025-12-02  (in provider via #45358)
+A second, agent stage reads the top candidates and judges them. Avizor doesn't run that stage. [Step 5](#step-5-agent-experiment) measured it by hand.
 
-already implemented
-  code    internal/service/fsx/s3_access_point_attachment.go
-          matched: op:CreateAndAttachS3AccessPoint
-already tracked
-  #45362  open  r/aws_fsx_s3_access_point_attachment: Attach to Amazon FSx for NetApp ONTAP file systems
-          matched: op:CreateAndAttachS3AccessPoint, announcement_url, label:service/fsx
-related
-  #43195  open  ...
-          matched: label:service/s3control, keyword:"access point"
-```
+### Queue
+
+The queue enriches and reconciles recent items with API changes (not skipped ones) and gives each one a state. `gap`, `pending`, `new_service`, and `resurfaced` items are shown. `covered`, `no_code`, `unimplemented`, `no_work`, and `decided` items are hidden. An item is `no_code` only if both the model load and the code search succeeded, so a failure never hides an item.
+
+### Decisions
+
+A decision is `created #N`, `duplicate #N`, `skipped` (with a reason), `deferred` (by default for 30 days), or `cleared`. Each one stores who decided, when, an optional revisit date, and the evidence at that time: state, availability, confident candidates, the announcement, and whether code was searched. History is kept, and the latest decision is current.
+
+A decided item resurfaces when:
+
+- its revisit date passes;
+- for `duplicate`: the covering issue closes as anything but completed, or the PR closes unmerged;
+- for `skipped` and `deferred`: the evidence changes.
+
+`created` otherwise stands. Evidence is compared only on what both runs measured. Code isn't compared unless both runs searched code, and the announcement isn't compared unless both runs had announcements.
 
 ### Draft
 
-Renders a new issue from the item's findings using a per-target template. Output is the Markdown body plus `gh issue create` arguments (title, labels). Avizor doesn't draft comments on existing issues: if existing work covers the item, the draft warns and the item is left alone. For the Terraform AWS Provider, the format follows #45362:
+The draft is a title, labels, a body, and the `gh issue create` command. The body follows the provider's trackers and holds only facts from the item: the quoted release notes and the required SDK release with its bump PR. With `--announcement`, the reviewer accepts the matched post, and the body uses its headline and link instead of the notes.
 
-- Title: ``New resource: `aws_<service>_<thing>` ``, `r/aws_<resource>: <capability>`, or `<service>: <capability>`.
-- Quoted announcement headline and a link to it, when the reviewer accepts the matched announcement (`--announcement`).
-- The release notes, quoted.
-- Required SDK release and bump PR.
-- Suggested labels.
-
-Inferred values, such as the Terraform name, and possibly related issues for a `Relates` line are listed for the reviewer, not written into the body. See [Milestone 3 notes](#milestone-3-notes).
-
-### Disposition
-
-The recorded outcome for an item, per target.
-
-- `created #N`: a new issue was filed.
-- `duplicate #N`: existing work covers the item.
-- `skipped` (with reason)
-- `deferred` (revisit after 30 days unless set)
-- `cleared`: withdraws the previous decision.
-
-Each disposition stores `decided_at`, `decided_by` (human or agent identity), an optional `revisit_after`, and the evidence Avizor found when the decision was made: the queue state, SDK availability, and confident candidates. Decisions are kept as history; the latest is current.
-
-A decided item re-surfaces in the queue, with the reason, when:
-
-- its revisit date passes (any decision);
-- for `duplicate`, the covering issue is closed other than as completed, or the covering PR is closed unmerged;
-- for `skipped` and `deferred`, the evidence changed: the state, availability, or confident candidates differ.
-
-A `created` decision otherwise stands. Dispositions are never treated as permanent. Over time they also become labeled data for the evaluation corpus.
+Guesses go to the reviewer, never into the body: the title, Terraform names, labels, the headline, related issues for a `Relates` line, and warnings. When existing work covers the item, the draft warns. It doesn't draft a comment on the existing issue.
 
 ## Evaluation
 
-Without measurement, changes to retrieval, categories, or agent prompts are guesswork. Avizor ships with an evaluation corpus and a command to run it.
+[`eval/tfaws.hcl`](../../eval/tfaws.hcl) has 158 cases labeled from provider history, and `avizor eval` scores them. Every confident candidate is judged `same` or `different`, so the eval reports the precision of confident categories. [eval/README.md](../../eval/README.md) covers the case kinds, metrics, and results. Currently 124 cases pass, hit@5 is 93%, recall is 96%, and confident precision is 78%. On duplicate reports, confident precision is 30%.
 
-The corpus starts with 30 to 50 hand-labeled cases drawn from provider history:
+## Configuration and state
 
-- SDK changes or announcements with a known corresponding issue or PR.
-- Features implemented without any issue.
-- Related-but-not-duplicate issues.
-- SDK changes that need no provider work.
+The config is HCL. [avizor.example.hcl](../../avizor.example.hcl) documents every setting and its default. Targets set the repo, checkout, `ref`, label prefix, and draft template. Sources set where to read and where the first pull starts. With no source blocks, the config has both default sources.
 
-Metrics:
-
-- The correct candidate appears in the top 3 and top 5.
-- Category accuracy, especially how often "related" is shown as "already tracked".
-- Unmatched rate for cases that do have a match.
-
-The same corpus compares retrieval changes, models, and agent strategies on identical inputs.
-
-## Configuration
-
-HCL, matching the provider's `names_data.hcl`. Config is portable. State lives separately.
-
-```hcl
-target "tfaws" {
-  repo     = "hashicorp/terraform-provider-aws"
-  checkout = "~/go/src/github.com/hashicorp/terraform-provider-aws"
-  template = "templates/tfaws-issue.md.tmpl"
-
-  index {
-    comments = "urls-and-identifiers" # or "none", "full"
-  }
-}
-
-source "aws-sdk-go-v2" {
-  type = "aws-sdk-go-v2-releases"
-  repo = "aws/aws-sdk-go-v2"
-
-  ignore_notes = [
-    "adds Smithy RPC v2 CBOR as an additional protocol",
-    "Enable schema-based (de)serialization",
-  ]
-}
-
-source "aws-whats-new" {
-  type = "rss"
-  url  = "https://aws.amazon.com/about-aws/whats-new/recent/feed/"
-}
-
-pipeline "aws-sdk" {
-  sources = ["aws-sdk-go-v2"]
-  enrichers = [
-    "sdk-model-diff",
-    "service-map",
-    "provider-availability",
-    "announcement-link",
-    "shape-classification",
-    "name-suggestion",
-  ]
-  target = "tfaws"
-
-  announcement_link {
-    window_before = "30d"
-    window_after  = "14d"
-  }
-}
-```
-
-State (index, items, dispositions) lives in the XDG data directory (`$XDG_DATA_HOME/avizor`, usually `~/.local/share/avizor`), overridable with `--state-dir`.
+State lives in `$XDG_DATA_HOME/avizor`. It holds one index per target, `items.db` (items, announcements, decisions, and checkpoints), and the models clone.
 
 ## Interface
 
-A CLI with small, composable commands. JSON by default for agents, `--text` for people. Humans and agents use the same commands, so behavior doesn't diverge.
+Small commands, JSON by default, `--format text` for people. People and agents use the same commands.
 
-| Command | Milestone | Purpose |
-|---|---|---|
-| `avizor sync [target]` | 1 | Refresh the index. |
-| `avizor candidates <issue\|url\|item-id>` or `--text "..."` | 1 | Reconcile ad hoc input or an item. |
-| `avizor eval` | 2 | Run the evaluation corpus. |
-| `avizor pull [pipeline]` | 3 | Fetch and enrich new items. |
-| `avizor inspect <item-id\|url>` | 3 | Show an item's findings with provenance. |
-| `avizor draft <item-id>` | 3 | Render an issue or comment and `gh` arguments. |
-| `avizor queue` | 4 | List items with no disposition, or whose revisit conditions are met. |
-| `avizor decide <item-id> <disposition>` | 4 | Record a disposition. |
-
-Examples:
-
-```
-avizor candidates 45362
-avizor candidates https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/
-avizor candidates --text "FSx S3 access point support"
-```
-
-An MCP server wrapping the same commands is a later option.
+| Command | Purpose |
+|---|---|
+| `avizor sync` | Refresh the index. |
+| `avizor candidates <issue\|url\|item-id>` or `--text` | Find existing work. |
+| `avizor pull [source]` | Pull SDK releases and announcements. |
+| `avizor items`, `avizor inspect <item-id>` | List items; show one with its enrichment. |
+| `avizor queue` | List items that need a decision. |
+| `avizor decide`, `avizor decisions` | Record and list decisions. |
+| `avizor draft <item-id>` | Draft an issue and its `gh` command. |
+| `avizor eval` | Score the corpus. |
 
 ## Implementation choices
 
 | Area | Choice |
 |---|---|
-| Language | Go: same ecosystem as the provider, single binary, good GitHub and SQLite libraries. |
-| Config | HCL. |
-| Extensibility | Compiled-in interfaces for sources, enrichers, and targets. No dynamic plugins or external processes. |
-| State | XDG data directory, overridable. |
-| Model diff | Diff the Smithy JSON models in aws-sdk-go-v2 between release tags first. Consider `aws/api-models-aws` later for its earlier publish time. |
-| Ranking | Matched signals and categories. Weighted scores only after the evaluation corpus provides data. |
-| Writes | Delegated to `gh`. |
+| Language | Go: the provider's ecosystem, and a single binary. |
+| Storage | SQLite (pure-Go `modernc.org/sqlite`) with FTS5. Full-text scores are computed in Go so a past view isn't skewed by later records. |
+| Models | A bare clone of `aws/api-models-aws`, diffed offline. |
+| Ranking | Signals and categories; weighted scores only where the eval supports them. |
+| Extensibility | Compiled-in sources and targets, no plugins. |
+| Writes | Printed `gh` commands. |
 
-## Milestone 1 notes
+## Decisions and measurements
 
-What was built, and where it differs from the design above:
+### Milestone 1: index and reconcile
 
-- **Commands**: `sync` and `candidates`. Output is JSON by default. The text format is `--format text`, because `--text` is the free-text input flag.
-- **Index**: SQLite (pure-Go `modernc.org/sqlite`) with FTS5 over titles, bodies, and labels, plus a `signals` table of exact anchors (URLs, operation names, Terraform names, issue references) from titles, bodies, and comments. Comment text isn't stored. A full sync stamps a generation on every record and removes records not seen.
-- **Signal strength**: candidates are categorized by strong signals only. Testing on real data showed that Terraform names in bodies, shared SDK release commit URLs, and same-resource titles on change requests all produce false "tracked" or "implemented" results, so they are weak.
-- **Request kind**: an extra inference (`new_type`, `change`, `unknown`) from the input's wording. Existing code for a named type counts as implemented only for `new_type` requests.
-- **Common signals**: anchors found in more than 40 records are skipped and reported, which removes contributing-guide links and boilerplate.
-- **Service inference**: from `service/*` labels, Terraform name prefixes, and case-sensitive service names from `names_data.hcl`.
-- **Not yet**: the agent evaluation stage, the evaluation corpus (milestone 2), and recorded checkout branch handling beyond reporting `branch@sha` in the result.
+- **Weak by default.** Terraform names in bodies, shared SDK release commits, and same-resource titles on change requests all produced false confident categories, so they're weak signals.
+- **Request kind** (`new_type`, `change`, `unknown`) comes from the input's wording. Existing code for a named type counts as implemented only for `new_type`.
+- **`--format text`**, because `--text` is the free-text input.
 
-## Milestone 2 notes
+### Milestone 2: evaluation
 
-- **Corpus and runner**: [`eval/tfaws.hcl`](../../eval/tfaws.hcl) has 55 cases labeled from repository history, and `avizor eval` scores them. See [`eval/README.md`](../../eval/README.md) for the format, label sources, and baseline.
-- **Point-in-time reconciliation**: without it, labels leak (a duplicate's original shows as closed, the implementing PR appears before the request). The index now records when each signal's text was posted and when PRs merged (schema v2), and `index.Store.AsOf` hides later records and rewinds closed and merged state. `avizor candidates --as-of` exposes it.
-- **Sync fix**: GitHub's repository comments endpoint stops returning next links after 300 pages, so the first sync silently stopped at 30,000 comments. Listing now restarts from the latest update time when a pass ends on a full page.
-- **Ranking**: FTS5's `bm25()` uses statistics from the whole table, so later records could reorder a point-in-time view. Full-text matches are now scored in Go with inverse document frequencies counted over the visible records, weighted by column. Eval results barely changed.
-- **Following references**: PRs that reference a strongly matched issue in their title or body are returned with that issue's match, and categorized by their own state. This fixed all 4 implemented-PR misses.
-- **Precision of confident categories** ([#3](https://github.com/YakDriver/avizor/issues/3)): every candidate returned above "related" is judged `same` or `different` by reading it, and `avizor eval` reports precision. A confident category on different work fails the case. At 56%, confident categories are wrong almost half the time, mostly from documentation URLs and a misread field name.
-- **Results**: before precision labels, 30 of 55 cases passed, hit@5 88%, recall 96%, category accuracy 47%. Categorization is still the main gap: duplicates and reworded requests are found, but as "related". The next things to measure are narrowing broad strong signals (multi-feature blog posts, shared operation names, SDK docs URLs) and an agent stage that evaluates top candidates. See [`eval/README.md`](../../eval/README.md#results).
+- **Point in time.** Without it, labels leak: a duplicate's original already looks closed. The index records when signals and merges happened (schema v2), and `--as-of` replays it.
+- **Sync.** GitHub's comments endpoint stops paging after 300 pages, which cut the first sync off at 30,000 comments. The sync now restarts from the last update time.
+- **Ranking.** FTS5's `bm25()` uses whole-table statistics, which reorders past views, so scoring moved to Go.
+- **Following references** fixed all 4 implemented-PR misses.
+- **Precision labels** ([#3](https://github.com/YakDriver/avizor/issues/3)): confident precision was 56% at first. Documentation URLs and a field name misread as an operation caused most errors.
 
-## Milestone 3 notes
+### Milestone 3: SDK items and drafts
 
-PR 1 (SDK source):
+- **Models from `aws/api-models-aws`, not the SDK repo.** The SDK repo is 1.6 GB, and a year of model files would take tens of thousands of downloads. The models repo is 180 MB and gets a commit an hour before each release. A release's change is the diff between the last models commit before the previous release and the last one before this release.
+- **Skipping uses the model diff, not note text.** Trait-only changes, like CBOR or length limits, are skipped without a phrase list.
+- **Operation names come from the models.** 15,364 names, cached next to the clone. This removed the 6 wrong labels caused by `StartTime` and lost nothing.
+- **Service mapping is by Go module.** `sdk.id` doesn't always match the model's, for example `ODB` vs `odb`.
+- **Availability comes from checkout history.** The first first-parent commit whose `go.mod` has the version. All 1,086 available items found one with a PR.
+- **The body holds only facts**, so it can be filed as is. `Relates` lines are suggestions, and existing work is a warning, not a comment draft.
+- **Drafts against 39 tracker pairs:**
+  - The service label matched all 39.
+  - `new-resource` agreed in 9, was drafted without the tracker having it in 8 (several are new resources the tracker didn't label), and was on the tracker only in 1.
+  - Of 5 trackers that name a type, 3 drafts named the same one.
+  - `new-data-source` was dropped: 14 drafted, 0 on trackers.
 
-- **Model source changed.** The design called for diffing the Smithy models in aws-sdk-go-v2 between release tags. That repository is 1.6 GB, and each release changes about 30 model files of up to 900 KB, so covering a year would take tens of thousands of downloads. Avizor instead keeps a local bare clone of `aws/api-models-aws` (about 180 MB), which holds only the models and gets a commit about an hour before each SDK release. The SDK releases API still supplies each module's version and release notes. The result is the same diff, offline.
-- **Release windows.** A release's change is the diff between the last models commit at or before the previous release and the last one at or before this release. Some days have several models commits; all of them before the release count.
-- **Items** are one per service per release, stored in `items.db` with their evidence and provenance (models commits compared, model path, release URL). `avizor pull`, `avizor items`, and `avizor inspect` are the commands.
-- **Skipping** is based on the model diff, not on release-note text. A trait-only change (a new protocol, `jsonName`, length constraints) is skipped as "no API change". This drops CBOR and serialization notes without a phrase list.
-- **Configuration.** Every source setting has a default and can be overridden: releases repo, models URL, clone location, branch, fetch, start, and service filters. The state directory is configurable too.
+### Milestone 4: queue, decisions, and announcements
 
-PR 2 (enrich and reconcile items):
+After milestone 3, measuring came first. Every eval item with a tracker was tracked, so nothing yet measured the claim behind a gap draft: that nothing covers the item.
 
-- **Operation names come from the models.** A verb-prefixed PascalCase word counts as an operation only if some model at the clone's tip defines it. The 15,364 names are cached next to the clone. This removed the 6 wrong labels caused by `StartTime` and lost nothing.
-- **Service mapping is by Go module, not SDK ID.** `sdk.id` in `names_data.hcl` doesn't always match the model's (`ODB` vs `odb`), so the item's module is matched to `go_packages.v2_package`, or the block label when that's unset. The block label is the provider package: `provider_package_correct` is only the preferred name (`es` for `elasticsearch`), and labels and directories use the label.
-- **Availability and the bump PR come from the checkout's history**, not the index: the first first-parent commit at or after the release whose `go.mod` requires the item's version. Every one of the 1,086 available items in the year's data found one, with a PR number. Bump PRs are mostly Dependabot group PRs, which the index has but which don't name every module.
-- **Work kinds are inferences** from the diff and the model: new operations grouped by noun (create, or paired verbs like register and deregister, mean a resource; reads only, a data source), and new members as arguments or attributes by whether an existing operation's input reaches the shape.
-- **Item reconciliation uses item-specific signals.** New operations and the release commit are strong only with the item's service label. The bump PR is demoted to related. Code search is limited to new operations in the item's package.
-- **Pull records release commits** from `git ls-remote`, so items carry the commit URL maintainers cite.
-- **Eval.** 73 item cases, labeled from trackers that cite release commits. Because Avizor uses the same signal, they measure precision more than retrieval. Item-level no-work cases are hard to label from history: an item no tracker cites may still need work. The corpus has one.
+#### Step 1: gap sample
 
-PR 3 (draft):
+30 untracked items in implemented services were checked by hand.
 
-- **`avizor draft <item-id>`** renders the title, labels, body, and `gh issue create` arguments. Avizor doesn't run `gh`.
-- **The body holds only what the item shows**: the release notes quoted in full and the required SDK release with its bump PR. Inferred values (title, Terraform names, labels, headline) are listed with their basis in the JSON and the text reviewer section, not in the body, so the body can be filed as is.
-- **`Relates` is a suggestion, not body text.** Related candidates are weak matches, so writing them into the issue would state a relation Avizor hasn't established.
-- **Existing work is a warning.** A confident candidate means the item may already be tracked or implemented. Avizor fills gaps, so it doesn't draft comments on existing issues.
-- **No announcement source yet.** The body quotes the release notes in full; titles use the first sentence. The reviewer can add the announcement headline, and milestone 4's announcement source will supply it.
-- **Tagging operations** (`TagResource` and its family) are inferred as tagging support, not a new resource, and aren't strong signals in reconciliation: every service has them.
-- **Measured against history.** Drafts for the 37 items with maintainer trackers (39 tracker pairs):
-  - The drafted service label is on the tracker in all 39.
-  - `new-resource`: 9 agree, 8 drafted without it on the tracker, 1 on the tracker only. Several of the 8 (ECS Managed Daemons, S3 object annotations, Lambda Core network connectors) are new resources the tracker didn't label.
-  - `new-service`: 3 agree, 1 drafted only, 1 on the tracker only.
-  - Of the 5 trackers that name a Terraform type, 3 drafts name the same type: `aws_kinesis_channel` (new resource), and `aws_fsx_s3_access_point_attachment` and `aws_grafana_workspace` (`r/` titles). The S3 ones get service titles, since their new members reach operations several resources call.
-  - Every draft warns that its tracker already tracks the item, which is what the warning is for when drafting after the fact.
-  - I dropped the `new-data-source` label: new read-only operations were mostly statuses and sub-resource listings (14 drafted, 0 on trackers).
+- **"No existing work" was right for 26 of 30.** 2 misses were implemented through new members, which code search doesn't cover. 2 were tracked at rank 4.
+- **8 needed an issue and 18 needed no work.** Most of the no-work items touch APIs the provider doesn't call.
+- **10 of the 18 no-work items have no inferred work in provider code and no new resource. No gap or covered item lacks both.** That became the `no_code` filter.
 
-## Milestone 4 plan
+The 30 items are now eval cases.
 
-A look back after milestone 3 changed the order of milestone 4.
+#### Step 2: queue
 
-**What the data showed:**
+- **The states agree with the labels:**
+  - all 38 tracked items are `covered`;
+  - all 8 gaps are `gap`;
+  - 10 of 18 no-work items are `no_code`;
+  - all 4 covered misses are `gap`, but 2 of them have the covering work in the related list.
+- **Related lists include PRs**, because the sample's Cognito PR was missed when only issues were listed. The bump PR is left out.
+- **Unimplemented services are hidden unless the item is a new SDK module.** Most are services the provider chose not to implement.
+- **Over all 1,487 items:** 638 gap, 59 pending, 19 new service, 99 covered, 374 no code, 272 unimplemented, 26 no work.
 
-- **Volume is the bottleneck.** From 2025-11-30 there are 1,487 SDK items, about 130 a month. 37 of them have a maintainer tracker that cites the release commit. Choosing which items deserve an issue matters more than the quality of any one draft, so the queue is the main interface, not bookkeeping.
-- **"No existing work" is unmeasured.** Drafting history only exercises the "already tracked" warning, since every historical item with a tracker is tracked. A gap draft rests on the claim that nothing covers the item, and nothing measures that claim's precision yet.
-- **Item precision is optimistic.** Item cases (2 of 48 confident candidates wrong) come from trackers that cite the release commit, which is also a strong reconcile signal. Non-item cases (20 of 53 wrong) are likely closer to real-world precision. The `item-new` cases are sound (each replays an item just before its tracker was filed), but they come from the same tracked items, so they say nothing about items no one tracked.
-- **Release-note titles are weak.** "KMS GetKeyLastUsage API provides information on..." against the maintainer's "AWS KMS key last usage". Announcements improve titles and also cover trackers that cite only an announcement.
-- **The AI half of the workflow is untested.** The design assumes a reader of the candidate list catches duplicates a deterministic check misses. That is why "related" is acceptable, and it hasn't been measured.
+#### Step 3: decisions
 
-**Order:**
+- **Evidence is stored readably, not hashed**, so the queue can say what changed, such as "availability pending → available".
+- **Resurfacing depends on the decision.** One fingerprint would resurface every `created` item once its new issue was indexed.
+- **Decisions aren't limited to the queue window.** A 30-day deferral of a 20-day-old item still comes back.
+- **`commented` was dropped**, and `cleared` was added.
 
-1. **Measure the gap claim.** Hand-check a sample of recent items in implemented services with no confident existing work: is work really missing, and does the item deserve an issue? This gives a precision for "no existing work" and the share of items worth filing, and the checked items become eval cases that don't come from the release-commit signal.
-2. **`avizor queue`.** List items with no confident existing work, filtered and sorted by work kind, service, and availability.
-3. **Dispositions.** Record decisions on queue items, re-surface them when evidence changes, and add them to the corpus.
-4. **Announcement source.** What's New entries joined to items, for headlines, links, and announcement-only trackers.
-5. **Agent experiment.** Give an agent the candidates for the duplicate cases and score its picks. If it fixes most of the confidently wrong ones, tuning matters less there; if not, [#3](https://github.com/YakDriver/avizor/issues/3) comes first.
+#### Step 4: announcements
 
-Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hurt in practice.
+- **Endpoint.** The RSS feed has 100 posts, about 9 days, too few to backfill. The undocumented JSON endpoint behind the What's New pages pages through history: 2,822 posts since 2025-11-20 in 5 seconds. If it breaks, only matching suffers, and `url` can point elsewhere.
+- **Matching.** TF-IDF cosine between the release notes plus the service name (weighted ×2) and each post's headline (×2) plus body. Posts from 3 days before to 7 days after the release count, and those more than 1.5 days away score ×0.75. Region-expansion posts are excluded, because they reuse earlier launches' words. A match needs a score of 0.4 and 1.3× the runner-up. Every word weighs at least 0.01, so a one-post corpus still matches.
+- **Tuned on** the 36 items whose trackers link a post: 26 right, 2 wrong, 8 unmatched. The wrong ones are a CloudFormation release with two same-day launches and a multi-feature S3 Control release.
+- **Checked on** 300 random untracked items: 79 matched, and 3 were wrong.
+- **Coverage.** 30% of `gap` items and 53% of `covered` items have a match.
+- **The match titles drafts but stays out of the body** unless the reviewer passes `--announcement`.
+- **Not in reconciliation yet.** Trackers link announcements, so the matched URL could find the trackers that `item-covered` misses. A wrong match combined with the service label would be confidently wrong, so that needs its own eval run.
 
-**Step 1 result** (the gap sample, 30 items; see [eval/README.md](../../eval/README.md)):
+#### Step 5: agent experiment
 
-- **"No existing work" is right for 26 of 30 (87%).** The 4 misses are covered work shown as "related" or not at all: 2 implemented by new members that code search doesn't look for (it covers new operations only), and 2 tracked by an issue and an open PR at rank 4.
-- **8 of 30 deserve an issue; 18 need no provider work.** Most no-work items touch APIs the provider doesn't call: jobs, runs, contacts, health checks, and resources the provider doesn't have.
-- **A queue filter suggests itself.** 10 of the 18 no-work items have no inferred work in code the provider has (no `used_by`) and no new resource. All 8 gaps and all 4 covered items have one or the other. Hiding the first group by default drops more than half the noise and loses no gap in the sample.
-- **Draft warnings miss PRs.** The draft's "possibly related" list includes the CloudWatch issue but not the Cognito PR, since it lists only issues. The queue should show weak PR matches too.
-- **Next experiment, not yet built:** search the files that call an item's operations for its new members' snake_case names, to catch "already implemented". Generic names like `tags` or `routing` are a precision risk, so measure before trusting it.
+The question was whether an agent reading the candidate list catches what the categories get wrong. That assumption is why "related" is an acceptable answer.
 
-**Step 2: `avizor queue`.** It classifies each new item from the last 30 days and shows `gap`, `pending`, and `new_service` items by default. `covered`, `no_code`, `unimplemented`, and `no_work` are hidden.
+- **Setup.** The 20 `duplicate` cases. Each agent got the input issue and the top 10 candidates as of the case's time, with titles, labels, dates, and bodies trimmed to 2,500 and 1,200 characters. It named the duplicate or none, and marked every candidate `same`, `different`, or `unsure`. It could use only that packet. One run hid Avizor's categories; the other showed them as hints.
+- **Labels.** The agents marked 8 unlabeled candidates `same`. I read them, and all 8 are the same work (fixing PRs and second reports), so they're now labeled: dup-41782 #41725, dup-42605 #42536, dup-45838 #44857, dup-46606 #46285, dup-48354 #48344 and #48345, dup-49183 #43621, dup-49894 #48785. Labeling after seeing the answers could bias the result.
+- **Blind run:**
+  - It picked a correct duplicate in 19 of 20 cases. Avizor's top candidate is correct in 11.
+  - The 20th case has no correct candidate in the top 10, and the agent said none.
+  - All 29 of its `same` verdicts were right.
+  - It marked all 16 of Avizor's wrong confident candidates `different`.
+- **Run with categories:** the same answers, but it left one case out of its output.
+- **Meaning.** With an agent reading the list, wrong categories on duplicates stop mattering, and retrieval recall becomes the limit. [#3](https://github.com/YakDriver/avizor/issues/3) still matters for people who read only the categories.
+- **Limits.** 20 cases, one model, one run, on public issues the model may have seen in training.
 
-- **The default hides the gap sample's no-work items with no code.** On all 1,487 items, the queue's states agree with the gap sample labels:
-  - all 38 `item-tracked` items are `covered`;
-  - 10 of 18 `item-no-work` items are `no_code` (hidden) and 8 are `gap`;
-  - all 8 `item-gap` items are `gap`;
-  - all 4 `item-covered` items are `gap`, since Avizor has no confident candidate. 2 of the 4 have the covering work in the related list: #48548, and #48670 now that related lists include PRs.
-- **Related lists include PRs** in the queue and in drafts. The SDK bump PR is left out, since every item in a release shares it.
-- **Unimplemented services are hidden unless the item is a new SDK module.** The gap sample didn't cover them. Most are services the provider has chosen not to implement or AWS-internal APIs, and a new module is the clearest sign of a service worth a look.
-- **`pending` comes after `no_code`.** An item with nothing in code the target has stays hidden even if its SDK version isn't available yet.
-- **Over all items:** 638 gap, 59 pending, 19 new service, 99 covered, 374 no code, 272 unimplemented, and 26 no work. 59 of the 95 shown in the last 30 days are pending, because the provider's AWS SDK versions predate the 2026-10-29 releases.
+### Next
 
-**Step 3: dispositions.** `avizor decide <item-id> <decision> [issue]` records a decision in the items database, and `avizor decisions` lists them. The queue hides decided items (`decided`) until they re-surface (`resurfaced`, shown first). Deviations from the original design:
-
-- **Evidence is stored readably, not as a hash.** A hash only says that something changed. The stored evidence lets the queue say what: "availability pending → available", "new: already tracked #5".
-- **Resurfacing depends on the decision.** A single fingerprint would re-surface every `created` item as soon as its new issue was indexed, because that issue becomes a confident candidate. So `created` stands, `duplicate` watches the covering issue or PR, and only `skipped` and `deferred` compare evidence.
-- **No `last_evaluated_at`.** The queue reads decisions without writing, and comparing evidence doesn't need it.
-- **Evidence from runs with different code searches isn't compared on code.** Evidence records whether enrichment searched code (which `no_code` depends on) and, separately, whether reconciliation did (which code candidates depend on). Code candidates are compared only when both runs searched, and the state only when both runs did the same searches. Availability and issue or PR candidates are always compared, so `--no-code` or a failed model load doesn't re-surface everything.
-- **Decisions aren't limited to the queue's window.** Decided items published before `--since` are evaluated too, and listed if they re-surface, so a 30-day deferral of a 20-day-old item still comes back.
-- **`commented` is gone** (see [Draft](#draft)), and `cleared` withdraws a decision without deleting history.
-- **Turning decisions into eval cases** is left for later. It needs a rule for which decisions make good labels; see Open questions.
-
-**Step 4: announcements.** An `aws-whats-new` source pulls What's New posts into the items database, and enrichment matches each SDK item to one.
-
-- **Announcements aren't items.** They're evidence for SDK items. An announcement with no SDK change (announcement-only work) isn't queued yet; the open question stands.
-- **The source is an undocumented endpoint.** The RSS feed has only the latest 100 posts (about 9 days), too few to backfill. The JSON directory API behind the What's New pages pages back through history: 2,822 posts since 2025-11-20 in 5 seconds. If it changes, `url` can point elsewhere, and only matching degrades.
-- **Matching:** TF-IDF cosine between the item's release notes plus its SDK service name (counted twice) and each post's headline (twice) and body, over posts from 3 days before to 7 days after the release. Posts more than 1.5 days away score 75%. Region-expansion headlines are left out, since they repeat an earlier launch's words. A match needs a score of at least 0.4 and 1.3 times the runner-up. I chose these on the 36 items whose maintainer trackers link an announcement, then checked them on a random sample.
-- **Measured:**
-  - On the 36 linked items: 26 matched the linked post, 2 matched another, and 8 didn't match. The 2 wrong ones are a CloudFormation release covering two same-day launches and an S3 Control release spanning several features.
-  - On 300 random untracked items: 79 matched, and 3 were wrong by hand check (a GameLift runtime note matched a scaling launch, a Compute Optimizer rule change matched an EBS recommendations post, and an AgentCore session endpoint matched the AgentCore CLI release).
-  - Over all 1,487 items, 30% of `gap` items and 53% of `covered` items have a match.
-- **The match is an inference, so the body doesn't use it by default.** Titles use the matched headline, listed with its basis. `avizor draft --announcement` puts the headline and link in the body in place of the release notes, which is the tracker format. That's the reviewer accepting the match.
-- **Decisions watch the match.** Evidence records the matched announcement, so a skipped or deferred item re-surfaces when a match appears or changes. Evidence from before announcements were pulled isn't compared on it.
-- **Not yet in reconciliation.** Maintainer trackers link the announcement, so its URL could find trackers that don't cite the release commit, which [item-covered](../../eval/README.md) misses. A wrong match with the service label could then be confidently wrong, so that needs its own eval run.
-
-**Step 5: agent experiment.** The question was whether an agent reading Avizor's candidate list catches what Avizor's categories get wrong. That claim is why "related" is an acceptable answer.
-
-- **Setup.** I used the 20 `duplicate` eval cases. Each agent got a packet holding the input issue (title, labels, date, and body up to 2,500 characters) and Avizor's top 10 candidates (title, kind, labels, date, and body up to 1,200 characters), as of the case's time.
-  - The agent had to name the candidate the input duplicates, or none, and judge every candidate as `same`, `different`, or `unsure`. The instructions said misleading answers are worse than none.
-  - The agents used only the packet: no web, no GitHub, and no eval files. Both reported using only read and write tools.
-  - One run hid Avizor's categories (blind). The other showed them as hints.
-- **Labels.** The agents marked 8 unlabeled candidates `same`, such as the PR that fixed the input's bug and a second duplicate report. I read each one, and all 8 are the same work, so I counted them as `same`. Labeling after seeing the agent's answers could bias the result, so the details below say which ones they are.
-- **Result, blind run:**
-  - It picked a correct duplicate in 19 of 20 cases. Avizor's top-ranked candidate is correct in 11.
-  - The remaining case (#43223) has no correct candidate in Avizor's top 10, and the agent answered none.
-  - All 29 of its `same` verdicts were correct.
-  - It judged all 16 of Avizor's confidently wrong candidates `different`.
-- **Result, run with categories:** the same answers. It dropped one case from its output (19 of 20 written), so output format needs checking.
-- **What it means.** On duplicates, the agent fixed every confidently wrong category without adding new errors, and the recall limit was Avizor's retrieval: 19 of 20 cases had a correct candidate in the top 10. So [#3](https://github.com/YakDriver/avizor/issues/3) matters less for duplicate cases when an agent reads the list. Retrieval recall, and keeping humans who read only categories from being misled, still matter.
-- **Limits.** The sample is 20 cases from one model, in one run, and the issues are public, so the model may have seen them in training. The candidates the agent marked `same` and I then labeled are:
-  - dup-41782: #41725
-  - dup-42605: #42536
-  - dup-45838: #44857
-  - dup-46606: #46285
-  - dup-48354: #48344 and #48345
-  - dup-49183: #43621
-  - dup-49894: #48785
-- **Next.** Answer the open question on the agent contract. Avizor could write this packet itself (input, candidates with evidence, and the verdict format), and `avizor eval` could score a file of agent verdicts. Then agent strategies could be compared on the same cases the way retrieval changes are.
+The agent contract. Avizor would write the step 5 packet itself (input, candidates, evidence, and the verdict format), and `avizor eval` would score a file of agent verdicts. Agent setups could then be compared on the same cases, as retrieval changes are.
 
 ## Open questions
 
-- **Item granularity**: is one item per service per SDK release right, or do multi-feature releases need splitting?
-- **Comment indexing**: is extracting URLs and identifiers enough, or does full comment text improve recall enough to justify the cost?
-- **Agent evaluation contract**: what input and output format should the stage-2 agent use so its justifications are checkable? Step 5's packet (input, top 10 candidates with text, and a verdict per candidate) worked on duplicates; it doesn't yet carry Avizor's evidence or ask for cited justifications.
-- **Announcement-only changes**: how often does provider work come from announcements with no SDK model change? The corpus should answer whether the What's New source is worth adding.
-- **Checkout branch**: code matches and availability reflect whatever the checkout's `ref` points to (default `HEAD`). Should Avizor default to `main`, or verify it?
-- **Item labels without release commits**: trackers that cite only an announcement can't be tied to an item from history alone. Announcement matching (milestone 4, step 4) could add them as cases, at the matcher's error rate.
-- **Common-signal threshold**: 40 records is a guess from one dataset. The corpus can now test changes to it.
-- **Corpus growth**: dispositions recorded in milestone 4 are natural new cases. How should they be added without tuning labels to Avizor's output?
-- **Constraint changes**: skipped SDK items include length, range, and pattern changes, which can affect provider validation. Should they be a separate, lower-priority status instead of skipped?
-- **Bootstrapping dispositions**: should past provider issues that link SDK releases or announcements be imported as historical dispositions?
+- **Agent contract.** The step 5 packet worked on duplicates. Should it carry Avizor's evidence and ask for justifications that cite it?
+- **Announcement-only work.** How often does provider work come from a post with no SDK change? Those posts aren't queued.
+- **Announcements in reconciliation.** Would the matched URL find trackers that cite only the announcement, without wrong confident matches?
+- **New members in code.** Searching the files that call an item's operations for its new members' names would catch 2 of the 4 `item-covered` misses. Generic names like `tags` risk false matches.
+- **Item granularity.** One item per service per release merges unrelated features. Both wrong tracker matches in step 4 came from such releases.
+- **Decisions as eval cases.** Which decisions make good labels without tuning the corpus to Avizor's output?
+- **Constraint changes.** Should skipped length, range, and pattern changes get their own lower-priority state?
+- **Common-signal threshold.** 40 records is a guess from one dataset.
+- **Comments.** Would indexing full comment text improve recall enough to justify its cost?

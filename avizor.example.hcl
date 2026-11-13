@@ -26,8 +26,8 @@ target "tfaws" {
 
   # Go text/template file for `avizor draft` issue bodies, relative to this file. The default follows the provider's
   # tracking issues: quoted release notes and the required SDK release with its bump PR. The template sees
-  # draft.Data: .Notes (full release notes), .Headline (first sentence), .Release, .ReleaseURL, .BumpPRURL, .Service,
-  # .Work, and .Item.
+  # draft.Data: .Notes (full release notes), .Headline (the title's headline), .Announcement (set by --announcement),
+  # .Release, .ReleaseURL, .BumpPRURL, .Service, .Work, and .Item.
   # draft_template = "templates/issue.md.tmpl"
 
   index {
