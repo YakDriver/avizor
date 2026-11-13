@@ -44,6 +44,8 @@ type Case struct {
 	Expect []Expect `hcl:"expect,block"`
 	// Unmatched, if set, is the expected value of summary.unmatched.
 	Unmatched *bool `hcl:"unmatched,optional"`
+	// State, if set, is the item's expected queue state, such as "covered" or "partial". Item cases only.
+	State string `hcl:"state,optional"`
 	// Same and SamePaths label other candidates that are the same work as the input, such as a second duplicate or the
 	// PR that implemented it. They needn't appear, but a confident category on them is correct.
 	Same      []int    `hcl:"same,optional"`
@@ -131,8 +133,11 @@ func (cs *Case) validate() error {
 		}
 		cs.asOf = t
 	}
-	if len(cs.Expect) == 0 && cs.Unmatched == nil && len(cs.Different)+len(cs.DifferentPaths) == 0 {
-		return errors.New("needs at least one of expect, unmatched, or different")
+	if cs.State != "" && cs.Item == "" {
+		return errors.New("state needs an item")
+	}
+	if len(cs.Expect) == 0 && cs.Unmatched == nil && cs.State == "" && len(cs.Different)+len(cs.DifferentPaths) == 0 {
+		return errors.New("needs at least one of expect, unmatched, state, or different")
 	}
 	if err := cs.validateJudgments(); err != nil {
 		return err
