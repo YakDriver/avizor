@@ -37,9 +37,9 @@ func writes(ops []string) bool {
 	})
 }
 
-// memberNames are the Terraform names a new member would likely have: its snake_case name, and the singular form,
+// MemberNames are the Terraform names a new member would likely have: its snake_case name, and the singular form,
 // since providers name a block for a list of structures in the singular.
-func memberNames(member string) []string {
+func MemberNames(member string) []string {
 	n := Snake(member)
 	out := []string{n}
 	for _, suffix := range []string{"ies", "es", "s"} {
@@ -73,7 +73,7 @@ func (e *Enricher) findMembers(ws []Work) {
 			continue
 		}
 		_, member, _ := strings.Cut(w.Subject, ".")
-		names := memberNames(member)
+		names := MemberNames(member)
 		w.Member = names[0]
 		for _, f := range w.UsedBy {
 			src := read(f)

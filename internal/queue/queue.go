@@ -233,16 +233,22 @@ func uncovered(en *enrich.Result, rec *reconcile.Result, texts map[int]string) [
 			return slices.ContainsFunc(names, func(n string) bool { return n != "" && hasWord(d, strings.ToLower(n)) })
 		})
 	}
+	// A resource is also named by its noun (ContextGraph) and by Terraform names ending in it (aws_x_context_graph).
+	namedResource := func(w enrich.Work) bool {
+		suffix := "_" + enrich.Snake(w.Subject)
+		return named(append(slices.Clone(w.Operations), w.Subject, enrich.Snake(w.Subject))...) ||
+			slices.ContainsFunc(docs, func(d string) bool { return hasWordEnd(d, suffix) })
+	}
 	var out []string
 	for _, w := range en.Work {
 		switch {
 		case w.Kind == enrich.WorkNewResource && len(w.UsedBy) == 0 && slices.ContainsFunc(w.Operations, deletes) &&
 			!slices.ContainsFunc(w.Operations, func(op string) bool { return matched[op] }) &&
-			!named(append(slices.Clone(w.Operations), enrich.Snake(w.Subject))...):
+			!namedResource(w):
 			out = append(out, "resource "+w.Subject)
 		case w.Member != "" && len(w.FoundIn) == 0:
 			_, member, _ := strings.Cut(w.Subject, ".")
-			if a := "argument " + w.Member; !slices.Contains(out, a) && !named(w.Member, strings.TrimSuffix(w.Member, "s"), member) {
+			if a := "argument " + w.Member; !slices.Contains(out, a) && !named(append(enrich.MemberNames(member), member)...) {
 				out = append(out, a)
 			}
 		}
@@ -257,19 +263,34 @@ func deletes(op string) bool {
 	return slices.ContainsFunc(deleteVerbs, func(v string) bool { return strings.HasPrefix(op, v) })
 }
 
+// hasWordEnd reports whether s contains w with no letter, digit, or underscore after it.
+func hasWordEnd(s, w string) bool {
+	for i := 0; ; {
+		j := strings.Index(s[i:], w)
+		if j < 0 {
+			return false
+		}
+		if end := i + j + len(w); end == len(s) || !isWordByte(s[end]) {
+			return true
+		}
+		i += j + 1
+	}
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+}
+
 // hasWord reports whether s contains w with no letter, digit, or underscore on either side, so the member
 // SystemTableStatuses isn't found in ListSystemTableStatuses.
 func hasWord(s, w string) bool {
-	word := func(b byte) bool {
-		return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
-	}
 	for i := 0; ; {
 		j := strings.Index(s[i:], w)
 		if j < 0 {
 			return false
 		}
 		start, end := i+j, i+j+len(w)
-		if (start == 0 || !word(s[start-1])) && (end == len(s) || !word(s[end])) {
+		if (start == 0 || !isWordByte(s[start-1])) && (end == len(s) || !isWordByte(s[end])) {
 			return true
 		}
 		i = start + 1
