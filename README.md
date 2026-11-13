@@ -16,7 +16,7 @@ Avizor needs `git`, [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`), and
 
 ## Configure
 
-Copy [avizor.example.hcl](avizor.example.hcl) to `./avizor.hcl` or `~/.config/avizor/avizor.hcl`:
+Copy [avizor.example.hcl](avizor.example.hcl) to `./avizor.hcl` or `$XDG_CONFIG_HOME/avizor/avizor.hcl` (usually `~/.config/avizor/avizor.hcl`):
 
 ```hcl
 target "tfaws" {
@@ -91,7 +91,7 @@ Strong signals rarely match by chance:
 - A non-GitHub URL, such as an announcement.
 - An AWS API operation name. After a first `avizor pull`, only names defined in the API models count, so `StartTime` doesn't. Before that, any verb-prefixed PascalCase word counts, with a warning.
 - A Terraform name in both titles, when the input asks for a new type.
-- In code: a type registration, a docs page, or an operation call.
+- In code: a type registration, a docs page, or an operation call. These count only when the input asks for a new type. For a change to an existing type, code is `related`.
 
 Weak signals are title keywords, `service/*` labels, cross-references, GitHub URLs, and Terraform names in bodies. Text output marks strong signals with `*`. Signals found in more than 40 records, like contributing-guide links, are skipped and listed under `warnings`.
 
@@ -145,7 +145,7 @@ avizor queue --format text
 avizor queue --since 90d --service s3 --all --format text
 ```
 
-`avizor queue` enriches and reconciles every item from the last 30 days and lists the ones that need a decision. It runs 4 items at a time (`--jobs`), and 30 days takes about 15 seconds. Each entry has the inferred work, a draft title, the announcement, and up to 3 related issues and PRs.
+`avizor queue` enriches and reconciles the items with API changes from the last 30 days and lists the ones that need a decision. Skipped items, including constraint changes, aren't queued even with `--all`; list them with `avizor items --status skipped`. It runs 4 items at a time (`--jobs`), and 30 days takes about 15 seconds. Each entry has the inferred work, a draft title, the announcement, and up to 3 related issues and PRs.
 
 | State | Shown | Meaning |
 |---|---|---|

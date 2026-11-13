@@ -100,7 +100,7 @@ A second, agent stage reads the top candidates and judges them. Avizor doesn't r
 
 ### Queue
 
-The queue enriches and reconciles recent items and gives each one a state. `gap`, `pending`, `new_service`, and `resurfaced` items are shown. `covered`, `no_code`, `unimplemented`, `no_work`, and `decided` items are hidden. An item is `no_code` only if both the model load and the code search succeeded, so a failure never hides an item.
+The queue enriches and reconciles recent items with API changes (not skipped ones) and gives each one a state. `gap`, `pending`, `new_service`, and `resurfaced` items are shown. `covered`, `no_code`, `unimplemented`, `no_work`, and `decided` items are hidden. An item is `no_code` only if both the model load and the code search succeeded, so a failure never hides an item.
 
 ### Decisions
 
