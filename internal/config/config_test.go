@@ -91,7 +91,11 @@ target "tfaws" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := cfg.Source("")
+	if len(cfg.Sources) != 2 || cfg.Sources[1].Name != DefaultWhatsNewName || cfg.Sources[1].Type != SourceAWSWhatsNew ||
+		cfg.Sources[1].URL != DefaultWhatsNewURL || cfg.Sources[1].Start != DefaultStart {
+		t.Errorf("default sources = %+v", cfg.Sources)
+	}
+	s, err := cfg.Source(DefaultSourceName)
 	if err != nil {
 		t.Fatal(err)
 	}

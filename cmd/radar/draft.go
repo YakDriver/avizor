@@ -19,6 +19,7 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	c.register(fs)
 	noCode := fs.Bool("no-code", false, "don't search the target checkout")
 	relates := fs.Int("relates", 3, "maximum related issues and PRs to suggest")
+	useAnn := fs.Bool("announcement", false, "put the matched What's New announcement in the body instead of the release notes")
 	bodyOnly := fs.Bool("body", false, "print only the issue body, for piping to `gh issue create --body-file -`")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -52,7 +53,7 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	}
 	d, err := draft.New(it, en, rec, draft.Options{
 		Repo: t.Repo, Checkout: t.Checkout, Prefix: t.TypePrefix, LabelPrefix: t.ServiceLabelPrefix, Template: t.DraftTemplate,
-		RelatesLimit: *relates,
+		RelatesLimit: *relates, Announcement: *useAnn,
 	})
 	if err != nil {
 		return err
@@ -60,6 +61,10 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 
 	switch {
 	case *bodyOnly:
+		// stdout is for piping to gh, so warnings go to stderr.
+		for _, w := range d.Warnings {
+			fmt.Fprintf(stderr, "radar: warning: %s\n", w)
+		}
 		_, err := io.WriteString(stdout, d.Body)
 		return err
 	case c.format == "text":

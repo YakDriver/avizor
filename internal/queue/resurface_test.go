@@ -79,6 +79,17 @@ func TestChanges(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("changes =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
+	// Announcements count only when both sides matched against them.
+	withAnn := was
+	withAnn.Announcements, withAnn.Announcement = true, "u1"
+	if got := Changes(was, withAnn); got != nil {
+		t.Errorf("changes from no announcements = %q", got)
+	}
+	next := withAnn
+	next.Announcement = "u2"
+	if got := Changes(withAnn, next); !slices.Equal(got, []string{"announcement u1 → u2"}) {
+		t.Errorf("announcement change = %q", got)
+	}
 	if got := Changes(was, was); got != nil {
 		t.Errorf("no change = %q", got)
 	}

@@ -155,7 +155,7 @@ related
 Renders a new issue from the item's findings using a per-target template. Output is the Markdown body plus `gh issue create` arguments (title, labels). Radar doesn't draft comments on existing issues: if existing work covers the item, the draft warns and the item is left alone. For the Terraform AWS Provider, the format follows #45362:
 
 - Title: ``New resource: `aws_<service>_<thing>` ``, `r/aws_<resource>: <capability>`, or `<service>: <capability>`.
-- Quoted announcement headline, when one was found (milestone 4), and links to the announcement and blog post.
+- Quoted announcement headline and a link to it, when the reviewer accepts the matched announcement (`--announcement`).
 - The release notes, quoted.
 - Required SDK release and bump PR.
 - Suggested labels.
@@ -399,6 +399,19 @@ Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hu
 - **`commented` is gone** (see [Draft](#draft)), and `cleared` withdraws a decision without deleting history.
 - **Turning decisions into eval cases** is left for later. It needs a rule for which decisions make good labels; see Open questions.
 
+**Step 4: announcements.** An `aws-whats-new` source pulls What's New posts into the items database, and enrichment matches each SDK item to one.
+
+- **Announcements aren't items.** They're evidence for SDK items. An announcement with no SDK change (announcement-only work) isn't queued yet; the open question stands.
+- **The source is an undocumented endpoint.** The RSS feed has only the latest 100 posts (about 9 days), too few to backfill. The JSON directory API behind the What's New pages pages back through history: 2,822 posts since 2025-11-20 in 5 seconds. If it changes, `url` can point elsewhere, and only matching degrades.
+- **Matching:** TF-IDF cosine between the item's release notes plus its SDK service name (counted twice) and each post's headline (twice) and body, over posts from 3 days before to 7 days after the release. Posts more than 1.5 days away score 75%. Region-expansion headlines are left out, since they repeat an earlier launch's words. A match needs a score of at least 0.4 and 1.3 times the runner-up. I chose these on the 36 items whose maintainer trackers link an announcement, then checked them on a random sample.
+- **Measured:**
+  - On the 36 linked items: 26 matched the linked post, 2 matched another, and 8 didn't match. The 2 wrong ones are a CloudFormation release covering two same-day launches and an S3 Control release spanning several features.
+  - On 300 random untracked items: 79 matched, and 3 were wrong by hand check (a GameLift runtime note matched a scaling launch, a Compute Optimizer rule change matched an EBS recommendations post, and an AgentCore session endpoint matched the AgentCore CLI release).
+  - Over all 1,487 items, 30% of `gap` items and 53% of `covered` items have a match.
+- **The match is an inference, so the body doesn't use it by default.** Titles use the matched headline, listed with its basis. `radar draft --announcement` puts the headline and link in the body in place of the release notes, which is the tracker format. That's the reviewer accepting the match.
+- **Decisions watch the match.** Evidence records the matched announcement, so a skipped or deferred item re-surfaces when a match appears or changes. Evidence from before announcements were pulled isn't compared on it.
+- **Not yet in reconciliation.** Maintainer trackers link the announcement, so its URL could find trackers that don't cite the release commit, which [item-covered](../../eval/README.md) misses. A wrong match with the service label could then be confidently wrong, so that needs its own eval run.
+
 ## Open questions
 
 - **Item granularity**: is one item per service per SDK release right, or do multi-feature releases need splitting?
@@ -406,7 +419,7 @@ Issue #3 waits for steps 1 and 5, which show whether the broad strong signals hu
 - **Agent evaluation contract**: what input and output format should the stage-2 agent use so its justifications are checkable?
 - **Announcement-only changes**: how often does provider work come from announcements with no SDK model change? The corpus should answer whether the What's New source is worth adding.
 - **Checkout branch**: code matches and availability reflect whatever the checkout's `ref` points to (default `HEAD`). Should Radar default to `main`, or verify it?
-- **Item labels without release commits**: trackers that cite only an announcement can't be tied to an item from history alone. Joining announcements to items (the announcement-link enricher) would add them as cases.
+- **Item labels without release commits**: trackers that cite only an announcement can't be tied to an item from history alone. Announcement matching (milestone 4, step 4) could add them as cases, at the matcher's error rate.
 - **Common-signal threshold**: 40 records is a guess from one dataset. The corpus can now test changes to it.
 - **Corpus growth**: dispositions recorded in milestone 4 are natural new cases. How should they be added without tuning labels to Radar's output?
 - **Constraint changes**: skipped SDK items include length, range, and pattern changes, which can affect provider validation. Should they be a separate, lower-priority status instead of skipped?

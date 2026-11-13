@@ -55,6 +55,9 @@ func Changes(was, now Evidence) []string {
 	if sameCode && was.CodeSearched == now.CodeSearched && was.State != now.State {
 		out = append(out, fmt.Sprintf("state %s → %s", was.State, now.State))
 	}
+	if was.Announcements && now.Announcements && was.Announcement != now.Announcement {
+		out = append(out, fmt.Sprintf("announcement %s → %s", cmp(was.Announcement, "none"), cmp(now.Announcement, "none")))
+	}
 	if was.Availability != now.Availability {
 		out = append(out, fmt.Sprintf("availability %s → %s", cmp(was.Availability, "unknown"), cmp(now.Availability, "unknown")))
 	}

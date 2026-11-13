@@ -18,6 +18,7 @@ import (
 	"github.com/YakDriver/radar/internal/awssdk"
 	"github.com/YakDriver/radar/internal/enrich"
 	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/radar/internal/whatsnew"
 )
 
 //go:embed default.md.tmpl
@@ -61,8 +62,10 @@ type Data struct {
 	Item *awssdk.Item
 	// Notes are the item's release notes, in full, without the "New AWS service client module" marker.
 	Notes []string
-	// Headline is the first sentence of the first note. Titles use it.
+	// Headline is the matched announcement's headline, or else the first sentence of the first note. Titles use it.
 	Headline string
+	// Announcement is the matched What's New post, set only when Options.Announcement accepts the match.
+	Announcement *whatsnew.Announcement
 	// Release is the release name, such as "Release 2025-12-02".
 	Release    string
 	ReleaseURL string
@@ -86,6 +89,8 @@ type Options struct {
 	Template string
 	// RelatesLimit caps suggested related candidates.
 	RelatesLimit int
+	// Announcement puts the matched announcement in the body. The match is an inference, so the reviewer opts in.
+	Announcement bool
 }
 
 // New renders a draft.
@@ -119,9 +124,21 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 			data.Notes = append(data.Notes, n.Text)
 		}
 	}
-	if len(data.Notes) > 0 {
+	switch m := en.Announcement; {
+	case m != nil:
+		data.Headline = m.Announcement.Headline
+		hint := "; draft with --announcement to put it in the body"
+		if opts.Announcement {
+			data.Announcement, hint = &m.Announcement, "; in the body"
+		}
+		infer("announcement", m.Announcement.Headline+" "+m.Announcement.URL, m.Basis+hint)
+		infer("headline", data.Headline, "the matched announcement's headline, used in the title")
+	case len(data.Notes) > 0:
 		data.Headline = firstSentence(data.Notes[0])
-		infer("headline", data.Headline, "first sentence of the release notes, used in the title; add the announcement headline to the body if there is one")
+		infer("headline", data.Headline, "first sentence of the release notes, used in the title; no announcement matched")
+	}
+	if opts.Announcement && en.Announcement == nil {
+		d.Warnings = append(d.Warnings, "--announcement: no announcement matched, so the body has the release notes instead")
 	}
 
 	if av := en.Availability; av != nil {
@@ -161,7 +178,7 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	return d, nil
 }
 
-const NewModuleNote = "New AWS service client module"
+const NewModuleNote = awssdk.NewModuleNote
 
 // titleAndLabels infers the title and labels from the work.
 func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Options, infer func(field, value, basis string)) (string, []string) {
@@ -227,9 +244,14 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 		return title, labels
 	}
 	title := subject
-	if title == "" {
+	switch {
+	case en.Announcement != nil:
+		// Announcement headlines name the product, often not by its SDK name ("AWS Cloud WAN" for EC2).
+		infer("title", title, "the matched announcement's headline; no single resource is affected")
+		return title, labels
+	case title == "":
 		title = fmt.Sprintf("%s changes in %s", it.Service.SDKID, releaseName(it.Release.Tag))
-	} else if !strings.Contains(strings.ToLower(title), strings.ToLower(service)) {
+	case !strings.Contains(strings.ToLower(title), strings.ToLower(service)):
 		title = service + ": " + title
 	}
 	infer("title", title, "release notes; no single resource is affected")

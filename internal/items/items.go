@@ -72,7 +72,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("opening items %s: %w", path, err)
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + dispositionsSchema); err != nil {
+	if _, err := db.Exec(schema + dispositionsSchema + announcementsSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("creating items schema: %w", err)
 	}

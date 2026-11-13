@@ -58,6 +58,8 @@ type Entry struct {
 	Labels []string `json:"labels"`
 	// Relates are weak matches worth a look before filing: issues and PRs in the service that share title keywords.
 	Relates []draft.Relate `json:"relates"`
+	// Announcement is the matched What's New post's URL, if any. Matching is an inference; see the item's enrichment.
+	Announcement string `json:"announcement,omitempty"`
 	// Warnings are the enrichment's, such as a failed model load or code search.
 	Warnings []string `json:"warnings,omitempty"`
 	// Evidence is what a decision about the item records, to notice when it changes.
@@ -78,6 +80,9 @@ type Evidence struct {
 	State          string     `json:"state"`
 	Availability   string     `json:"availability,omitempty"`
 	Covering       []Covering `json:"covering,omitempty"`
+	// Announcements is whether announcements were matched against, and Announcement the match's URL, if any.
+	Announcements bool   `json:"announcements,omitempty"`
+	Announcement  string `json:"announcement,omitempty"`
 }
 
 // Covering is a confident candidate.
@@ -149,6 +154,11 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 	}
 	if rec != nil {
 		e.Evidence.CodeCandidates = rec.CodeSearched
+	}
+	e.Evidence.Announcements = en.AnnouncementsMatched
+	if en.Announcement != nil {
+		e.Announcement = en.Announcement.Announcement.URL
+		e.Evidence.Announcement = e.Announcement
 	}
 
 	newModule := slices.ContainsFunc(it.Notes, func(n awssdk.Note) bool { return n.Text == draft.NewModuleNote })

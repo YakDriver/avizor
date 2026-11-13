@@ -11,6 +11,7 @@ import (
 	"github.com/YakDriver/radar/internal/awssdk"
 	"github.com/YakDriver/radar/internal/enrich"
 	"github.com/YakDriver/radar/internal/reconcile"
+	"github.com/YakDriver/radar/internal/whatsnew"
 )
 
 func item(module string, notes ...string) *awssdk.Item {
@@ -190,5 +191,50 @@ func TestSnake(t *testing.T) {
 		if got := snake(in); got != want {
 			t.Errorf("snake(%s) = %s, want %s", in, got, want)
 		}
+	}
+}
+
+func TestAnnouncement(t *testing.T) {
+	t.Parallel()
+
+	en := implemented("widget")
+	en.Announcement = &whatsnew.Match{Announcement: whatsnew.Announcement{Headline: "Amazon Widget now supports sizes", URL: "https://aws.amazon.com/wn/sizes/"},
+		Score: 0.7, Basis: "text similarity 0.70"}
+	d, err := New(item("widget", "Adds sizes. More."), en, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The match titles the draft but stays out of the body unless accepted.
+	if d.Title != "Amazon Widget now supports sizes" || !strings.HasPrefix(d.Body, "> Adds sizes. More.\n") {
+		t.Errorf("title = %q, body =\n%s", d.Title, d.Body)
+	}
+	if got := inferred(d, "announcement"); len(got) != 1 || !strings.Contains(got[0], "https://aws.amazon.com/wn/sizes/") {
+		t.Errorf("inferred announcement = %q", got)
+	}
+
+	o := opts
+	o.Announcement = true
+	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
+		t.Fatal(err)
+	}
+	want := "> Amazon Widget now supports sizes\n\n* [Announcement](https://aws.amazon.com/wn/sizes/)\n\nRequires AWS SDK for Go v2 [Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc): https://github.com/o/r/pull/10.\n"
+	if d.Body != want {
+		t.Errorf("body =\n%s\nwant\n%s", d.Body, want)
+	}
+
+	// Asking for an announcement when none matched warns, even with no release notes.
+	if d, err = New(item("widget", NewModuleNote), implemented("widget"), nil, o); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(d.Warnings, func(w string) bool { return strings.Contains(w, "no announcement matched") }) {
+		t.Errorf("warnings without notes = %q", d.Warnings)
+	}
+
+	// Asking for an announcement when none matched warns and keeps the notes.
+	if d, err = New(item("widget", "Adds sizes."), implemented("widget"), nil, o); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(d.Body, "> Adds sizes.") || !slices.ContainsFunc(d.Warnings, func(w string) bool { return strings.Contains(w, "no announcement matched") }) {
+		t.Errorf("body =\n%s\nwarnings %q", d.Body, d.Warnings)
 	}
 }
