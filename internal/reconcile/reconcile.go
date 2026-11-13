@@ -359,6 +359,21 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 		out = append(out, code...)
 	}
 
+	if in.item != nil {
+		calls := map[string]bool{}
+		for _, c := range out {
+			if c.Kind != KindCode {
+				continue
+			}
+			for _, m := range c.Signals {
+				if m.Type == signal.KindOp {
+					calls[m.Value] = true
+				}
+			}
+		}
+		demoteExisting(out, calls)
+	}
+
 	sortCandidates(out)
 	res.Candidates = limitRelated(out, relatedLimit)
 	res.Summary = summarize(res.Candidates)

@@ -3,7 +3,9 @@ package reconcile
 import (
 	"context"
 	"errors"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/YakDriver/avizor/internal/signal"
@@ -100,6 +102,71 @@ func demoteBump(c *Candidate) {
 // requireLabel downgrades a candidate's strong matches to weak unless it has the item's service label. A new operation
 // name or a release commit is only specific to the item within its service: other services have operations of the same
 // name, and a release spans many services.
+// MatchExistingCode marks an issue or PR demoted because it matched only on operations the target's code already calls.
+const MatchExistingCode = "existing_code"
+
+// demoteExisting makes an issue or PR related when its only strong signals are operations the target's code already
+// calls, or references to candidates demoted for that reason. Such a match is usually a bug report or enhancement for
+// the resource that calls them, not work on the item, and the code candidate already shows that the item is
+// implemented. Issues and PRs whose title asks for a new type keep their category: they're the requests and PRs that
+// added it.
+func demoteExisting(cands []Candidate, calls map[string]bool) {
+	if len(calls) == 0 {
+		return
+	}
+	demoted := map[string]bool{}
+	for changed := true; changed; {
+		changed = false
+		for i := range cands {
+			c := &cands[i]
+			if c.Kind == KindCode || c.Category == CategoryRelated || addsType(c.Title) {
+				continue
+			}
+			existing := true
+			for _, m := range c.Signals {
+				if m.Strength != StrengthStrong {
+					continue
+				}
+				if !(m.Type == signal.KindOp && calls[m.Value]) && !(m.Type == matchReferencesCandidate && demoted[m.Value]) {
+					existing = false
+					break
+				}
+			}
+			if !existing {
+				continue
+			}
+			for j := range c.Signals {
+				c.Signals[j].Strength = StrengthWeak
+			}
+			c.addSignal(Match{Type: MatchExistingCode, Value: "matched only operations the target's code already calls; probably about that code", Strength: StrengthWeak})
+			c.Category = CategoryRelated
+			demoted["#"+strconv.Itoa(c.Number)] = true
+			changed = true
+		}
+	}
+}
+
+var (
+	// addsTypeRE matches titles like "add Autonomous Database resource" and "feat: add aws_x_y".
+	addsTypeRE   = regexp.MustCompile("(?i)\\badd(?:s|ed|ing)?\\s+(?:`?aws_\\w+|[\\w ]{0,40}?\\b(?:resource|data[ -]source)s?\\b)")
+	newServiceRE = regexp.MustCompile(`(?i)\bnew service\b`)
+	// forcesNewRE matches bug titles like "should force a new resource", which aren't requests for one.
+	forcesNewRE = regexp.MustCompile(`(?i)\bforces?\s+(?:a\s+)?new\s+resource`)
+)
+
+// addsType reports whether an issue or PR title asks for or adds a new type or service, such as "New resource: aws_x",
+// "add Autonomous Database resource", or "[New Service]: AWS X". Adding a list resource to an existing type doesn't
+// count.
+func addsType(title string) bool {
+	if forcesNewRE.MatchString(title) {
+		return false
+	}
+	if m := addsTypeRE.FindString(title); m != "" && !strings.Contains(strings.ToLower(m), "list resource") {
+		return true
+	}
+	return newTypeRE.MatchString(title) || newServiceRE.MatchString(title)
+}
+
 func requireLabel(c *Candidate, hasLabel bool) {
 	if hasLabel {
 		return
