@@ -680,3 +680,26 @@ func TestAddsType(t *testing.T) {
 		}
 	}
 }
+
+func TestCommonLimit(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		kind, value string
+		want        int
+	}{
+		{signal.KindURL, "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket", docCommonThreshold},
+		{signal.KindURL, "https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_CreateRoute.html", docCommonThreshold},
+		{signal.KindURL, "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/datazone", docCommonThreshold},
+		{signal.KindURL, "https://sns.amazonaws.com/doc/2010-03-31", docCommonThreshold},
+		{signal.KindURL, "https://aws.amazon.com/about-aws/whats-new/2026/10/x", 40},
+		{signal.KindOp, "CreateRoute", 40},
+	} {
+		if got := commonLimit(signal.Signal{Kind: tc.kind, Value: tc.value}, 40); got != tc.want {
+			t.Errorf("commonLimit(%s:%s) = %d, want %d", tc.kind, tc.value, got, tc.want)
+		}
+	}
+	if got := commonLimit(signal.Signal{Kind: signal.KindURL, Value: "https://docs.aws.amazon.com/x"}, 3); got != 3 {
+		t.Errorf("commonLimit with a lower threshold = %d, want 3", got)
+	}
+}
