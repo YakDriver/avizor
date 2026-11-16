@@ -262,9 +262,13 @@ ON CONFLICT(number) DO UPDATE SET
 	return t.insertSignals(ctx, is.Number, 0, WhereBody, created, signal.Extract(is.Body, t.repo))
 }
 
+// deleteCommentSignals clears one comment's signals. The repeated comment_id <> 0 lets SQLite use the partial index
+// signals_comment; without it, each comment scans every signal.
+const deleteCommentSignals = `DELETE FROM signals WHERE comment_id = ? AND comment_id <> 0`
+
 // ReplaceCommentSignals replaces the signals extracted from one comment.
 func (t *Tx) ReplaceCommentSignals(ctx context.Context, number int, commentID int64, createdAt time.Time, body string) error {
-	if _, err := t.tx.ExecContext(ctx, `DELETE FROM signals WHERE comment_id = ?`, commentID); err != nil {
+	if _, err := t.tx.ExecContext(ctx, deleteCommentSignals, commentID); err != nil {
 		return fmt.Errorf("clearing signals for comment %d: %w", commentID, err)
 	}
 	return t.insertSignals(ctx, number, commentID, WhereComment, formatTime(createdAt), signal.Extract(body, t.repo))
