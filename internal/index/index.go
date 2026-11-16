@@ -535,8 +535,6 @@ type Stats struct {
 	Issues  int `json:"issues"`
 	PRs     int `json:"prs"`
 	Signals int `json:"signals"`
-	// Comments counts comments with at least one signal.
-	Comments int `json:"comments_with_signals"`
 }
 
 // Stats returns record counts.
@@ -545,12 +543,21 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	err := s.db.QueryRowContext(ctx, `SELECT
 	(SELECT COUNT(*) FROM issues WHERE kind = 'issue'),
 	(SELECT COUNT(*) FROM issues WHERE kind = 'pr'),
-	(SELECT COUNT(*) FROM signals),
-	(SELECT COUNT(DISTINCT comment_id) FROM signals WHERE comment_id <> 0)`).Scan(&st.Issues, &st.PRs, &st.Signals, &st.Comments)
+	(SELECT COUNT(*) FROM signals)`).Scan(&st.Issues, &st.PRs, &st.Signals)
 	if err != nil {
 		return st, fmt.Errorf("reading stats: %w", err)
 	}
 	return st, nil
+}
+
+// CommentsWithSignals returns how many comments have at least one signal. It scans the comment signal index, so
+// unlike Stats it isn't for every reconciliation.
+func (s *Store) CommentsWithSignals(ctx context.Context) (int, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT comment_id) FROM signals WHERE comment_id <> 0`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("counting comments with signals: %w", err)
+	}
+	return n, nil
 }
 
 func placeholders(n int) string {

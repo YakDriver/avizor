@@ -147,6 +147,7 @@ type Report struct {
 type IndexInfo struct {
 	SyncedAt string `json:"synced_at,omitempty"`
 	index.Stats
+	Comments int `json:"comments_with_signals"`
 }
 
 // indexInfo describes the base reconciler's index, or nil if it has none.
@@ -162,7 +163,11 @@ func (r *Runner) indexInfo(ctx context.Context) (*IndexInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &IndexInfo{SyncedAt: synced, Stats: st}, nil
+	comments, err := r.Base.Store.CommentsWithSignals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &IndexInfo{SyncedAt: synced, Stats: st, Comments: comments}, nil
 }
 
 // Run binds the corpus to the base reconciler's target repo and evaluates every case, in order.
