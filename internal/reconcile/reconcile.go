@@ -276,6 +276,12 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 		_, exact := cands[n]
 		c := get(n)
 		fillFromIssue(c, is)
+		if in.item != nil {
+			for _, m := range in.item.memberMatches(is) {
+				c.addSignal(m)
+				exact = exact || m.Strength == StrengthStrong
+			}
+		}
 
 		labelMatch := false
 		for _, l := range is.Labels {

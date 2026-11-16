@@ -66,8 +66,11 @@ type Result struct {
 	Work []Work `json:"work"`
 	// Announcement is the What's New post the item most likely belongs to, by text similarity. It's an inference.
 	// AnnouncementsMatched is whether announcements were available to match against.
-	Announcement         *whatsnew.Match `json:"announcement,omitempty"`
-	AnnouncementsMatched bool            `json:"announcements_matched"`
+	Announcement *whatsnew.Match `json:"announcement,omitempty"`
+	// NewMembers are member names the change introduces: new members of existing shapes and members of new
+	// structures, without names another existing shape already has. Issues naming them are likely about the change.
+	NewMembers           []string `json:"new_members,omitempty"`
+	AnnouncementsMatched bool     `json:"announcements_matched"`
 	// CodeSearched is true when the model loaded and the code search ran without error, so work with no UsedBy is
 	// known not to touch the target's code. It's false when either was skipped or failed.
 	CodeSearched bool     `json:"code_searched"`
@@ -118,6 +121,9 @@ type Work struct {
 	// already use it. A name found for another field matches too, so FoundIn suggests, not proves, the argument exists.
 	Member  string   `json:"member,omitempty"`
 	FoundIn []string `json:"found_in,omitempty"`
+	// SharedName is set for a new member when another shape already had a member of that name, as when an update
+	// request gains a member its create request has. Text naming it is likely about the existing member.
+	SharedName bool `json:"shared_name,omitempty"`
 }
 
 // Enricher enriches items for one target.
@@ -156,6 +162,7 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 	}
 
 	var usages map[string]*smithy.Usage
+	var model *smithy.Model
 	modelOK := it.Diff == nil
 	switch {
 	case it.Diff == nil:
@@ -164,12 +171,14 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 		if err != nil {
 			warnf("loading model: %v", err)
 		} else {
-			usages, modelOK = m.Usages(), true
+			usages, model, modelOK = m.Usages(), m, true
 		}
 	default:
 		warnf("no model to find which operations changed members reach; run `avizor pull` to clone the models")
 	}
 	res.Work = work(it.Diff, usages)
+	markSharedNames(res.Work, it.Diff, model)
+	res.NewMembers = newMembers(res.Work, it.Diff, model)
 	if e.Announcements != nil {
 		res.AnnouncementsMatched = true
 		res.Announcement = e.Announcements.Match(itemText(it), cmp.Or(it.Service.SDKID, it.Service.Module), it.Release.PublishedAt)
