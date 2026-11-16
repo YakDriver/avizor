@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -151,5 +152,37 @@ func TestSearchQuoting(t *testing.T) {
 	// FTS5 syntax in terms must not error.
 	if _, err := st.Search(context.Background(), []string{`a"b`, "OR", "NEAR(", "-x", "*", ""}, 5); err != nil {
 		t.Errorf("Search with syntax-like terms: %v", err)
+	}
+}
+
+// Clearing a comment's signals runs once per synced comment, so it must use an index, not scan the table.
+func TestDeleteCommentSignalsUsesIndex(t *testing.T) {
+	t.Parallel()
+
+	st, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	rows, err := st.db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+deleteCommentSignals, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(plan, func(d string) bool { return strings.Contains(d, "USING INDEX signals_comment") }) {
+		t.Errorf("plan = %q, want a search using signals_comment", plan)
 	}
 }
