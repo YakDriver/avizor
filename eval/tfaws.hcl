@@ -71,7 +71,8 @@ case "dup-41200" {
     number   = 38983
     category = "already_tracked"
   }
-  different = [33461, 33460, 32914, 26230, 29213, 29753]
+  different = [33461, 33460, 32914, 26230, 29213, 29753, 41132, 41169, 18396, 18395, 18098]
+  same = [723]
 }
 
 case "dup-41552" {
@@ -83,6 +84,7 @@ case "dup-41552" {
     category = "already_tracked"
   }
   same = [40181]
+  different = [35628]
 }
 
 case "dup-41782" {
@@ -158,7 +160,7 @@ case "dup-44751" {
     number   = 44672
     category = "already_tracked"
   }
-  different = [39447]
+  different = [39447, 14864, 13888]
 }
 
 case "dup-45838" {
@@ -169,7 +171,7 @@ case "dup-45838" {
     number   = 44836
     category = "already_tracked"
   }
-  different = [43043]
+  different = [43043, 38345, 38231]
 }
 
 case "dup-46606" {

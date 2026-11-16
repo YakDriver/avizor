@@ -111,11 +111,11 @@ The covered sample tests the opposite claim: that a `covered` item, which the qu
 | `wrong` | Confident candidates labeled `different`. Each fails its case. |
 | `unjudged` | Confident candidates with no verdict. Should be 0. |
 
-The report also counts cases with existing work that were summarized as unmatched.
+The report also counts cases with existing work that were summarized as unmatched, and ends with the index it ran against: when it was synced and how many issues, PRs, signals, and comments with signals it holds. Results can move when the index does, even for cases pinned with `as_of`, because a sync can add or correct records created before a case's `as_of`. Compare runs only on the same index, and note the index line with any result.
 
 ## Results
 
-Index synced from 2025-01-01 (15,493 issues and PRs, 52,167 comments).
+Rows before the resync used an index synced from 2025-01-01 (15,493 issues and PRs, 52,167 comments). Later rows use the full index synced 2026-11-16 (23,644 issues, 27,183 PRs, 100,842 comments with signals).
 
 | Change | pass | hit@1 | hit@3 | hit@5 | recall | category | precision |
 |---|---|---|---|---|---|---|---|
@@ -127,8 +127,12 @@ Index synced from 2025-01-01 (15,493 issues and PRs, 52,167 comments).
 | Add 73 SDK item cases (128 cases in all) | 98 | 82% | 92% | 95% | 98% | 73% | 78% |
 | Add 30 gap-sample item cases (158 cases in all) | 124 | 79% | 88% | 93% | 96% | 69% | 78% |
 | Add 45 covered-sample and partial cases (203 in all) | 166 | 79% | 88% | 93% | 96% | 69% | 89% |
+| Resync the full index, no code change ([#34](https://github.com/YakDriver/avizor/issues/34)) | 166 | 71% | 87% | 90% | 96% | 69% | 89%, 87 unjudged |
+| Docs URLs are common above 5 records ([#34](https://github.com/YakDriver/avizor/issues/34)), 11 new labels | 165 | 74% | 89% | 93% | 95% | 68% | 90% |
 
 Judging confident candidates changed no reconciliation code: three cases fail because they return different work with a confident category. Checking operation names against the API models removed the 6 wrong labels that came from `StartTime`, and lost nothing. Rows that add cases aren't comparable with the rows above them. On the earlier cases they're unchanged.
+
+The resync exposed 87 new confident candidates, all from reference documentation URLs (a resource's Terraform Registry page, AWS API reference pages, pkg.go.dev, an AWS XML namespace) or references followed from them; 62 came from one registry URL. Such a URL names a resource or API that many unrelated issues discuss. Treating it as common above 5 records, instead of 40, removes 76 of them. Making docs URLs always weak removes 81 but loses 4 expected `already_tracked` matches that rest on one. Labeling the remaining 11 fails `dup-41200`: four dependency-bump PRs quote upstream changelogs that cite another repository's #723, which matches the input.
 
 The new cases measure the two rules the covered sample led to, which only show with code search. Without the existing-code rule, the 30 covered-sample cases have 25 wrong confident candidates and 22 pass. Without the `partial` state, state accuracy over the 45 cases drops from 98% to 73%.
 
@@ -137,61 +141,57 @@ Current, by kind:
 ```
 FAIL  dup-40793                                duplicate    40793
       - #38644 is related, want already_tracked
-      top: 1. #38644 (related), 2. #34935 (related), 3. #33911 (related), 4. #38599 (related), 5. #28187 (related)
+      top: 1. #38644 (related), 2. #34935 (related), 3. #35596 (related), 4. #38599 (related), 5. #20363 (related)
 FAIL  dup-41200                                duplicate    41200
-      - #38983 is related, want already_tracked
-      top: 1. #38983 (related), 2. #11068 (related), 3. #29753 (related), 4. #39308 (related), 5. #34408 (related)
+      - #41132 is already_implemented, but is different work
+      - #41169 is already_implemented, but is different work
+      - #18396 is already_implemented, but is different work
+      - #18395 is already_implemented, but is different work
+      - #18098 is previously_considered, but is different work
+      top: 1. #41132 (implemented), 2. #41169 (implemented), 3. #18396 (implemented), 4. #18395 (implemented), 5. #38983 (tracked)
 FAIL  dup-41552                                duplicate    41552
       - #40135 is related, want already_tracked
-      top: 1. #40181 (tracked), 2. #39722 (related), 3. #25506 (related), 4. #40135 (related), 5. #40056 (related)
+      - #35628 is already_implemented, but is different work
+      top: 1. #35628 (implemented), 2. #40181 (tracked), 3. #40135 (related), 4. #26668 (related), 5. #33897 (related)
 FAIL  dup-41782                                duplicate    41782
-      - #41710 ranked 6, beyond top 5
       - #41710 is related, want already_tracked
-      - #41462 is already_implemented, but is different work
-      - #31299 is already_tracked, but is different work
-      - #41199 is already_tracked, but is different work
-      - #41126 is already_tracked, but is different work
-      - #41620 is previously_considered, but is different work
-      top: 1. #41462 (implemented), 2. #31299 (tracked), 3. #41199 (tracked), 4. #41126 (tracked), 5. #41620 (considered)
+      top: 1. #41710 (related), 2. #28851 (related), 3. #31299 (related), 4. #36793 (related), 5. #41592 (related)
 FAIL  dup-41973                                duplicate    41973
-      - #41710 ranked 16, beyond top 5
-      - #41710 is related, want already_tracked
-      - #41462 is already_implemented, but is different work
-      - #41199 is already_tracked, but is different work
-      - #31299 is already_tracked, but is different work
-      - #41126 is already_tracked, but is different work
-      - #41620 is previously_considered, but is different work
-      top: 1. #41462 (implemented), 2. #41199 (tracked), 3. #31299 (tracked), 4. #41126 (tracked), 5. #41782 (considered)
+      - #41710 not returned
+      top: 1. #41782 (related), 2. #41537 (related), 3. #41662 (related), 4. #41521 (related), 5. #41399 (related)
 FAIL  dup-42127                                duplicate    42127
       - #42125 is related, want already_tracked
-      top: 1. #31131 (related), 2. #40599 (related), 3. #42125 (related), 4. #33436 (related), 5. #26594 (related)
+      top: 1. #42125 (related), 2. #10004 (related), 3. #7516 (related), 4. #31131 (related), 5. #26363 (related)
 FAIL  dup-42605                                duplicate    42605
       - #40597 is related, want previously_considered
       - #35931 is already_tracked, but is different work
-      top: 1. #35931 (tracked), 2. #40597 (related), 3. #37456 (related), 4. #42536 (related), 5. #40493 (related)
+      top: 1. #35931 (tracked), 2. #40597 (related), 3. #37456 (related), 4. #42536 (related), 5. #17200 (related)
 FAIL  dup-43223                                duplicate    43223
       - #39383 not returned
       top: 1. #36958 (related), 2. #38859 (related), 3. #38108 (related), 4. #40323 (related), 5. #34630 (related)
 FAIL  dup-43828                                duplicate    43828
-      - #41241 is already_tracked, but is different work
-      - #41384 is already_tracked, but is different work
-      top: 1. #42850 (tracked), 2. #41241 (tracked), 3. #41384 (tracked), 4. #37253 (related), 5. #41285 (related)
+      - #42850 is related, want already_tracked
+      top: 1. #42850 (related), 2. #37253 (related), 3. #41285 (related), 4. #41140 (related), 5. #40576 (related)
 FAIL  dup-44751                                duplicate    44751
+      - #14864 is already_implemented, but is different work
       - #39447 is already_tracked, but is different work
-      top: 1. #44672 (tracked), 2. #39447 (tracked), 3. #33168 (related), 4. #41116 (related), 5. #43715 (related)
+      - #13888 is previously_considered, but is different work
+      top: 1. #14864 (implemented), 2. #44672 (tracked), 3. #39447 (tracked), 4. #13888 (considered), 5. #35489 (related)
 FAIL  dup-45838                                duplicate    45838
       - #44836 is related, want already_tracked
+      - #38345 is already_implemented, but is different work
       - #43043 is already_tracked, but is different work
-      top: 1. #43043 (tracked), 2. #44836 (related), 3. #44857 (related), 4. #43316 (related), 5. #43382 (related)
+      - #38231 is previously_considered, but is different work
+      top: 1. #38345 (implemented), 2. #43043 (tracked), 3. #38231 (considered), 4. #44836 (related), 5. #44857 (related)
 FAIL  dup-46606                                duplicate    46606
       - #46322 is related, want already_tracked
-      top: 1. #46322 (related), 2. #46285 (related), 3. #43049 (related), 4. #44692 (related), 5. #41343 (related)
+      top: 1. #46322 (related), 2. #46285 (related), 3. #43049 (related), 4. #44692 (related), 5. #24683 (related)
 FAIL  dup-47486                                duplicate    47486
       - #47022 is related, want already_tracked
-      top: 1. #47022 (related), 2. #46998 (related), 3. #46682 (related), 4. #44490 (related), 5. #46507 (related)
+      top: 1. #47022 (related), 2. #46998 (related), 3. #19407 (related), 4. #44490 (related), 5. #19125 (related)
 FAIL  dup-47987                                duplicate    47987
       - #44688 is related, want already_tracked
-      top: 1. #44688 (related), 2. #43972 (related), 3. #29871 (related), 4. #41305 (related), 5. #32793 (related)
+      top: 1. #29871 (related), 2. #44688 (related), 3. #43972 (related), 4. #29783 (related), 5. #41305 (related)
 FAIL  dup-48354                                duplicate    48354
       - #45987 is related, want already_tracked
       top: 1. #48353 (related), 2. #46790 (related), 3. #48345 (related), 4. #45987 (related), 5. #48349 (related)
@@ -200,43 +200,46 @@ FAIL  dup-48760                                duplicate    48760
       top: 1. #48554 (related), 2. #45745 (related), 3. #45588 (related), 4. #40996 (related), 5. #42708 (related)
 FAIL  dup-49183                                duplicate    49183
       - #43509 is related, want already_tracked
-      top: 1. #43509 (related), 2. #43621 (related), 3. #40152 (related), 4. #49075 (related), 5. #25651 (related)
+      top: 1. #43509 (related), 2. #43621 (related), 3. #41026 (related), 4. #44626 (related), 5. #38012 (related)
 FAIL  dup-49365                                duplicate    49365
       - #46315 is already_tracked, but is different work
-      top: 1. #46315 (tracked), 2. #45533 (tracked), 3. #14619 (considered), 4. #33088 (considered), 5. #40639 (related)
+      top: 1. #46315 (tracked), 2. #45533 (tracked), 3. #14619 (considered), 4. #33088 (considered), 5. #26082 (related)
 FAIL  dup-49894                                duplicate    49894
       - #47673 not returned
       top: 1. #46281 (related), 2. #42445 (related), 3. #48785 (related), 4. #44692 (related), 5. #40141 (related)
 FAIL  dup-50540                                duplicate    50540
       - #41838 is related, want already_tracked
-      top: 1. #41838 (related), 2. #40803 (related), 3. #49864 (related), 4. #47293 (related), 5. #47547 (related)
+      top: 1. #23147 (related), 2. #22008 (related), 3. #41838 (related), 4. #40803 (related), 5. #35721 (related)
 FAIL  ann-text-42864                           announcement-text text: Amazon API Gateway now supports routing rules for REST APIs using custom domain names.
       - #42864 is related, want already_tracked
-      top: 1. #40274 (related), 2. #42864 (related), 3. #42110 (related), 4. #41375 (related), 5. #41659 (related)
+      top: 1. #40274 (related), 2. #42864 (related), 3. #42110 (related), 4. #2866 (related), 5. #420 (related)
 FAIL  ann-text-43005                           announcement-text text: AWS WAF now supports automatic application layer distributed denial of service (DDoS) protection
       - #43005 is related, want already_tracked
-      top: 1. #43005 (related), 2. #33432 (related), 3. #42002 (related), 4. #41803 (related), 5. #36854 (related)
+      top: 1. #43005 (related), 2. #33432 (related), 3. #27066 (related), 4. #35372 (related), 5. #35373 (related)
 FAIL  ann-text-45162                           announcement-text text: Amazon FSx for Windows File Server now supports File Server Resource Manager
       - #45162 is related, want already_tracked
-      top: 1. #45162 (related), 2. #40817 (related), 3. #40289 (related), 4. #33303 (related), 5. #32116 (related)
+      top: 1. #45162 (related), 2. #19793 (related), 3. #12630 (related), 4. #11500 (related), 5. #12676 (related)
 FAIL  ann-text-47671                           announcement-text text: AWS KMS now tracks last usage of all KMS keys
       - #47671 is related, want already_tracked
-      top: 1. #47671 (related), 2. #43671 (related), 3. #27611 (related), 4. #44011 (related), 5. #20490 (related)
+      top: 1. #47671 (related), 2. #43671 (related), 3. #27422 (related), 4. #27611 (related), 5. #34538 (related)
 FAIL  ann-text-49350                           announcement-text text: Amazon DynamoDB now supports real-time vector search
       - #49350 is related, want already_tracked
       top: 1. #49350 (related), 2. #49342 (related), 3. #41484 (related), 4. #41035 (related), 5. #41504 (related)
 FAIL  ann-text-44928                           announcement-text text: Today, AWS announced the ability for Amazon VPC IP Address Manager (IPAM) to automate prefix lists updates with prefix list resolver (PLR).
       - #44928 is related, want already_tracked
-      top: 1. #44928 (related), 2. #38289 (related), 3. #28946 (related), 4. #43966 (related), 5. #37097 (related)
+      top: 1. #36220 (related), 2. #39600 (related), 3. #44928 (related), 4. #26806 (related), 5. #5293 (related)
 FAIL  rel-45361                                related      45361
       - #45353 is already_tracked, but is different work
       - #45360 is already_tracked, but is different work
-      top: 1. #45353 (tracked), 2. #45360 (tracked), 3. #45358 (related), 4. #45138 (related), 5. #42824 (related)
+      top: 1. #45353 (tracked), 2. #45360 (tracked), 3. #45358 (related), 4. #6589 (related), 5. #6588 (related)
 FAIL  dev-45362-code                           dev          45362
       - #50872 ranked 6, beyond top 5
       - #43391 is already_implemented, but is different work
       - #43195 is previously_considered, but is different work
-      top: 1. internal/service/fsx/s3_access_point_attachment.go (implemented), 2. internal/service/fsx/sweep.go (implemented), 3. website/docs/r/fsx_s3_access_point_attachment.html.markdown (implemented), 4. #43391 (implemented), 5. #50917 (tracked)
+      top: 1. internal/service/fsx/s3_access_point_attachment.go (implemented), 2. #50917 (implemented), 3. internal/service/fsx/sweep.go (implemented), 4. website/docs/r/fsx_s3_access_point_attachment.html.markdown (implemented), 5. #43391 (implemented)
+FAIL  dev-45362-url                            dev          https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-fsx-netapp-ontap-s3-access/
+      - #45362 is previously_considered, want already_tracked
+      top: 1. #50917 (implemented), 2. #45362 (considered)
 FAIL  item-tracked-agentregistrycontrol-2026-08-06 item-tracked item: aws-sdk-go-v2/agentregistrycontrol/release-2026-08-06
       - #48693 is already_implemented, but is different work
       top: 1. #48693 (implemented), 2. #48694 (tracked), 3. #48501 (related), 4. #48564 (related), 5. #49027 (related)
@@ -245,16 +248,17 @@ FAIL  item-tracked-bedrockagentcorecontrol-2026-08-06 item-tracked item: aws-sdk
       top: 1. #48693 (implemented), 2. #49344 (tracked), 3. #49352 (tracked), 4. #48694 (tracked), 5. #43685 (related)
 FAIL  item-covered-arcregionswitch-2026-02-27  item-covered item: aws-sdk-go-v2/arcregionswitch/release-2026-02-27
       - internal/service/arcregionswitch/plan.go not returned
-      top: 1. #48382 (related), 2. #47282 (related), 3. #47168 (related), 4. #47167 (related), 5. #45302 (related)
+      top: 1. #48382 (related), 2. #47282 (related), 3. #47168 (related), 4. #47167 (related), 5. #28814 (related)
 FAIL  item-covered-bedrockagent-2026-08-28-2   item-covered item: aws-sdk-go-v2/bedrockagent/release-2026-08-28.2
       - internal/service/bedrockagent/data_source.go not returned
       top: 1. #44060 (related), 2. #49958 (related), 3. #49888 (related), 4. #45466 (related), 5. #48744 (related)
 FAIL  item-covered-cloudwatch-2026-05-01       item-covered item: aws-sdk-go-v2/cloudwatch/release-2026-05-01
+      - #48548 ranked 7, beyond top 5
       - #48548 is related, want already_tracked
-      top: 1. #49472 (related), 2. #49507 (related), 3. #46511 (related), 4. #48548 (related), 5. #25548 (related)
+      top: 1. #49472 (related), 2. #49507 (related), 3. #46511 (related), 4. #5729 (related), 5. #14871 (related)
 FAIL  item-covered-cognitoidentityprovider-2026-06-01 item-covered item: aws-sdk-go-v2/cognitoidentityprovider/release-2026-06-01
       - #48670 is related, want already_tracked
-      top: 1. #48227 (related), 2. #41131 (related), 3. #50066 (related), 4. #48670 (related), 5. #46809 (related)
+      top: 1. #48227 (related), 2. #26144 (related), 3. #48670 (related), 4. #46809 (related), 5. #23964 (related)
 FAIL  item-partial-networkmanager-2026-10-22   item-partial item: aws-sdk-go-v2/networkmanager/release-2026-10-22
       - #50683 is already_tracked, but is different work
       - #50672 is already_tracked, but is different work
@@ -265,15 +269,15 @@ FAIL  item-partial-securityhub-2026-07-07      item-partial item: aws-sdk-go-v2/
       top: 1. #49503 (implemented), 2. #49559 (implemented), 3. internal/service/securityhub/feature_v2.go (implemented), 4. #47678 (related), 5. #49560 (related)
 FAIL  item-partial-sesv2-2026-05-29            item-partial item: aws-sdk-go-v2/sesv2/release-2026-05-29
       - state = partial (no code or candidate found for argument suppression_attributes; covered: already tracked #49357, already tracked #50861), want covered
-      top: 1. #49357 (tracked), 2. #50861 (tracked), 3. #38207 (related), 4. #48043 (related), 5. #50864 (related)
+      top: 1. #49357 (tracked), 2. #50861 (tracked), 3. #26796 (related), 4. #38207 (related), 5. #28669 (related)
 
 kind               cases  pass  hit@1  hit@3  hit@5 recall category unmatch  state precision wrong unjudged
 announcement           6     6   100%   100%   100%   100%     100%       -      -      100%     0        0
-announcement-text      6     0    83%   100%   100%   100%       0%       -      -         -     0        0
-dev                    4     3    75%   100%   100%   100%     100%    100%      -       80%     2        0
-duplicate             20     0    50%    70%    80%    90%      15%       -      -       30%    16        0
+announcement-text      6     0    67%   100%   100%   100%       0%       -      -         -     0        0
+dev                    4     2    50%   100%   100%   100%      80%    100%      -       80%     2        0
+duplicate             20     0    40%    70%    85%    85%      15%       -      -       33%    14        0
 implemented            6     6   100%   100%   100%   100%     100%       -      -      100%     0        0
-item-covered           4     0     0%     0%    50%    50%       0%       -      -         -     0        0
+item-covered           4     0     0%    25%    25%    50%       0%       -      -         -     0        0
 item-covered-sample    30    30      -      -      -      -        -       -   100%      100%     0        0
 item-gap               8     8      -      -      -      -        -    100%      -         -     0        0
 item-new              34    34      -      -      -      -        -    100%      -         -     0        0
@@ -283,16 +287,17 @@ item-tracked          38    36    95%   100%   100%   100%     100%       -     
 new                    5     5      -      -      -      -        -    100%      -         -     0        0
 no-work                4     4      -      -      -      -        -    100%      -         -     0        0
 related                4     3      -      -      -      -        -       -      -        0%     2        0
-overall              203   166    79%    88%    93%    96%      69%    100%    98%       89%    26        0
-22 case(s) with existing work were summarized as unmatched
+overall              203   165    74%    89%    93%    95%      68%    100%    98%       90%    24        0
+24 case(s) with existing work were summarized as unmatched
+index: synced 2026-11-16T17:38:49Z, 23644 issues, 27183 PRs, 630263 signals, 100842 comments with signals
 ```
 
 What it shows:
 
 - **Item reconciliation is mostly precise.** Of 48 confident candidates in item cases, 2 are wrong. Both are #48693, a PR that deprecates `aws_bedrockagentcore_registry` and inherits a strong match from its tracker through a followed reference. No `item-new` case gets a confident candidate before its tracker exists.
-- **Duplicate bug reports are the weak spot.** In the other cases, 20 of 53 confident candidates are different work, and 16 of those are in duplicate cases. A correct answer usually shows as "related" while unrelated issues show as "already tracked".
+- **Duplicate bug reports are the weak spot.** In the other cases, 18 of 51 confident candidates are different work, and 14 of those are in duplicate cases. A correct answer usually shows as "related" while unrelated issues show as "already tracked".
 - **"No existing work" holds for 26 of 30 gap-sample items.** The 4 misses are covered work Avizor didn't flag confidently. Two are implemented: arcregionswitch's RDS execution blocks and bedrockagent's `sync_schedule`. Code search looks only for new operations, not new members. Two are tracked, and both show as "related" at rank 4: #48548 asks for CloudWatch dashboard tags, and the open PR #48670 adds the Cognito user pool replica.
 - **Most untracked items need no provider work.** Of the 30, 18 need none, 8 are real gaps, and 4 are covered.
 - **Covered items are almost never wrongly hidden.** All 45 covered-sample and `item-partial` cases but one get the right state. The miss is SES tenant suppression attributes, which the queue shows as `partial` although #49357 and #50861 cover it.
 - **Item candidates on a launch's other services are the new wrong labels.** In `item-partial`, 4 confident candidates are wrong: the Cloud WAN NAT item gets three EC2 Transit Gateway NAT PRs through their reference to the shared tracker, and the Security Hub multicloud item gets the Config connector PR.
-- **The remaining wrong labels trace to broad strong signals:** Terraform Registry docs URLs, followed references through a wrongly matched issue, AWS and pkg.go.dev docs URLs, a shared operation name, and a multi-feature blog post. [#3](https://github.com/YakDriver/avizor/issues/3) tracks reducing them.
+- **The remaining wrong labels trace to broad strong signals:** docs URLs found in 5 or fewer records, followed references through a wrongly matched issue, issue numbers from other repositories quoted in dependency-bump PRs, a shared operation name, and a multi-feature blog post. [#3](https://github.com/YakDriver/avizor/issues/3) tracks reducing them.

@@ -110,6 +110,9 @@ func TestRun(t *testing.T) {
 	if stats.Issues != 2 || stats.PRs != 1 {
 		t.Errorf("stats = %+v", stats)
 	}
+	if n, _ := st.CommentsWithSignals(ctx); n != 1 {
+		t.Errorf("comments with signals = %d, want 1", n)
+	}
 	if is, _ := st.Issue(ctx, 2); is == nil || !is.Merged || is.Kind != index.KindPR {
 		t.Errorf("#2 = %+v, want merged PR", is)
 	}

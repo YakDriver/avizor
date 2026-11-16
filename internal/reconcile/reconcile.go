@@ -44,8 +44,11 @@ type Options struct {
 const (
 	defaultRelatedLimit    = 10
 	defaultCommonThreshold = 40
-	searchLimit            = 40
-	keywordLimit           = 10
+	// docCommonThreshold caps the common threshold for reference documentation URLs, such as a resource's registry
+	// page or an API reference page. They name a resource or API that many unrelated issues discuss, not a change.
+	docCommonThreshold = 5
+	searchLimit        = 40
+	keywordLimit       = 10
 )
 
 // OperationSet reports whether a name is a real API operation.
@@ -166,7 +169,7 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 		}
 		// A release commit is cited across the release's services; the service label makes it specific.
 		releaseCommit := in.item != nil && in.item.isReleaseCommit(sg)
-		if count > commonThreshold && !releaseCommit {
+		if count > commonLimit(sg, commonThreshold) && !releaseCommit {
 			common = append(common, fmt.Sprintf("%s:%s (%d)", sg.Kind, sg.Value, count))
 			markCommon(res.Evidence, sg)
 			continue
@@ -511,6 +514,24 @@ func signalStrength(h index.SignalHit, focus map[signal.Signal]bool, request str
 		}
 	}
 	return StrengthStrong
+}
+
+// commonLimit returns the number of records above which sg is too common to match on.
+func commonLimit(sg signal.Signal, threshold int) int {
+	if sg.Kind == signal.KindURL && referenceDocURL(sg.Value) {
+		return min(threshold, docCommonThreshold)
+	}
+	return threshold
+}
+
+// docURLPrefixes start reference documentation URLs.
+var docURLPrefixes = []string{"https://registry.terraform.io/", "https://docs.aws.amazon.com/", "https://pkg.go.dev/"}
+
+// referenceDocURL reports whether u is reference documentation: the Terraform Registry, the AWS documentation, Go
+// package docs, or an AWS XML namespace such as https://sns.amazonaws.com/doc/2010-03-31.
+func referenceDocURL(u string) bool {
+	return slices.ContainsFunc(docURLPrefixes, func(p string) bool { return strings.HasPrefix(u, p) }) ||
+		strings.Contains(u, ".amazonaws.com/doc/")
 }
 
 func markCommon(ev []Evidence, sg signal.Signal) {

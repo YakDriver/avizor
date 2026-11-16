@@ -550,6 +550,16 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	return st, nil
 }
 
+// CommentsWithSignals returns how many comments have at least one signal. It scans the comment signal index, so
+// unlike Stats it isn't for every reconciliation.
+func (s *Store) CommentsWithSignals(ctx context.Context) (int, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT comment_id) FROM signals WHERE comment_id <> 0`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("counting comments with signals: %w", err)
+	}
+	return n, nil
+}
+
 func placeholders(n int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
 }

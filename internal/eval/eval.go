@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/YakDriver/avizor/internal/index"
 	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
@@ -130,13 +131,43 @@ type Metrics struct {
 
 // Report is the result of a run.
 type Report struct {
-	Target   string              `json:"target"`
-	Corpus   string              `json:"corpus"`
-	RunAt    time.Time           `json:"run_at"`
+	Target string    `json:"target"`
+	Corpus string    `json:"corpus"`
+	RunAt  time.Time `json:"run_at"`
+	// Index describes the index the cases ran against. Results move when it does, even with as_of set: records
+	// created before a case's as_of can be added or edited by a later sync.
+	Index    *IndexInfo          `json:"index,omitempty"`
 	Overall  Metrics             `json:"overall"`
 	ByKind   map[string]*Metrics `json:"by_kind"`
 	Cases    []CaseResult        `json:"cases"`
 	Duration string              `json:"duration"`
+}
+
+// IndexInfo is the state of the index an eval ran against.
+type IndexInfo struct {
+	SyncedAt string `json:"synced_at,omitempty"`
+	index.Stats
+	Comments int `json:"comments_with_signals"`
+}
+
+// indexInfo describes the base reconciler's index, or nil if it has none.
+func (r *Runner) indexInfo(ctx context.Context) (*IndexInfo, error) {
+	if r.Base == nil || r.Base.Store == nil {
+		return nil, nil
+	}
+	synced, err := r.Base.Store.Meta(ctx, "last_sync")
+	if err != nil {
+		return nil, err
+	}
+	st, err := r.Base.Store.Stats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	comments, err := r.Base.Store.CommentsWithSignals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &IndexInfo{SyncedAt: synced, Stats: st, Comments: comments}, nil
 }
 
 // Run binds the corpus to the base reconciler's target repo and evaluates every case, in order.
@@ -146,6 +177,11 @@ func (r *Runner) Run(ctx context.Context, c *Corpus, corpusPath string) (*Report
 	}
 	start := time.Now()
 	rep := &Report{Target: c.Target, Corpus: corpusPath, RunAt: start.UTC(), ByKind: map[string]*Metrics{}}
+	info, err := r.indexInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rep.Index = info
 	for i := range c.Cases {
 		if ctx.Err() != nil {
 			break
