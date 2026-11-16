@@ -761,13 +761,14 @@ case "item-tracked-ec2-2026-02-12" {
     number   = 46533
     category = "already_tracked"
   }
+  same = [46510]
 }
 
 case "item-new-ec2-2026-02-12" {
   item      = "aws-sdk-go-v2/ec2/release-2026-02-12"
-  as_of     = "2026-02-18T02:49:52Z"
+  as_of     = "2026-02-17T09:16:00Z"
   kind      = "item-new"
-  note      = "tracker #46533 filed a minute later"
+  note      = "request #46510 filed a minute later (2026-02-17T09:17:07Z); tracker #46533 on 2026-02-18"
   unmatched = true
 }
 
@@ -1564,6 +1565,7 @@ case "item-gap-kafkaconnect-2026-10-22" {
   kind  = "item-gap"
   note  = "aws_mskconnect_connector cannot pause or resume, and has no skip_health_validation"
   unmatched = true
+  different = [50823]
 }
 
 case "item-gap-rds-2026-08-27" {
@@ -1594,6 +1596,7 @@ case "item-covered-arcregionswitch-2026-02-27" {
     path     = "internal/service/arcregionswitch/plan.go"
     category = "already_implemented"
   }
+  same = [46965]
 }
 
 case "item-covered-bedrockagent-2026-08-28-2" {
@@ -1606,6 +1609,7 @@ case "item-covered-bedrockagent-2026-08-28-2" {
     path     = "internal/service/bedrockagent/data_source.go"
     category = "already_implemented"
   }
+  same = [49958, 49888]
 }
 
 case "item-covered-cloudwatch-2026-05-01" {
@@ -1631,6 +1635,7 @@ case "item-covered-networkfirewall-2026-10-21" {
     category = "already_implemented"
   }
   same = [50582, 50589]
+  different = [50901]
 }
 
 case "item-covered-cloudwatch-2026-10-19" {
@@ -1660,6 +1665,7 @@ case "item-covered-dynamodb-2026-10-20" {
     category = "already_tracked"
   }
   same = [50619, 50656]
+  different = [50777]
 }
 
 case "item-covered-cognitoidentityprovider-2026-06-01" {
@@ -1672,6 +1678,7 @@ case "item-covered-cognitoidentityprovider-2026-06-01" {
     number   = 48670
     category = "already_tracked"
   }
+  same = [48227]
 }
 
 # --- covered sample: item-covered-sample and item-partial
@@ -1770,7 +1777,7 @@ case "item-covered-sample-cloudwatch-2026-04-02" {
   kind  = "item-covered-sample"
   note  = "existing code, issues, or PRs cover the work"
   state = "covered"
-  same  = [50390]
+  same  = [50390, 47446, 47449]
   same_paths = [
     "internal/service/cloudwatch/otel_enrichment.go",
   ]
@@ -1797,7 +1804,7 @@ case "item-covered-sample-cloudwatchomni-2026-09-22" {
   kind  = "item-covered-sample"
   note  = "existing code, issues, or PRs cover the work"
   state = "covered"
-  same  = [50329, 50385, 50428, 50471, 50482, 50483, 50551, 50660, 50679]
+  same  = [50329, 50385, 50428, 50471, 50482, 50483, 50551, 50660, 50679, 50218]
   same_paths = [
     "internal/service/cloudwatchomni/access_grant.go",
     "internal/service/cloudwatchomni/access_grant_list.go",
@@ -1872,7 +1879,7 @@ case "item-covered-sample-ecs-2026-10-20" {
   kind  = "item-covered-sample"
   note  = "existing code, issues, or PRs cover the work"
   state = "covered"
-  same  = [50894, 50895]
+  same  = [50894, 50895, 50573, 50677, 50896]
 }
 
 case "item-covered-sample-kafka-2026-02-10-2" {
@@ -2115,7 +2122,7 @@ case "item-partial-ec2-2026-08-04" {
   kind  = "item-partial"
   note  = "application status check suppression has no code or issue"
   state = "partial"
-  same  = [49487, 49490]
+  same  = [49487, 49490, 49391]
 }
 
 case "item-partial-configservice-2026-07-07" {
@@ -2138,7 +2145,7 @@ case "item-partial-securityhub-2026-07-07" {
   kind  = "item-partial"
   note  = "resource_owner_* arguments have no code or issue"
   state = "partial"
-  same  = [49503]
+  same  = [49503, 49568, 49560]
   different = [49559]
   same_paths = [
     "internal/service/securityhub/feature_v2.go",
@@ -2182,7 +2189,8 @@ case "item-partial-bedrockagentcorecontrol-2026-06-17" {
   kind  = "item-partial"
   note  = "four new arguments have no code; open PRs #48711, #48677, #48875 cover three, not cited"
   state = "partial"
-  same  = [48791]
+  same  = [48791, 48496, 48654, 48661, 48710, 48711, 48818, 48875, 48903]
+  different = [48699]
 }
 
 case "item-partial-s3-2026-06-16" {
@@ -2202,7 +2210,7 @@ case "item-partial-sesv2-2026-05-29" {
   kind  = "item-partial"
   note  = "#49357 and #50861 cover tenant suppression attributes"
   state = "covered"
-  same  = [49357, 50861]
+  same  = [49357, 50861, 48236]
 }
 
 case "item-partial-rds-2026-03-24" {
@@ -2222,7 +2230,7 @@ case "item-partial-bedrockagentcorecontrol-2025-12-02" {
   kind  = "item-partial"
   note  = "episodic memory strategy arguments have no code or issue"
   state = "partial"
-  same  = [47108, 47209, 47957, 47964, 47971]
+  same  = [47108, 47209, 47957, 47964, 47971, 45599, 47589]
   same_paths = [
     "internal/service/bedrockagentcore/evaluator.go",
     "internal/service/bedrockagentcore/gateway.go",
@@ -2244,4 +2252,5 @@ case "item-partial-lambda-2025-12-02" {
   same_paths = [
     "internal/service/lambda/function.go",
   ]
+  different = [45800]
 }

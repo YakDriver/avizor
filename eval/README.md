@@ -129,10 +129,13 @@ Rows before the resync used an index synced from 2025-01-01 (15,493 issues and P
 | Add 45 covered-sample and partial cases (203 in all) | 166 | 79% | 88% | 93% | 96% | 69% | 89% |
 | Resync the full index, no code change ([#34](https://github.com/YakDriver/avizor/issues/34)) | 166 | 71% | 87% | 90% | 96% | 69% | 89%, 87 unjudged |
 | Docs URLs are common above 5 records ([#34](https://github.com/YakDriver/avizor/issues/34)), 11 new labels | 165 | 74% | 89% | 93% | 95% | 68% | 90% |
+| New member names and the matched announcement count for items ([#23](https://github.com/YakDriver/avizor/issues/23)), 3 new cases (206 in all), 31 new labels | 166 | 75% | 90% | 93% | 95% | 71% | 90% |
 
 Judging confident candidates changed no reconciliation code: three cases fail because they return different work with a confident category. Checking operation names against the API models removed the 6 wrong labels that came from `StartTime`, and lost nothing. Rows that add cases aren't comparable with the rows above them. On the earlier cases they're unchanged.
 
 The resync exposed 87 new confident candidates, all from reference documentation URLs (a resource's Terraform Registry page, AWS API reference pages, pkg.go.dev, an AWS XML namespace) or references followed from them; 62 came from one registry URL. Such a URL names a resource or API that many unrelated issues discuss. Treating it as common above 5 records, instead of 40, removes 76 of them. Making docs URLs always weak removes 81 but loses 4 expected `already_tracked` matches that rest on one. Labeling the remaining 11 fails `dup-41200`: four dependency-bump PRs quote upstream changelogs that cite another repository's #723, which matches the input.
+
+For items, two kinds of evidence in a candidate's title or body used to count for nothing: the What's New post the item matched, and the names of the members it adds. Now the matched announcement URL is strong, like the release commit, when the match scores at least 0.5. A new member named in the title, as the API name, in snake_case, or in words, is strong when the candidate was created from 2 days before the release to 60 days after. In the body it's weak: config examples and lists of SDK fields name members the issue isn't about. A member whose name another shape already had, as when an update request gains its create request's member, doesn't count. The 3 new `item-covered` cases are the queue-pass misses this fixes. In the 30-day queue, 9 pending items now show as covered, each by an open tracker and PR. The 3 new wrong labels come through a followed reference from a PR that only relates to a tracker (#48699, #50777), and a title naming a new structure for a later member (#45800).
 
 The new cases measure the two rules the covered sample led to, which only show with code search. Without the existing-code rule, the 30 covered-sample cases have 25 wrong confident candidates and 22 pass. Without the `partial` state, state accuracy over the 45 cases drops from 98% to 73%.
 
@@ -248,28 +251,34 @@ FAIL  item-tracked-bedrockagentcorecontrol-2026-08-06 item-tracked item: aws-sdk
       top: 1. #48693 (implemented), 2. #49344 (tracked), 3. #49352 (tracked), 4. #48694 (tracked), 5. #43685 (related)
 FAIL  item-covered-arcregionswitch-2026-02-27  item-covered item: aws-sdk-go-v2/arcregionswitch/release-2026-02-27
       - internal/service/arcregionswitch/plan.go not returned
-      top: 1. #48382 (related), 2. #47282 (related), 3. #47168 (related), 4. #47167 (related), 5. #28814 (related)
+      top: 1. #46965 (implemented), 2. #48382 (related), 3. #47282 (related), 4. #47168 (related), 5. #47167 (related)
 FAIL  item-covered-bedrockagent-2026-08-28-2   item-covered item: aws-sdk-go-v2/bedrockagent/release-2026-08-28.2
       - internal/service/bedrockagent/data_source.go not returned
-      top: 1. #44060 (related), 2. #49958 (related), 3. #49888 (related), 4. #45466 (related), 5. #48744 (related)
+      top: 1. #49958 (tracked), 2. #49888 (tracked), 3. #44060 (related), 4. #45466 (related), 5. #48744 (related)
 FAIL  item-covered-cloudwatch-2026-05-01       item-covered item: aws-sdk-go-v2/cloudwatch/release-2026-05-01
       - #48548 ranked 7, beyond top 5
       - #48548 is related, want already_tracked
       top: 1. #49472 (related), 2. #49507 (related), 3. #46511 (related), 4. #5729 (related), 5. #14871 (related)
-FAIL  item-covered-cognitoidentityprovider-2026-06-01 item-covered item: aws-sdk-go-v2/cognitoidentityprovider/release-2026-06-01
-      - #48670 is related, want already_tracked
-      top: 1. #48227 (related), 2. #26144 (related), 3. #48670 (related), 4. #46809 (related), 5. #23964 (related)
+FAIL  item-covered-dynamodb-2026-10-20         item-covered item: aws-sdk-go-v2/dynamodb/release-2026-10-20
+      - #50777 is already_tracked, but is different work
+      top: 1. #50616 (tracked), 2. #50656 (tracked), 3. #50619 (tracked), 4. #50777 (tracked), 5. #48672 (related)
 FAIL  item-partial-networkmanager-2026-10-22   item-partial item: aws-sdk-go-v2/networkmanager/release-2026-10-22
+      - #50669 is already_tracked, but is different work
       - #50683 is already_tracked, but is different work
       - #50672 is already_tracked, but is different work
-      - #50669 is already_tracked, but is different work
-      top: 1. #50689 (tracked), 2. #50690 (tracked), 3. #50613 (tracked), 4. #50700 (tracked), 5. #50683 (tracked)
+      top: 1. #50689 (tracked), 2. #50700 (tracked), 3. #50613 (tracked), 4. #50690 (tracked), 5. #50669 (tracked)
 FAIL  item-partial-securityhub-2026-07-07      item-partial item: aws-sdk-go-v2/securityhub/release-2026-07-07
       - #49559 is already_implemented, but is different work
-      top: 1. #49503 (implemented), 2. #49559 (implemented), 3. internal/service/securityhub/feature_v2.go (implemented), 4. #47678 (related), 5. #49560 (related)
+      top: 1. #49559 (implemented), 2. #49503 (implemented), 3. internal/service/securityhub/feature_v2.go (implemented), 4. #49560 (implemented), 5. #49568 (considered)
+FAIL  item-partial-bedrockagentcorecontrol-2026-06-17 item-partial item: aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-06-17
+      - #48699 is already_implemented, but is different work
+      top: 1. #48654 (implemented), 2. #48699 (implemented), 3. #48791 (tracked), 4. #48710 (tracked), 5. #48661 (tracked)
 FAIL  item-partial-sesv2-2026-05-29            item-partial item: aws-sdk-go-v2/sesv2/release-2026-05-29
-      - state = partial (no code or candidate found for argument suppression_attributes; covered: already tracked #49357, already tracked #50861), want covered
-      top: 1. #49357 (tracked), 2. #50861 (tracked), 3. #26796 (related), 4. #38207 (related), 5. #28669 (related)
+      - state = partial (no code or candidate found for argument suppression_attributes; covered: already tracked #49357, already tracked #48236, already tracked #50861), want covered
+      top: 1. #49357 (tracked), 2. #48236 (tracked), 3. #50861 (tracked), 4. #26796 (related), 5. #38207 (related)
+FAIL  item-partial-lambda-2025-12-02           item-partial item: aws-sdk-go-v2/lambda/release-2025-12-02
+      - #45800 is already_tracked, but is different work
+      top: 1. #45359 (implemented), 2. internal/service/lambda/function.go (implemented), 3. #45800 (tracked), 4. #45354 (considered), 5. #43395 (related)
 
 kind               cases  pass  hit@1  hit@3  hit@5 recall category unmatch  state precision wrong unjudged
 announcement           6     6   100%   100%   100%   100%     100%       -      -      100%     0        0
@@ -277,27 +286,27 @@ announcement-text      6     0    67%   100%   100%   100%       0%       -     
 dev                    4     2    50%   100%   100%   100%      80%    100%      -       80%     2        0
 duplicate             20     0    40%    70%    85%    85%      15%       -      -       33%    14        0
 implemented            6     6   100%   100%   100%   100%     100%       -      -      100%     0        0
-item-covered           4     0     0%    25%    25%    50%       0%       -      -         -     0        0
+item-covered           7     3    57%    57%    57%    75%      62%       -      -       92%     1        0
 item-covered-sample    30    30      -      -      -      -        -       -   100%      100%     0        0
 item-gap               8     8      -      -      -      -        -    100%      -         -     0        0
 item-new              34    34      -      -      -      -        -    100%      -         -     0        0
 item-no-work          19    19      -      -      -      -        -    100%      -         -     0        0
-item-partial          15    12      -      -      -      -        -       -    93%       90%     4        0
-item-tracked          38    36    95%   100%   100%   100%     100%       -      -       96%     2        0
+item-partial          15    10      -      -      -      -        -       -    93%       89%     6        0
+item-tracked          38    36    92%   100%   100%   100%     100%       -      -       96%     2        0
 new                    5     5      -      -      -      -        -    100%      -         -     0        0
 no-work                4     4      -      -      -      -        -    100%      -         -     0        0
 related                4     3      -      -      -      -        -       -      -        0%     2        0
-overall              203   165    74%    89%    93%    95%      68%    100%    98%       90%    24        0
-24 case(s) with existing work were summarized as unmatched
+overall              206   166    75%    90%    93%    95%      71%    100%    98%       90%    27        0
+21 case(s) with existing work were summarized as unmatched
 index: synced 2026-11-16T17:38:49Z, 23644 issues, 27183 PRs, 630263 signals, 100842 comments with signals
 ```
 
 What it shows:
 
-- **Item reconciliation is mostly precise.** Of 48 confident candidates in item cases, 2 are wrong. Both are #48693, a PR that deprecates `aws_bedrockagentcore_registry` and inherits a strong match from its tracker through a followed reference. No `item-new` case gets a confident candidate before its tracker exists.
+- **Item reconciliation is mostly precise.** Of 222 confident candidates in item cases, 9 are wrong. Two are #48693, a PR that deprecates `aws_bedrockagentcore_registry` and inherits a strong match from its tracker through a followed reference. No `item-new` case gets a confident candidate before its tracker exists.
 - **Duplicate bug reports are the weak spot.** In the other cases, 18 of 51 confident candidates are different work, and 14 of those are in duplicate cases. A correct answer usually shows as "related" while unrelated issues show as "already tracked".
-- **"No existing work" holds for 26 of 30 gap-sample items.** The 4 misses are covered work Avizor didn't flag confidently. Two are implemented: arcregionswitch's RDS execution blocks and bedrockagent's `sync_schedule`. Code search looks only for new operations, not new members. Two are tracked, and both show as "related" at rank 4: #48548 asks for CloudWatch dashboard tags, and the open PR #48670 adds the Cognito user pool replica.
+- **"No existing work" holds for 26 of 30 gap-sample items.** The 4 misses are covered work. With member names, 3 now show it confidently: the PRs for arcregionswitch's RDS execution blocks and bedrockagent's `sync_schedule`, and the open PR #48670 for the Cognito user pool replica. The first two still fail because code search looks only for new operations, not new members. #48548, for CloudWatch dashboard tags, is still "related" at rank 7.
 - **Most untracked items need no provider work.** Of the 30, 18 need none, 8 are real gaps, and 4 are covered.
 - **Covered items are almost never wrongly hidden.** All 45 covered-sample and `item-partial` cases but one get the right state. The miss is SES tenant suppression attributes, which the queue shows as `partial` although #49357 and #50861 cover it.
-- **Item candidates on a launch's other services are the new wrong labels.** In `item-partial`, 4 confident candidates are wrong: the Cloud WAN NAT item gets three EC2 Transit Gateway NAT PRs through their reference to the shared tracker, and the Security Hub multicloud item gets the Config connector PR.
+- **Item candidates on a launch's other services are the new wrong labels.** In `item-partial`, 6 confident candidates are wrong: the Cloud WAN NAT item gets three EC2 Transit Gateway NAT PRs through their reference to the shared tracker, the Security Hub multicloud item gets the Config connector PR, a docs PR relates to the AgentCore WAF tracker, and a later durable-functions request names `durable_config` in its title.
 - **The remaining wrong labels trace to broad strong signals:** docs URLs found in 5 or fewer records, followed references through a wrongly matched issue, issue numbers from other repositories quoted in dependency-bump PRs, a shared operation name, and a multi-feature blog post. [#3](https://github.com/YakDriver/avizor/issues/3) tracks reducing them.
