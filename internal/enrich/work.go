@@ -12,7 +12,8 @@ import (
 // Verbs that, on a new operation, suggest a resource's lifecycle or a read.
 var (
 	createVerbs = []string{"Create", "Put"}
-	deleteVerbs = []string{"Delete"}
+	// deleteVerbs end a resource's life. Cancel ends reservations and jobs, such as CancelDBCapacityReservation.
+	deleteVerbs = []string{"Delete", "Cancel"}
 	readVerbs   = []string{"Get", "Describe", "List", "BatchGet"}
 	// pairedVerbs suggest a resource only together, as Terraform association and attachment resources do.
 	pairedVerbs = [][2]string{{"Register", "Deregister"}, {"Associate", "Disassociate"}, {"Attach", "Detach"}, {"Enable", "Disable"}}
@@ -166,7 +167,11 @@ func operationWork(ops []string) []Work {
 		pair := slices.IndexFunc(pairedVerbs, func(p [2]string) bool { return has(p[:1]) && has(p[1:]) })
 		switch {
 		case has(createVerbs) && has(deleteVerbs):
-			w.Kind, w.Basis = WorkNewResource, "new create and delete operations for "+noun
+			end := "delete"
+			if !has(deleteVerbs[:1]) {
+				end = "cancel"
+			}
+			w.Kind, w.Basis = WorkNewResource, "new create and "+end+" operations for "+noun
 		case has(createVerbs):
 			w.Kind, w.Basis = WorkNewResource, "new create operation for "+noun+", without a delete"
 		case pair >= 0:

@@ -257,7 +257,7 @@ func uncovered(en *enrich.Result, rec *reconcile.Result, texts map[int]string) [
 }
 
 // deleteVerbs start operations that end a resource's life.
-var deleteVerbs = []string{"Delete", "Deregister", "Disassociate", "Disable", "Detach", "Remove"}
+var deleteVerbs = []string{"Delete", "Cancel", "Deregister", "Disassociate", "Disable", "Detach", "Remove"}
 
 func deletes(op string) bool {
 	return slices.ContainsFunc(deleteVerbs, func(v string) bool { return strings.HasPrefix(op, v) })

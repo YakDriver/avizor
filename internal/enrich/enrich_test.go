@@ -291,6 +291,23 @@ func TestOperationWorkPlurals(t *testing.T) {
 	}
 }
 
+func TestOperationWorkCancel(t *testing.T) {
+	t.Parallel()
+
+	ws := operationWork([]string{"CreateDBCapacityReservation", "CancelDBCapacityReservation", "DescribeDBCapacityReservations", "CreateWidget"})
+	var got []string
+	for _, w := range ws {
+		got = append(got, w.Subject+": "+w.Basis)
+	}
+	want := []string{
+		"DBCapacityReservation: new create and cancel operations for DBCapacityReservation",
+		"Widget: new create operation for Widget, without a delete",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("work = %q, want %q", got, want)
+	}
+}
+
 func TestRequiredVersion(t *testing.T) {
 	t.Parallel()
 
