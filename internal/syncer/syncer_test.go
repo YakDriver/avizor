@@ -107,7 +107,7 @@ func TestRun(t *testing.T) {
 		t.Errorf("synced %d issues, %d comments; want 3, 1", res.Issues, res.Comments)
 	}
 	stats, _ := st.Stats(ctx)
-	if stats.Issues != 2 || stats.PRs != 1 {
+	if stats.Issues != 2 || stats.PRs != 1 || stats.Comments != 1 {
 		t.Errorf("stats = %+v", stats)
 	}
 	if is, _ := st.Issue(ctx, 2); is == nil || !is.Merged || is.Kind != index.KindPR {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -126,6 +127,10 @@ func writeEvalText(w io.Writer, rep *eval.Report, failuresOnly bool) error {
 	}
 	if rep.Overall.MissedUnmatched > 0 {
 		fmt.Fprintf(w, "%d case(s) with existing work were summarized as unmatched\n", rep.Overall.MissedUnmatched)
+	}
+	if ix := rep.Index; ix != nil {
+		fmt.Fprintf(w, "index: synced %s, %d issues, %d PRs, %d signals, %d comments with signals\n",
+			cmp.Or(ix.SyncedAt, "never"), ix.Issues, ix.PRs, ix.Signals, ix.Comments)
 	}
 	return nil
 }

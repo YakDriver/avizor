@@ -535,6 +535,8 @@ type Stats struct {
 	Issues  int `json:"issues"`
 	PRs     int `json:"prs"`
 	Signals int `json:"signals"`
+	// Comments counts comments with at least one signal.
+	Comments int `json:"comments_with_signals"`
 }
 
 // Stats returns record counts.
@@ -543,7 +545,8 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	err := s.db.QueryRowContext(ctx, `SELECT
 	(SELECT COUNT(*) FROM issues WHERE kind = 'issue'),
 	(SELECT COUNT(*) FROM issues WHERE kind = 'pr'),
-	(SELECT COUNT(*) FROM signals)`).Scan(&st.Issues, &st.PRs, &st.Signals)
+	(SELECT COUNT(*) FROM signals),
+	(SELECT COUNT(DISTINCT comment_id) FROM signals WHERE comment_id <> 0)`).Scan(&st.Issues, &st.PRs, &st.Signals, &st.Comments)
 	if err != nil {
 		return st, fmt.Errorf("reading stats: %w", err)
 	}
