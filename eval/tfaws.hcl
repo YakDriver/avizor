@@ -1620,6 +1620,48 @@ case "item-covered-cloudwatch-2026-05-01" {
   }
 }
 
+case "item-covered-networkfirewall-2026-10-21" {
+  item  = "aws-sdk-go-v2/networkfirewall/release-2026-10-21"
+  as_of = "2026-11-16T12:00:00Z"
+  code  = true
+  kind  = "item-covered"
+  note  = "#50592 merged route53_resolved_ip_validation; names the member, not an operation (#23)"
+  expect {
+    number   = 50592
+    category = "already_implemented"
+  }
+  same = [50582, 50589]
+}
+
+case "item-covered-cloudwatch-2026-10-19" {
+  item  = "aws-sdk-go-v2/cloudwatch/release-2026-10-19"
+  as_of = "2026-11-16T12:00:00Z"
+  code  = true
+  kind  = "item-covered"
+  note  = "#50590 and PR #50742 name ActionConfiguration / action_configuration (#23)"
+  expect {
+    number   = 50590
+    category = "already_tracked"
+  }
+  expect {
+    number   = 50742
+    category = "already_tracked"
+  }
+}
+
+case "item-covered-dynamodb-2026-10-20" {
+  item  = "aws-sdk-go-v2/dynamodb/release-2026-10-20"
+  as_of = "2026-11-16T12:00:00Z"
+  code  = true
+  kind  = "item-covered"
+  note  = "#50616 links the matched announcement and names disassociation_protection_enabled (#23)"
+  expect {
+    number   = 50616
+    category = "already_tracked"
+  }
+  same = [50619, 50656]
+}
+
 case "item-covered-cognitoidentityprovider-2026-06-01" {
   item  = "aws-sdk-go-v2/cognitoidentityprovider/release-2026-06-01"
   as_of = "2026-11-12T21:00:00Z"
