@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -165,7 +166,45 @@ func TestDeleteCommentSignalsUsesIndex(t *testing.T) {
 	}
 	defer st.Close()
 
-	rows, err := st.db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+deleteCommentSignals, 1)
+	if plan := queryPlan(t, st, deleteCommentSignals, 1); !slices.ContainsFunc(plan, func(d string) bool { return strings.Contains(d, "USING INDEX signals_comment") }) {
+		t.Errorf("plan = %q, want a search using signals_comment", plan)
+	}
+}
+
+// The counts run for every reconciliation, so they mustn't read every issue row.
+func TestCountsUseIndexes(t *testing.T) {
+	t.Parallel()
+
+	st, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cond, cargs := st.AsOf(time.Now()).asOf("i.created_at")
+	for _, tc := range []struct {
+		query string
+		args  []any
+		want  []string
+	}{
+		{countIssues + cond, cargs, []string{"COVERING INDEX issues_created"}},
+		{statsQuery, nil, []string{"COVERING INDEX issues_kind", "COVERING INDEX signals_number"}},
+	} {
+		plan := queryPlan(t, st, tc.query, tc.args...)
+		for _, w := range tc.want {
+			if !slices.ContainsFunc(plan, func(d string) bool { return strings.Contains(d, w) }) {
+				t.Errorf("plan for %q = %q, want %s", tc.query, plan, w)
+			}
+		}
+		if slices.ContainsFunc(plan, func(d string) bool { return strings.HasPrefix(d, "SCAN issues") || d == "SCAN i" }) {
+			t.Errorf("plan for %q = %q, scans issues", tc.query, plan)
+		}
+	}
+}
+
+func queryPlan(t *testing.T, st *Store, query string, args ...any) []string {
+	t.Helper()
+	rows, err := st.db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+query, args...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,9 +221,7 @@ func TestDeleteCommentSignalsUsesIndex(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(plan, func(d string) bool { return strings.Contains(d, "USING INDEX signals_comment") }) {
-		t.Errorf("plan = %q, want a search using signals_comment", plan)
-	}
+	return plan
 }
 
 func TestOpenMemoryMaps(t *testing.T) {
@@ -202,5 +239,54 @@ func TestOpenMemoryMaps(t *testing.T) {
 	}
 	if n == 0 {
 		t.Error("mmap_size = 0, want the index memory-mapped")
+	}
+}
+
+// With several connections, concurrent writers wait for the write lock instead of failing, and reads run meanwhile.
+func TestConcurrentUse(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	st, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	errs := make(chan error, 2*maxConns)
+	var wg sync.WaitGroup
+	for i := range maxConns {
+		wg.Go(func() {
+			tx, err := st.Begin(ctx, "o/r")
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer tx.Rollback()
+			// Read before writing, as a transaction that would need to upgrade its lock does.
+			if _, err := tx.tx.ExecContext(ctx, `SELECT COUNT(*) FROM issues`); err != nil {
+				errs <- err
+				return
+			}
+			if err := tx.UpsertIssue(ctx, &Issue{Number: i + 1, Kind: KindIssue, State: "open", Title: "widget", Body: "x"}, 1); err != nil {
+				errs <- err
+				return
+			}
+			errs <- tx.Commit()
+		})
+		wg.Go(func() {
+			_, err := st.Search(ctx, []string{"widget"}, 10)
+			errs <- err
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	if s, err := st.Stats(ctx); err != nil || s.Issues != maxConns {
+		t.Errorf("Stats = %+v, %v; want %d issues", s, err, maxConns)
 	}
 }

@@ -34,6 +34,9 @@ const (
 
 const schemaVersion = 2
 
+// maxConns is the most connections an open index uses.
+const maxConns = 8
+
 const schema = `
 CREATE TABLE IF NOT EXISTS meta (
 	key   TEXT PRIMARY KEY,
@@ -88,6 +91,9 @@ CREATE TABLE IF NOT EXISTS signals (
 CREATE INDEX IF NOT EXISTS signals_kind_value ON signals(kind, value);
 CREATE INDEX IF NOT EXISTS signals_number ON signals(number);
 CREATE INDEX IF NOT EXISTS signals_comment ON signals(comment_id) WHERE comment_id <> 0;
+-- Counts by kind (Stats) and as of a time (Search) read these instead of every row, bodies included.
+CREATE INDEX IF NOT EXISTS issues_kind ON issues(kind);
+CREATE INDEX IF NOT EXISTS issues_created ON issues(created_at);
 `
 
 // Issue is an indexed issue or pull request.
@@ -154,13 +160,17 @@ func Open(path string) (*Store, error) {
 	}
 	// Memory-map the database. Reconciliation runs many small queries over an index of hundreds of megabytes, and
 	// without mmap each page read is a pread syscall: they took 80% of an eval's CPU time. A larger page cache didn't
-	// help.
-	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=mmap_size(1073741824)"
+	// help. Write transactions take the write lock when they begin (_txlock), so one that reads first can't fail to
+	// upgrade while another connection writes.
+	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=mmap_size(1073741824)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening index %s: %w", path, err)
 	}
-	db.SetMaxOpenConns(1)
+	// WAL lets reads on other connections run during a write, so concurrent reconciliations (queue and eval jobs)
+	// don't wait on each other. Idle connections are kept, since each new one maps the file and reads the schema.
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
 
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
@@ -451,7 +461,7 @@ func (s *Store) Search(ctx context.Context, terms []string, limit int) ([]Search
 	cond, cargs := s.asOf("i.created_at")
 
 	var total int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues i WHERE 1=1`+cond, cargs...).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx, countIssues+cond, cargs...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("counting documents: %w", err)
 	}
 
@@ -540,13 +550,18 @@ type Stats struct {
 	Signals int `json:"signals"`
 }
 
+// countIssues counts the issues Search ranks; it takes the view's asOf condition.
+const countIssues = `SELECT COUNT(*) FROM issues i WHERE 1=1`
+
+const statsQuery = `SELECT
+	(SELECT COUNT(*) FROM issues WHERE kind = 'issue'),
+	(SELECT COUNT(*) FROM issues WHERE kind = 'pr'),
+	(SELECT COUNT(*) FROM signals)`
+
 // Stats returns record counts.
 func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	var st Stats
-	err := s.db.QueryRowContext(ctx, `SELECT
-	(SELECT COUNT(*) FROM issues WHERE kind = 'issue'),
-	(SELECT COUNT(*) FROM issues WHERE kind = 'pr'),
-	(SELECT COUNT(*) FROM signals)`).Scan(&st.Issues, &st.PRs, &st.Signals)
+	err := s.db.QueryRowContext(ctx, statsQuery).Scan(&st.Issues, &st.PRs, &st.Signals)
 	if err != nil {
 		return st, fmt.Errorf("reading stats: %w", err)
 	}
