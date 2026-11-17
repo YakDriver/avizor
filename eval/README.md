@@ -10,7 +10,7 @@ avizor eval --format text --unjudged   # confident candidates that still need a 
 avizor eval                            # JSON report
 ```
 
-The corpus is [`tfaws.hcl`](tfaws.hcl), built into the `avizor` binary, so `avizor eval` works without a source checkout. Use `--corpus path` for another file. Eval runs offline: it reads only the local index (and the checkout for cases with `code = true`). It doesn't fetch issues or pages, so results are repeatable.
+The corpus is [`tfaws.hcl`](tfaws.hcl), built into the `avizor` binary, so `avizor eval` works without a source checkout. Use `--corpus path` for another file. Eval runs offline: it reads only the local index (and the checkout for cases with `code = true`). It doesn't fetch issues or pages, so results are repeatable. It runs 4 cases at a time (`--jobs`), and the full corpus takes about 30 seconds.
 
 ## Index requirements
 

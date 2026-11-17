@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/YakDriver/avizor/internal/index"
@@ -33,8 +34,11 @@ type StateSource interface {
 // Runner evaluates cases with a reconciler. Each case runs on a copy of Base with AsOf and NoCode set from the case.
 type Runner struct {
 	Base *reconcile.Reconciler
-	// Items resolves item cases. Without it, they're errors.
+	// Items resolves item cases. Without it, they're errors. Cases run concurrently, so it must be safe for
+	// concurrent use.
 	Items ItemSource
+	// Jobs is how many cases run at once. Below 1, it's 1.
+	Jobs int
 }
 
 // CaseResult is the outcome of one case.
@@ -170,7 +174,8 @@ func (r *Runner) indexInfo(ctx context.Context) (*IndexInfo, error) {
 	return &IndexInfo{SyncedAt: synced, Stats: st, Comments: comments}, nil
 }
 
-// Run binds the corpus to the base reconciler's target repo and evaluates every case, in order.
+// Run binds the corpus to the base reconciler's target repo and evaluates every case. Cases run concurrently, but
+// the report lists them in corpus order.
 func (r *Runner) Run(ctx context.Context, c *Corpus, corpusPath string) (*Report, error) {
 	if err := c.Bind(r.Base.Target.Repo); err != nil {
 		return nil, err
@@ -182,11 +187,29 @@ func (r *Runner) Run(ctx context.Context, c *Corpus, corpusPath string) (*Report
 		return nil, err
 	}
 	rep.Index = info
+	results := make([]*CaseResult, len(c.Cases))
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for range max(r.Jobs, 1) {
+		wg.Go(func() {
+			for i := range next {
+				cr := r.runCase(ctx, &c.Cases[i])
+				results[i] = &cr
+			}
+		})
+	}
 	for i := range c.Cases {
 		if ctx.Err() != nil {
 			break
 		}
-		rep.Cases = append(rep.Cases, r.runCase(ctx, &c.Cases[i]))
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	for _, cr := range results {
+		if cr != nil {
+			rep.Cases = append(rep.Cases, *cr)
+		}
 	}
 	rep.Overall = aggregate(rep.Cases)
 	kinds := map[string][]CaseResult{}

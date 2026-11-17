@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -253,6 +254,16 @@ case "nothing" {
 	}
 	if rep.ByKind["no-work"].UnmatchedAccuracy != 1 {
 		t.Errorf("no-work = %+v", rep.ByKind["no-work"])
+	}
+
+	// Concurrent cases give the same results, in corpus order.
+	r.Jobs = 3
+	par, err := r.Run(context.Background(), c, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(par.Cases, rep.Cases) || !reflect.DeepEqual(par.Overall, rep.Overall) {
+		t.Errorf("with 3 jobs:\ncases = %+v\nwant %+v", par.Cases, rep.Cases)
 	}
 }
 

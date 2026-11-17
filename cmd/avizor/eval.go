@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/YakDriver/avizor"
 	"github.com/YakDriver/avizor/internal/awssdk"
@@ -27,6 +28,7 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	fetch := fs.Bool("fetch", false, "fetch URL inputs to read their page titles (results then depend on the network)")
 	failures := fs.Bool("failures", false, "in text output, list only failing cases")
 	unjudged := fs.Bool("unjudged", false, "in text output, list confident candidates the corpus doesn't label, for adding same or different labels")
+	jobs := fs.Int("jobs", 4, "cases to run at once")
 	names, err := parseInterspersed(fs, args)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errUsage, err)
@@ -67,8 +69,8 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if *fetch {
 		base.HTTP = defaultHTTP()
 	}
-	items := &evalItems{c: &c, t: t, stderr: stderr, items: map[string]*awssdk.Item{}, enriched: map[string]*enrich.Result{}}
-	rep, err := (&eval.Runner{Base: base, Items: items}).Run(ctx, corpus, name)
+	items := &evalItems{c: &c, t: t, stderr: stderr, enriched: map[string]*evalItem{}}
+	rep, err := (&eval.Runner{Base: base, Items: items, Jobs: *jobs}).Run(ctx, corpus, name)
 	if err != nil {
 		return err
 	}
@@ -175,27 +177,38 @@ func shortCategory(c string) string {
 }
 
 // evalItems resolves item cases from pulled items, enriched for the target, and classifies them for the queue.
-// Enrichment searches the checkout only for cases with code = true.
+// Enrichment searches the checkout only for cases with code = true. It's safe for concurrent use, and each item is
+// enriched once.
 type evalItems struct {
 	c      *common
 	t      *config.Target
 	stderr io.Writer
 
-	items    map[string]*awssdk.Item
-	enriched map[string]*enrich.Result
+	mu       sync.Mutex
+	enriched map[string]*evalItem
+}
+
+// evalItem is an item enriched once, by the first case that needs it.
+type evalItem struct {
+	once sync.Once
+	it   *awssdk.Item
+	en   *enrich.Result
+	err  error
 }
 
 func (e *evalItems) enrich(ctx context.Context, id string, code bool) (*awssdk.Item, *enrich.Result, error) {
 	key := fmt.Sprintf("%s %t", id, code)
-	if en, ok := e.enriched[key]; ok {
-		return e.items[key], en, nil
+	e.mu.Lock()
+	ei := e.enriched[key]
+	if ei == nil {
+		ei = &evalItem{}
+		e.enriched[key] = ei
 	}
-	it, en, err := e.c.enrichedItem(ctx, e.t, id, !code, e.stderr)
-	if err != nil {
-		return nil, nil, err
-	}
-	e.items[key], e.enriched[key] = it, en
-	return it, en, nil
+	e.mu.Unlock()
+	ei.once.Do(func() {
+		ei.it, ei.en, ei.err = e.c.enrichedItem(ctx, e.t, id, !code, e.stderr)
+	})
+	return ei.it, ei.en, ei.err
 }
 
 func (e *evalItems) Item(ctx context.Context, id string, code bool) (*reconcile.Item, error) {
