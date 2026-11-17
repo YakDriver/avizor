@@ -156,7 +156,8 @@ func newMembers(ws []Work, d *smithy.Diff, m *smithy.Model) []string {
 	}
 	existing := existingMembers(d, m)
 	for _, w := range ws {
-		if (w.Kind != WorkNewArgument && w.Kind != WorkNewAttribute) || w.SharedName {
+		// A shared name is left out above, but its new target's members can still be new.
+		if w.Kind != WorkNewArgument && w.Kind != WorkNewAttribute {
 			continue
 		}
 		shape, member, ok := strings.Cut(w.Subject, ".")

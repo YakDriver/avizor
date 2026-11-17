@@ -27,7 +27,7 @@ func TestMemberMatches(t *testing.T) {
 	t.Parallel()
 
 	released := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
-	it := &Item{NewMembers: []string{"Route53ResolvedIPValidation", "AlarmTagsPropagation", "Name"}, Published: released}
+	it := &Item{NewMembers: []string{"Route53ResolvedIPValidation", "AlarmTagsPropagation", "ActionConfiguration", "Name"}, Published: released}
 	for _, tc := range []struct {
 		name        string
 		title, body string
@@ -59,6 +59,13 @@ func TestMemberMatches(t *testing.T) {
 			created: released.Add(-24 * time.Hour),
 			want:    []Match{{Type: MatchMember, Value: "Route53ResolvedIPValidation", Where: index.WhereTitle, Strength: StrengthStrong}},
 		},
+		{
+			name:    "snake_case in the title",
+			title:   "r/aws_cloudwatch_metric_alarm: Add `action_configuration` block",
+			created: released,
+			want:    []Match{{Type: MatchMember, Value: "ActionConfiguration", Where: index.WhereTitle, Strength: StrengthStrong}},
+		},
+		{name: "part of another word", title: "Fix redaction configuration", created: released},
 		{name: "before the release", title: "route53_resolved_ip_validation", created: released.Add(-7 * 24 * time.Hour)},
 		{name: "long after the release", title: "route53_resolved_ip_validation", created: released.Add(memberWindow + time.Hour)},
 		{name: "single word", title: "Name is wrong", created: released},

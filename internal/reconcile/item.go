@@ -103,8 +103,8 @@ const (
 // MatchMember marks a candidate that names one of the item's new members.
 const MatchMember = "member"
 
-// identRE matches identifiers in text, including snake_case and camelCase names.
-var identRE = regexp.MustCompile(`[A-Za-z][A-Za-z0-9_]*`)
+// identRE matches identifiers in text, including snake_case and camelCase names, and numbers ("Route 53").
+var identRE = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9_]*`)
 
 // memberMatches returns matches for the item's new members a candidate names: strong in its title, weak in its body.
 func (it *Item) memberMatches(is *index.Issue) []Match {
@@ -112,7 +112,7 @@ func (it *Item) memberMatches(is *index.Issue) []Match {
 		is.CreatedAt.Before(it.Published.Add(-memberGrace)) || is.CreatedAt.After(it.Published.Add(memberWindow)) {
 		return nil
 	}
-	title := compactWords(is.Title)
+	title := words(is.Title)
 	bodyIdents := map[string]bool{}
 	for _, tok := range identRE.FindAllString(is.Body, -1) {
 		bodyIdents[strings.ToLower(tok)] = true
@@ -120,13 +120,11 @@ func (it *Item) memberMatches(is *index.Issue) []Match {
 	var out []Match
 	for _, m := range it.NewMembers {
 		snake := snakeCase(m)
-		parts := strings.Split(snake, "_")
+		parts := words(m)
 		if len(parts) < 2 {
 			continue
 		}
-		switch {
-		case slices.ContainsFunc(parts, func(p string) bool { return !strings.Contains(title, strings.TrimSuffix(p, "s")) }):
-		default:
+		if containsRun(title, strings.Join(parts, "")) {
 			out = append(out, Match{Type: MatchMember, Value: m, Where: index.WhereTitle, Strength: StrengthStrong})
 			continue
 		}
@@ -137,16 +135,41 @@ func (it *Item) memberMatches(is *index.Issue) []Match {
 	return out
 }
 
-// compactWords lowercases s and drops everything but letters and digits, so "Route 53 Resolved IP Validation" and
-// route53_resolved_ip_validation both contain "route53".
-func compactWords(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
+// words splits text into lowercase words at spaces, punctuation, underscores, and camelCase boundaries, and drops a
+// plural "s" so "tags" and "tag" compare equal: "Route53ResolvedIPValidation" -> route53, resolved, ip, validation.
+func words(text string) []string {
+	var out []string
+	for _, tok := range identRE.FindAllString(strings.ReplaceAll(text, "-", " "), -1) {
+		for w := range strings.SplitSeq(snakeCase(tok), "_") {
+			if len(w) > 3 {
+				w = strings.TrimSuffix(w, "s")
+			}
+			if w != "" {
+				out = append(out, w)
+			}
 		}
 	}
-	return b.String()
+	return out
+}
+
+// containsRun reports whether consecutive words concatenate to target, so a member matches only as whole words:
+// "Route 53 Resolved IP Validation" contains route53resolvedipvalidation, and "redaction configuration" doesn't
+// contain actionconfiguration.
+func containsRun(ws []string, target string) bool {
+	for i := range ws {
+		var b strings.Builder
+		for _, w := range ws[i:] {
+			b.WriteString(w)
+			s := b.String()
+			if s == target {
+				return true
+			}
+			if !strings.HasPrefix(target, s) {
+				break
+			}
+		}
+	}
+	return false
 }
 
 // snakeCase converts an API member name to snake_case: Route53ResolvedIPValidation -> route53_resolved_ip_validation.

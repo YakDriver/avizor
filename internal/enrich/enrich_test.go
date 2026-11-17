@@ -401,8 +401,8 @@ func TestNewMembers(t *testing.T) {
 		"CreateThingInput":       {Type: smithy.TypeStructure, Members: map[string]string{"ThingSetting": "String"}},
 		"CreateCEInput":          {Type: smithy.TypeStructure, Members: map[string]string{"EksConfiguration": "EksConfiguration"}},
 		"UpdateCEInput":          {Type: smithy.TypeStructure, Members: map[string]string{"EksConfiguration": "EksConfigurationUpdate"}},
-		"EksConfiguration":       {Type: smithy.TypeStructure},
-		"EksConfigurationUpdate": {Type: smithy.TypeStructure},
+		"EksConfiguration":       {Type: smithy.TypeStructure, Members: map[string]string{"EksClusterArn": "String"}},
+		"EksConfigurationUpdate": {Type: smithy.TypeStructure, Members: map[string]string{"AccessEntry": "String", "EksClusterArn": "String"}},
 	}}
 	d := &smithy.Diff{
 		AddedOperations: []string{"CreateThing"},
@@ -417,9 +417,10 @@ func TestNewMembers(t *testing.T) {
 	if ws[0].SharedName || !ws[1].SharedName {
 		t.Errorf("shared names = %v, %v; want false, true", ws[0].SharedName, ws[1].SharedName)
 	}
-	// AlarmTagsPropagation is in the new structure a new member targets. AlarmName already exists, ThingSetting is a
-	// new operation's parameter, and EksConfiguration is shared with the create input.
-	if got, want := newMembers(ws, d, m), []string{"ActionConfiguration", "AlarmTagsPropagation"}; !slices.Equal(got, want) {
+	// AlarmTagsPropagation and AccessEntry are in new structures that new members target, even when the member's own
+	// name is shared, as EksConfiguration is with the create input. AlarmName and EksClusterArn already exist, and
+	// ThingSetting is a new operation's parameter.
+	if got, want := newMembers(ws, d, m), []string{"ActionConfiguration", "AlarmTagsPropagation", "AccessEntry"}; !slices.Equal(got, want) {
 		t.Errorf("newMembers = %v, want %v", got, want)
 	}
 }
