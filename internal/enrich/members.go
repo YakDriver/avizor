@@ -231,7 +231,7 @@ func blocks(src string, names []string, attrs map[string]string) []string {
 			}
 		}
 		tag := `tfsdk:"` + n + `"`
-		for _, line := range strings.Split(src, "\n") {
+		for line := range strings.SplitSeq(src, "\n") {
 			if !strings.Contains(line, tag) {
 				continue
 			}
