@@ -38,6 +38,9 @@ type input struct {
 	pageTitle string
 	// item is set for item inputs.
 	item *Item
+	// itemLabels are the labels that put a candidate in an item's service: the package's label and those of its
+	// sub-services.
+	itemLabels []string
 }
 
 var (

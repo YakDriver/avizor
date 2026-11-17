@@ -255,6 +255,9 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 	for _, p := range pkgs {
 		serviceLabels[r.Target.ServiceLabelPrefix+p] = true
 	}
+	for _, l := range in.itemLabels {
+		serviceLabels[l] = true
+	}
 
 	var out []Candidate
 	for _, n := range numbers {
@@ -291,7 +294,7 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 			}
 		}
 		if in.item != nil {
-			requireLabel(c, len(in.info.Labels) > 0 && slices.Contains(is.Labels, in.info.Labels[0]))
+			requireLabel(c, slices.ContainsFunc(in.itemLabels, func(l string) bool { return slices.Contains(is.Labels, l) }))
 		}
 
 		rank, fromFTS := ftsRank[n]
