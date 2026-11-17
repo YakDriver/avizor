@@ -318,7 +318,7 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 		out = append(out, *c)
 	}
 
-	if out, err = r.followReferences(ctx, out, commonThreshold, in.itemLabels); err != nil {
+	if out, err = r.followReferences(ctx, out, commonThreshold, in.itemLabels, in.item); err != nil {
 		return nil, err
 	}
 	// After following references, which can add a strong match to the bump PR.
@@ -731,15 +731,51 @@ func (r *Reconciler) otherServiceOnly(labels, want []string) bool {
 	return other
 }
 
+var (
+	// closingRE finds a closing keyword, or "part of", and the issue references after it: "Closes #1", "Fixes: #1, #2,
+	// and #3", "Part of #4", or a full issue URL. GitHub needs a keyword for each issue, but people often list several
+	// after one. URLs are matched in the forms signal.NormalizeURL accepts: http or https, with or without www.
+	closingRE = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|part of)\b:?\s+((?:(?:#|` + ghIssueURL + `)\d+(?:\s*,?\s*(?:and\s+)?)?)+)`)
+	refRE     = regexp.MustCompile(`(?i)(?:#|` + ghIssueURL + `)(\d+)`)
+)
+
+// ghIssueURL is the start of a GitHub issue or pull request URL, with the repository as its group.
+const ghIssueURL = `https?://(?:www\.)?github\.com/([\w.-]+/[\w.-]+)/(?:issues|pull)/`
+
+// closedIssues returns the issues of repo that text closes with a closing keyword or says it's part of.
+func closedIssues(text, repo string) map[int]bool {
+	out := map[int]bool{}
+	for _, m := range closingRE.FindAllStringSubmatch(text, -1) {
+		for _, ref := range refRE.FindAllStringSubmatch(m[1], -1) {
+			if ref[1] != "" && !strings.EqualFold(ref[1], repo) {
+				continue
+			}
+			if n, err := strconv.Atoi(ref[2]); err == nil {
+				out[n] = true
+			}
+		}
+	}
+	return out
+}
+
+// isBot reports whether a GitHub login is a bot's, as dependabot[bot].
+func isBot(author string) bool {
+	return strings.HasSuffix(author, "[bot]")
+}
+
 // followReferences adds PRs that reference strongly matched issues. A tracking issue usually doesn't link the PR that
 // implements it, but the PR links the issue ("Closes #N"), so following that link finds work the input's own signals
 // miss. Only title and body references count; comment references are mostly "+1, see #N".
 //
-// The PR inherits the issue's strong match, so its category follows its own state: merged is "already implemented".
+// The PR inherits the issue's strong match only if it implements the issue: it closes it ("Closes #N", "Fixes",
+// "Resolves") or says it's "Part of #N", or, for an item, it has its own evidence for the item (a new member or new
+// operation in its text). A PR that only relates to a tracker is often other work, such as a docs change or another
+// feature of the same resource. Its category follows its own state: merged is "already implemented". PRs by bots
+// aren't followed: dependency updates quote upstream changelogs, whose #N refer to other repositories.
 // For an item, labels lists the item's service labels, and a PR labeled only with other services inherits a weak
 // match: a launch tracker often spans services, and its PRs for another service's half aren't the item's work. A PR
 // with no service label keeps the strong match.
-func (r *Reconciler) followReferences(ctx context.Context, out []Candidate, commonThreshold int, labels []string) ([]Candidate, error) {
+func (r *Reconciler) followReferences(ctx context.Context, out []Candidate, commonThreshold int, labels []string, it *Item) ([]Candidate, error) {
 	at := map[int]int{}
 	for i, c := range out {
 		if c.Number != 0 {
@@ -785,9 +821,10 @@ func (r *Reconciler) followReferences(ctx context.Context, out []Candidate, comm
 	slices.Sort(numbers)
 	for _, n := range numbers {
 		is := records[n]
-		if is == nil || is.Kind != index.KindPR {
+		if is == nil || is.Kind != index.KindPR || isBot(is.Author) {
 			continue
 		}
+		closed := closedIssues(is.Title+"\n"+is.Body, r.Target.Repo)
 		i, ok := at[n]
 		if !ok {
 			var c Candidate
@@ -796,11 +833,13 @@ func (r *Reconciler) followReferences(ctx context.Context, out []Candidate, comm
 			i = len(out) - 1
 			at[n] = i
 		}
-		strength := StrengthStrong
-		if labels != nil && r.otherServiceOnly(is.Labels, labels) {
-			strength = StrengthWeak
-		}
+		otherService := labels != nil && r.otherServiceOnly(is.Labels, labels)
+		own := it != nil && it.ownEvidence(&out[i], is)
 		for _, l := range links[n] {
+			strength := StrengthStrong
+			if otherService || (!closed[l.issue] && !own) {
+				strength = StrengthWeak
+			}
 			out[i].addSignal(Match{Type: matchReferencesCandidate, Value: "#" + strconv.Itoa(l.issue), Where: l.where, Strength: strength})
 		}
 		out[i].Category = categorize(&out[i], is)
