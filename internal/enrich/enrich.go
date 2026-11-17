@@ -185,6 +185,7 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 		warnf("no model to find which operations changed members reach; run `avizor pull` to clone the models")
 	}
 	res.Work = work(it.Diff, usages)
+	markNotSettable(res.Work, model)
 	markSharedNames(res.Work, it.Diff, model)
 	res.NewMembers = newMembers(res.Work, it.Diff, model)
 	if e.Announcements != nil {

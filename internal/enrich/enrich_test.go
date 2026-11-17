@@ -2,6 +2,7 @@ package enrich
 
 import (
 	"context"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -574,5 +575,46 @@ func TestReconcileItemAnnouncementFloor(t *testing.T) {
 		if got := ReconcileItem(&awssdk.Item{ID: "x"}, res).AnnouncementURL; got != want {
 			t.Errorf("score %.2f: announcement URL = %q, want %q", score, got, want)
 		}
+	}
+}
+
+// TestMarkNotSettable checks wording from the API models: members documented as not settable become attributes, and
+// looser wording that describes real arguments doesn't.
+func TestMarkNotSettable(t *testing.T) {
+	t.Parallel()
+
+	docs := map[string]string{
+		"SystemTableStatuses":  "<p>The read-only enablement status of each system table for the account. This field is returned by <code>GetWorkGroup</code> and is ignored on write.</p>",
+		"SelectedInstanceType": "<p>The instance type, set after an instance type is selected. This field is read-only and isn't accepted in <code>CreateTrainingJob</code> requests.</p>",
+		"HealthStatus":         "<p>A dataflow endpoint health status. This field is ignored when calling <code>CreateDataflowEndpointGroup</code>.</p>",
+		"LastModified":         "<p>Engines use it to verify that the resource hasn't changed. This is an output-only field.</p>",
+		"EffectiveVersion":     "<p>Read only. The engine version on which the query runs.</p>",
+		"Name":                 "<p>The name. The <code>guardDutyActivate</code> parameter is read-only in Amazon ECS.</p>",
+		"GrantType":            "<p>DelegateGrant - Gives the grantee read-only visibility into the license.</p>",
+		"Visibility":           "<p>This value cannot be changed once the API has been created.</p>",
+		"AllocationStrategy":   "<p>The only supported value is <code>prioritized</code>.</p>",
+		"TargetNamespace":      "<p>Use this parameter only for table buckets; it is not accepted for other target types.</p>",
+	}
+	m := &smithy.Model{Shapes: map[string]smithy.Shape{"Config": {Type: smithy.TypeStructure, Docs: docs}}}
+	var ws []Work
+	for _, member := range slices.Sorted(maps.Keys(docs)) {
+		ws = append(ws, Work{Kind: WorkNewArgument, Subject: "Config." + member, Basis: "new member"})
+	}
+	ws = append(ws, Work{Kind: WorkNewArgument, Subject: "Config.Undocumented", Basis: "new member"})
+	markNotSettable(ws, m)
+
+	notSettable := []string{"EffectiveVersion", "HealthStatus", "LastModified", "SelectedInstanceType", "SystemTableStatuses"}
+	for _, w := range ws {
+		_, member, _ := strings.Cut(w.Subject, ".")
+		want := WorkNewArgument
+		if slices.Contains(notSettable, member) {
+			want = WorkNewAttribute
+		}
+		if w.Kind != want {
+			t.Errorf("%s = %s (%s), want %s", member, w.Kind, w.Basis, want)
+		}
+	}
+	if got := ws[slices.IndexFunc(ws, func(w Work) bool { return w.Subject == "Config.SystemTableStatuses" })].Basis; got != `new member; documented as not settable ("The read-only")` {
+		t.Errorf("basis = %q", got)
 	}
 }
