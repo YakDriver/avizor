@@ -644,7 +644,11 @@ func sortCandidates(cs []Candidate) {
 		if c := b.UpdatedAt.Compare(a.UpdatedAt); c != 0 {
 			return c
 		}
-		return strings.Compare(a.Path, b.Path)
+		// Issues have no path, and records synced together can share an update time.
+		if c := strings.Compare(a.Path, b.Path); c != 0 {
+			return c
+		}
+		return cmp.Compare(b.Number, a.Number)
 	})
 }
 

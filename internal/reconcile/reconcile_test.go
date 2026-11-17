@@ -703,3 +703,23 @@ func TestCommonLimit(t *testing.T) {
 		t.Errorf("commonLimit with a lower threshold = %d, want 3", got)
 	}
 }
+
+func TestSortCandidatesTies(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, in := range [][]int{{13767, 13770, 200}, {200, 13770, 13767}, {13770, 200, 13767}} {
+		var cs []Candidate
+		for _, n := range in {
+			cs = append(cs, Candidate{Category: CategoryRelated, Number: n, UpdatedAt: at})
+		}
+		sortCandidates(cs)
+		var got []int
+		for _, c := range cs {
+			got = append(got, c.Number)
+		}
+		if want := []int{13770, 13767, 200}; !slices.Equal(got, want) {
+			t.Errorf("sortCandidates(%v) = %v, want %v", in, got, want)
+		}
+	}
+}

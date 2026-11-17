@@ -186,3 +186,21 @@ func TestDeleteCommentSignalsUsesIndex(t *testing.T) {
 		t.Errorf("plan = %q, want a search using signals_comment", plan)
 	}
 }
+
+func TestOpenMemoryMaps(t *testing.T) {
+	t.Parallel()
+
+	st, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	var n int64
+	if err := st.db.QueryRowContext(context.Background(), "PRAGMA mmap_size").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Error("mmap_size = 0, want the index memory-mapped")
+	}
+}
