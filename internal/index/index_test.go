@@ -142,6 +142,53 @@ func TestSearchAsOfStable(t *testing.T) {
 	}
 }
 
+// A sync that commits during a search mustn't change it: an issue created after the view's time is hidden even if
+// it's added after the hidden issues were listed.
+func TestSearchSnapshot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	st, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	early := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	add := func(n int, created time.Time) error {
+		tx, err := st.Begin(ctx, "o/r")
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		if err := tx.UpsertIssue(ctx, &Issue{Number: n, Kind: KindIssue, State: "open", Title: "widget", Body: "x",
+			CreatedAt: created, UpdatedAt: created}, 1); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+	if err := add(1, early); err != nil {
+		t.Fatal(err)
+	}
+
+	view := st.AsOf(early.Add(24 * time.Hour))
+	view.searchHook = func() {
+		if err := add(2, early.Add(48*time.Hour)); err != nil {
+			t.Error(err)
+		}
+	}
+	hits, err := view.Search(ctx, []string{"widget"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Number != 1 {
+		t.Errorf("hits = %+v, want only #1", hits)
+	}
+	if is, err := st.Issue(ctx, 2); err != nil || is == nil {
+		t.Errorf("#2 = %v, %v; want it written during the search", is, err)
+	}
+}
+
 func TestSearchQuoting(t *testing.T) {
 	t.Parallel()
 

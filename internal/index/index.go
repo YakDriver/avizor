@@ -119,6 +119,8 @@ type Store struct {
 	db *sql.DB
 	// before, if set, limits queries to records and signals created at or before it. See AsOf.
 	before string
+	// searchHook, if set, runs in Search after hidden issues are listed. Tests use it to write mid-search.
+	searchHook func()
 }
 
 // AsOf returns a view of the store as it would have looked at t: issues created after t are hidden, signals from text
@@ -460,37 +462,47 @@ func (s *Store) Search(ctx context.Context, terms []string, limit int) ([]Search
 	}
 	cond, cargs := s.asOf("i.created_at")
 
+	// One read transaction is one snapshot, so the count, hidden issues, and hits agree while a sync writes. A
+	// read-only transaction doesn't take the write lock (_txlock applies only to writes).
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("beginning search: %w", err)
+	}
+	defer tx.Rollback()
+
 	var total int
-	if err := s.db.QueryRowContext(ctx, countIssues+cond, cargs...).Scan(&total); err != nil {
+	if err := tx.QueryRowContext(ctx, countIssues+cond, cargs...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("counting documents: %w", err)
 	}
 	// Records this view can't see are dropped from FTS results here, instead of joining every hit to its issue row.
 	var hidden []int
 	if s.before != "" {
-		var err error
 		// Sorting here, not in SQL, lets the query read only the created_at index.
-		if hidden, err = s.numbers(ctx, hiddenIssues, s.before); err != nil {
+		if hidden, err = numbers(ctx, tx, hiddenIssues, s.before); err != nil {
 			return nil, fmt.Errorf("listing hidden issues: %w", err)
 		}
 		slices.Sort(hidden)
+	}
+	if s.searchHook != nil {
+		s.searchHook()
 	}
 
 	// scores is indexed by issue number. Hits are sorted by number, so the title and label hits of each term are
 	// merged with its hits in any column.
 	var scores []float64
 	for _, t := range terms {
-		anyHits, err := s.matching(ctx, t, hidden)
+		anyHits, err := matching(ctx, tx, t, hidden)
 		if err != nil {
 			return nil, err
 		}
 		if len(anyHits) == 0 {
 			continue
 		}
-		title, err := s.matching(ctx, "title : "+t, hidden)
+		title, err := matching(ctx, tx, "title : "+t, hidden)
 		if err != nil {
 			return nil, err
 		}
-		labels, err := s.matching(ctx, "labels : "+t, hidden)
+		labels, err := matching(ctx, tx, "labels : "+t, hidden)
 		if err != nil {
 			return nil, err
 		}
@@ -536,8 +548,8 @@ func (s *Store) Search(ctx context.Context, terms []string, limit int) ([]Search
 }
 
 // matching returns the issues matching an FTS5 query, sorted by number, without those in hidden (also sorted).
-func (s *Store) matching(ctx context.Context, q string, hidden []int) ([]int, error) {
-	hits, err := s.numbers(ctx, `SELECT rowid FROM issues_fts WHERE issues_fts MATCH ? ORDER BY rowid`, q)
+func matching(ctx context.Context, tx *sql.Tx, q string, hidden []int) ([]int, error) {
+	hits, err := numbers(ctx, tx, `SELECT rowid FROM issues_fts WHERE issues_fts MATCH ? ORDER BY rowid`, q)
 	if err != nil {
 		return nil, fmt.Errorf("searching %q: %w", q, err)
 	}
@@ -559,8 +571,8 @@ func (s *Store) matching(ctx context.Context, q string, hidden []int) ([]int, er
 }
 
 // numbers returns the integers in a query's only column.
-func (s *Store) numbers(ctx context.Context, query string, args ...any) ([]int, error) {
-	rows, err := s.db.QueryContext(ctx, query, args...)
+func numbers(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]int, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
