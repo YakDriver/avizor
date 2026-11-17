@@ -38,7 +38,7 @@ const newModel = `{
     "com.amazonaws.widget#TagWidget": {"type": "operation"},
     "com.amazonaws.widget#CreateWidgetRequest": {
       "type": "structure",
-      "members": {"Name": {"target": "smithy.api#String"}, "Size": {"target": "com.amazonaws.widget#Size"}}
+      "members": {"Name": {"target": "smithy.api#String", "traits": {"smithy.api#documentation": "<p>The name.</p>"}}, "Size": {"target": "com.amazonaws.widget#Size"}}
     },
     "com.amazonaws.widget#Size": {"type": "integer"},
     "com.amazonaws.widget#Color": {
@@ -67,6 +67,13 @@ func TestCompare(t *testing.T) {
 	}
 	if got := n.Operations(); !slices.Equal(got, []string{"CreateWidget", "TagWidget"}) {
 		t.Errorf("Operations = %v", got)
+	}
+
+	if got := n.Shapes["CreateWidgetRequest"].Docs; len(got) != 1 || got["Name"] != "<p>The name.</p>" {
+		t.Errorf("CreateWidgetRequest docs = %v, want only Name's", got)
+	}
+	if got := n.Shapes["Color"].Docs; got != nil {
+		t.Errorf("enum docs = %v, want none", got)
 	}
 
 	d := Compare(o, n)
