@@ -409,9 +409,11 @@ func (r *guardrailResource) Schema() {
 				},
 			},
 			"contextual_grounding_policy_config": schema.ListNestedBlock{
+				Description: "Unlike content policies, has no \"tier_config\".",
 				NestedObject: schema.NestedBlockObject{
 					Blocks: map[string]schema.Block{
 						"filters": schema.ListNestedBlock{},
+						// "tier_config": schema.ListNestedBlock{},
 					},
 				},
 			},
@@ -446,6 +448,7 @@ type guardrailModel struct {
 	WordPolicy       fwtypes.ListNestedObjectValueOf[wordPolicyModel] ` + "`tfsdk:\"word_policy_config\"`" + `
 }
 
+// A tag-like comment without a struct tag: tfsdk:"contextual_grounding_policy_config"
 type groundingPolicyModel struct {
 	Filters fwtypes.ListNestedObjectValueOf[filterModel] ` + "`tfsdk:\"filters\"`" + `
 }
@@ -505,7 +508,7 @@ type wordPolicyModel struct {
 		found, outside []string
 	}{
 		{used, nil}, // schema entry
-		{nil, used}, // tier_config is only on other blocks
+		{nil, used}, // tier_config is only on other blocks, a comment, and a description
 		{used, nil}, // model struct
 		{nil, used}, // the parent's block has no tier_config
 		{used, nil}, // inline SDKv2 block of a list element
@@ -518,6 +521,12 @@ type wordPolicyModel struct {
 	} {
 		if !slices.Equal(ws[i].FoundIn, want.found) || !slices.Equal(ws[i].OutsideBlock, want.outside) {
 			t.Errorf("%s (parent %q): found in %q, outside block %q; want %q, %q", ws[i].Subject, ws[i].Parent, ws[i].FoundIn, ws[i].OutsideBlock, want.found, want.outside)
+		}
+	}
+	// Parent names the blocks checked: the climbed-to block for a union, none for a wrapped input structure.
+	for i, want := range map[int][]string{1: {"contextual_grounding_policy_config"}, 7: {"step", "steps"}, 10: nil} {
+		if !slices.Equal(ws[i].Parent, want) {
+			t.Errorf("%s: parent %q, want %q", ws[i].Subject, ws[i].Parent, want)
 		}
 	}
 }

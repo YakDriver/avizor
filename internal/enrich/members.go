@@ -1,16 +1,21 @@
 package enrich
 
 import (
-	"github.com/YakDriver/avizor/internal/smithy"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"maps"
-
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
+
+	"github.com/YakDriver/avizor/internal/smithy"
 )
 
 // Snake turns a PascalCase or camelCase name into snake_case: S3AccessPoint -> s3_access_point, KMSKey -> kms_key.
@@ -60,22 +65,32 @@ func MemberNames(member string) []string {
 // its operations that already use that name, as a quoted string or a names.Attr constant. It's evidence that the
 // argument is implemented; a name found for another field gives a false match, so a match never hides work by itself.
 //
-// A member of a nested structure counts only inside its parent's block: the schema entry or the model struct of a
-// Terraform name for a member that targets the structure. Common nested names such as tier_config are often on
-// another block of the same file. Providers flatten two kinds of shape into the block above, so when the file has no
-// block for the parent, the check moves up a level: from a union, whose members become blocks of its parent, and from
-// a structure that an operation's input wraps (its only structure or union member), whose members become top-level
-// arguments and count anywhere in the file. Otherwise a name used elsewhere in the file doesn't count. With no model, the whole file counts.
+// A member of a nested structure counts only inside its parent's block: the value of a schema map entry keyed by a
+// Terraform name for a member that targets the structure, or the model struct a field tagged with that name refers
+// to. Common nested names such as tier_config are often on another block of the same file. Blocks and the names in
+// them come from the parsed Go source, so comments and string contents don't count. Providers flatten two kinds of
+// shape into the block above, so when the file has no block for the parent, the check moves up a level: from a
+// union, whose members become blocks of its parent, and from a structure that an operation's input wraps (its only
+// structure or union member), whose members become top-level arguments and count anywhere in the file. Otherwise a
+// name used elsewhere in the file doesn't count. With no model, the whole file counts.
 func (e *Enricher) findMembers(ws []Work, m *smithy.Model) {
 	attrs := attrConstants(e.Checkout)
-	files := map[string]string{}
-	read := func(f string) string {
-		if s, ok := files[f]; ok {
-			return s
+	type file struct {
+		src  string
+		ast  *ast.File
+		fset *token.FileSet
+	}
+	files := map[string]*file{}
+	read := func(f string) *file {
+		if x, ok := files[f]; ok {
+			return x
 		}
 		b, _ := os.ReadFile(filepath.Join(e.Checkout, f))
-		files[f] = string(b)
-		return files[f]
+		x := &file{src: string(b), fset: token.NewFileSet()}
+		// A file that doesn't parse has no blocks, so no nested member is found in it.
+		x.ast, _ = parser.ParseFile(x.fset, f, b, parser.SkipObjectResolution)
+		files[f] = x
+		return x
 	}
 	inputs := operationInputs(m)
 	for i := range ws {
@@ -87,48 +102,62 @@ func (e *Enricher) findMembers(ws []Work, m *smithy.Model) {
 		names := MemberNames(member)
 		w.Member = names[0]
 		nested := m != nil && !inputs[shape]
-		if nested {
-			_, w.Parent = parents(m, []string{shape})
-		}
 		for _, f := range w.UsedBy {
-			src := read(f)
-			uses := func(s string) bool {
-				return slices.ContainsFunc(names, func(n string) bool {
-					return strings.Contains(s, `"`+n+`"`) || (attrs[n] != "" && hasIdent(s, "names."+attrs[n]))
-				})
+			x := read(f)
+			if !slices.ContainsFunc(names, func(n string) bool {
+				return strings.Contains(x.src, `"`+n+`"`) || (attrs[n] != "" && hasIdent(x.src, "names."+attrs[n]))
+			}) {
+				continue
 			}
-			switch {
-			case !uses(src):
-			case !nested || inBlock(src, m, shape, inputs, attrs, uses):
+			if !nested {
 				w.FoundIn = append(w.FoundIn, f)
-			default:
+				continue
+			}
+			found, scope := inBlock(x.ast, m, shape, inputs, func(bs []ast.Node) bool {
+				return slices.ContainsFunc(bs, func(b ast.Node) bool { return namesIn(b, names, attrs) })
+			}, attrs)
+			for _, n := range scope {
+				if !slices.Contains(w.Parent, n) {
+					w.Parent = append(w.Parent, n)
+				}
+			}
+			if found {
+				w.FoundIn = append(w.FoundIn, f)
+			} else {
 				w.OutsideBlock = append(w.OutsideBlock, f)
 			}
 		}
+		slices.Sort(w.Parent)
 	}
 }
 
 // maxClimb is how many levels above a member's shape inBlock looks for a block in the file.
 const maxClimb = 4
 
-// inBlock reports whether uses matches inside a block of shape's parent in src. When src has no block for a parent,
-// it moves up a level only through flattened shapes; see findMembers.
-func inBlock(src string, m *smithy.Model, shape string, inputs map[string]bool, attrs map[string]string, uses func(string) bool) bool {
+// inBlock reports whether found matches the blocks of shape's parent in f, and the Terraform names of the blocks it
+// checked, or none when the member was flattened into top-level arguments. When f has no block for a parent, it moves
+// up a level only through flattened shapes; see findMembers.
+func inBlock(f *ast.File, m *smithy.Model, shape string, inputs map[string]bool, found func([]ast.Node) bool, attrs map[string]string) (bool, []string) {
 	level := []string{shape}
+	var first []string
 	for range maxClimb {
 		up, names := parents(m, level)
-		if bs := blocks(src, names, attrs); len(bs) > 0 {
-			return slices.ContainsFunc(bs, uses)
+		if first == nil {
+			first = names
+		}
+		if bs := blocks(f, names, attrs); len(bs) > 0 {
+			return found(bs), names
 		}
 		if slices.ContainsFunc(up, func(s string) bool { return inputs[s] && wraps(m, s, level) }) {
-			return true
+			return true, nil
 		}
 		if len(up) == 0 || !slices.ContainsFunc(level, func(s string) bool { return m.Shapes[s].Type == smithy.TypeUnion }) {
-			return false
+			break
 		}
 		level = up
 	}
-	return false
+	// No block found at any level: report the immediate parent's names.
+	return false, first
 }
 
 // wraps reports whether the only structure or union member of input targets one of shapes, as
@@ -183,139 +212,111 @@ func parents(m *smithy.Model, shapes []string) (up, names []string) {
 	return up, names
 }
 
-var (
-	// genericRE finds the type argument of a generic type, as in ListNestedObjectValueOf[fooModel].
-	genericRE = regexp.MustCompile(`\[\s*\*?([A-Za-z_]\w*)\s*\]`)
-	identRE   = regexp.MustCompile(`^\s*\*?([A-Za-z_]\w*)`)
-)
-
-// blocks returns the parts of src that hold a block named by one of names: the value of each schema map entry with
-// that key, and the struct each model field tagged tfsdk:"name" refers to.
-func blocks(src string, names []string, attrs map[string]string) []string {
-	var out []string
-	structOf := func(typ string) {
-		if t := genericRE.FindStringSubmatch(typ); t != nil {
-			typ = t[1]
-		} else if t := identRE.FindStringSubmatch(typ); t != nil {
-			typ = t[1]
-		}
-		if body, ok := structBody(src, typ); ok {
-			out = append(out, body)
-		}
+// blocks returns the parts of f that hold a block named by one of names: the value of each map entry with that key,
+// as a string literal or a names.Attr constant, and the struct type each field tagged tfsdk:"name" refers to.
+func blocks(f *ast.File, names []string, attrs map[string]string) []ast.Node {
+	if f == nil || len(names) == 0 {
+		return nil
 	}
-	for _, n := range names {
-		keys := []string{`"` + n + `"`}
-		if attrs[n] != "" {
-			keys = append(keys, "names."+attrs[n])
+	structs := map[string]*ast.StructType{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if ts, ok := n.(*ast.TypeSpec); ok {
+			if st, ok := ts.Type.(*ast.StructType); ok {
+				structs[ts.Name.Name] = st
+			}
 		}
-		for _, key := range keys {
-			for i := 0; ; {
-				j := strings.Index(src[i:], key)
-				if j < 0 {
-					break
+		return true
+	})
+	var out []ast.Node
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.KeyValueExpr:
+			if slices.ContainsFunc(names, func(name string) bool { return isName(n.Key, name, attrs) }) {
+				out = append(out, n.Value)
+				if st := structs[typeName(n.Value)]; st != nil {
+					out = append(out, st)
 				}
-				start := i + j + len(key)
-				i = start
-				if key[0] != '"' && start < len(src) && isIdentByte(src[start]) {
-					continue
-				}
-				rest := strings.TrimLeft(src[start:], " \t")
-				if !strings.HasPrefix(rest, ":") {
-					continue
-				}
-				value := rest[1:]
-				if v, ok := entryValue(value); ok {
-					out = append(out, v)
-					structOf(v)
+			}
+		case *ast.Field:
+			if slices.Contains(names, tfsdkTag(n)) {
+				if st := structs[typeName(n.Type)]; st != nil {
+					out = append(out, st)
 				}
 			}
 		}
-		tag := `tfsdk:"` + n + `"`
-		for line := range strings.SplitSeq(src, "\n") {
-			if !strings.Contains(line, tag) {
-				continue
-			}
-			// A model field: Name Type `tfsdk:"name"`.
-			if f := strings.Fields(strings.TrimSpace(line[:strings.Index(line, "`")])); len(f) == 2 {
-				structOf(f[1])
-			}
-		}
-	}
+		return true
+	})
 	return out
 }
 
-// entryValue returns a map entry's value from just after its colon: up to the comma or closing brace that ends it,
-// with nested braces, brackets, parentheses, strings, and comments skipped.
-func entryValue(s string) (string, bool) {
-	depth := 0
-	for i := 0; i < len(s); i++ {
-		switch c := s[i]; c {
-		case '"', '`', '\'':
-			end := skipQuoted(s, i)
-			if end < 0 {
-				return "", false
+// namesIn reports whether node uses one of names: as a string literal, a names.Attr constant, or a tfsdk tag.
+func namesIn(node ast.Node, names []string, attrs map[string]string) bool {
+	found := false
+	ast.Inspect(node, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		switch n := n.(type) {
+		case *ast.Field:
+			if slices.Contains(names, tfsdkTag(n)) {
+				found = true
 			}
-			i = end
-		case '/':
-			if i+1 < len(s) && (s[i+1] == '/' || s[i+1] == '*') {
-				i = skipComment(s, i)
-			}
-		case '{', '[', '(':
-			depth++
-		case '}', ']', ')':
-			if depth == 0 {
-				return s[:i], true
-			}
-			depth--
-		case ',':
-			if depth == 0 {
-				return s[:i], true
+		case ast.Expr:
+			if slices.ContainsFunc(names, func(name string) bool { return isName(n, name, attrs) }) {
+				found = true
 			}
 		}
-	}
-	return "", false
+		return !found
+	})
+	return found
 }
 
-// structBody returns the body of "type name struct { ... }" in src.
-func structBody(src, name string) (string, bool) {
-	loc := regexp.MustCompile(`(?m)^\s*(?:type\s+)?` + regexp.QuoteMeta(name) + `\s+struct\s*\{`).FindStringIndex(src)
-	if loc == nil {
-		return "", false
+// isName reports whether e is the string literal name or the names.Attr constant for it.
+func isName(e ast.Expr, name string, attrs map[string]string) bool {
+	switch e := e.(type) {
+	case *ast.BasicLit:
+		v, err := strconv.Unquote(e.Value)
+		return e.Kind == token.STRING && err == nil && v == name
+	case *ast.SelectorExpr:
+		x, ok := e.X.(*ast.Ident)
+		return ok && x.Name == "names" && attrs[name] != "" && e.Sel.Name == attrs[name]
 	}
-	v, ok := entryValue(src[loc[1]:])
-	return v, ok
+	return false
 }
 
-// skipQuoted returns the index of the quote closing the string or rune literal that starts at i, or -1.
-func skipQuoted(s string, i int) int {
-	q := s[i]
-	for j := i + 1; j < len(s); j++ {
-		switch {
-		case s[j] == '\\' && q != '`':
-			j++
-		case s[j] == q:
-			return j
+// tfsdkTag returns the tfsdk struct tag of a field, or "".
+func tfsdkTag(f *ast.Field) string {
+	if f.Tag == nil {
+		return ""
+	}
+	tag, err := strconv.Unquote(f.Tag.Value)
+	if err != nil {
+		return ""
+	}
+	return reflect.StructTag(tag).Get("tfsdk")
+}
+
+// typeName returns the type a field or schema value refers to: T in T, *T, ListNestedObjectValueOf[T], or
+// SingleNestedChildObjectAttribute[T](ctx), or "".
+func typeName(e ast.Expr) string {
+	switch e := e.(type) {
+	case *ast.Ident:
+		return e.Name
+	case *ast.StarExpr:
+		return typeName(e.X)
+	case *ast.IndexExpr:
+		return typeName(e.Index)
+	case *ast.IndexListExpr:
+		if len(e.Indices) > 0 {
+			return typeName(e.Indices[0])
 		}
+	case *ast.CallExpr:
+		return typeName(e.Fun)
+	case *ast.SelectorExpr:
+		// A generic from another package (fwtypes.ListNestedObjectValueOf) is unwrapped by IndexExpr above.
+		return ""
 	}
-	return -1
-}
-
-// skipComment returns the index of the last byte of the comment that starts at i.
-func skipComment(s string, i int) int {
-	if s[i+1] == '/' {
-		if j := strings.IndexByte(s[i:], '\n'); j >= 0 {
-			return i + j
-		}
-		return len(s) - 1
-	}
-	if j := strings.Index(s[i+2:], "*/"); j >= 0 {
-		return i + 2 + j + 1
-	}
-	return len(s) - 1
-}
-
-func isIdentByte(b byte) bool {
-	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+	return ""
 }
 
 // existingMembers returns the member names of the model's structures and unions that the change didn't add.
