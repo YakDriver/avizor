@@ -16,6 +16,7 @@ import (
 	"github.com/YakDriver/avizor/internal/config"
 	"github.com/YakDriver/avizor/internal/draft"
 	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/gitcmd"
 	"github.com/YakDriver/avizor/internal/index"
 	"github.com/YakDriver/avizor/internal/items"
 	"github.com/YakDriver/avizor/internal/queue"
@@ -115,6 +116,7 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	opts := draft.Options{Repo: t.Repo, Checkout: t.Checkout, Prefix: t.TypePrefix, LabelPrefix: t.ServiceLabelPrefix,
 		Template: t.DraftTemplate, RelatesLimit: *relates}
 
+	git := &gitcmd.Cache{}
 	entries := make([]queue.Entry, len(recs))
 	errs := make([]error, len(recs))
 	next := make(chan int)
@@ -122,8 +124,8 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	for range *jobs {
 		wg.Go(func() {
 			// Each worker has its own enricher and reconciler: both cache state per run. The index store, service
-			// map, and operation names are safe to share.
-			r := &reconcile.Reconciler{Store: st, Target: t, Services: svcs, Operations: ops.Operations,
+			// map, operation names, and git cache are safe to share.
+			r := &reconcile.Reconciler{Store: st, Target: t, Services: svcs, Operations: ops.Operations, Git: git,
 				OperationsSource: ops.OperationsSource, Options: reconcile.Options{NoFetch: true, NoCode: *noCode, Version: version}}
 			enrichers := map[string]*enrich.Enricher{}
 			for i := range next {
@@ -131,7 +133,7 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 				if err == nil {
 					e := enrichers[it.Source]
 					if e == nil {
-						e = queueEnricher(c.cfg, c.dir, t, svcs, it.Source, *noCode)
+						e = queueEnricher(c.cfg, c.dir, t, svcs, git, it.Source, *noCode)
 						enrichers[it.Source] = e
 					}
 					entries[i], err = queueEntry(ctx, it, e, r, opts)
@@ -195,9 +197,9 @@ func cmdQueue(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 var queueStates = []string{queue.Resurfaced, queue.Gap, queue.Pending, queue.NewService, queue.Partial, queue.Decided, queue.Covered, queue.NoCode, queue.Unimplemented, queue.NoWork}
 
 // queueEnricher is newEnricher with a shared service map, for many items from one source.
-func queueEnricher(cfg *config.Config, dir string, t *config.Target, svcs *services.Map, source string, noCode bool) *enrich.Enricher {
+func queueEnricher(cfg *config.Config, dir string, t *config.Target, svcs *services.Map, git *gitcmd.Cache, source string, noCode bool) *enrich.Enricher {
 	e := &enrich.Enricher{Target: t.Name, Services: svcs, LabelPrefix: t.ServiceLabelPrefix, Checkout: t.Checkout, Ref: t.Ref, NoCode: noCode,
-		Announcements: announcements(dir, io.Discard)}
+		Announcements: announcements(dir, io.Discard), Git: git}
 	if src, err := cfg.Source(source); err == nil {
 		if p := src.ModelsPath(dir); dirExists(p) {
 			e.Models = &awssdk.ModelsRepo{Dir: p, URL: src.ModelsURL, Branch: src.ModelsBranch}

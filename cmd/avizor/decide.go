@@ -103,7 +103,7 @@ func cmdDecide(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		r := &reconcile.Reconciler{Store: st, Target: t, Services: svcs,
 			Options: reconcile.Options{NoFetch: true, Version: version}}
 		c.operations(ctx, t, r, stderr)
-		e, err := queueEntry(ctx, it, queueEnricher(c.cfg, c.dir, t, svcs, it.Source, false), r, draft.Options{
+		e, err := queueEntry(ctx, it, queueEnricher(c.cfg, c.dir, t, svcs, nil, it.Source, false), r, draft.Options{
 			Repo: t.Repo, Checkout: t.Checkout, Prefix: t.TypePrefix, LabelPrefix: t.ServiceLabelPrefix, Template: t.DraftTemplate,
 		})
 		if err != nil {

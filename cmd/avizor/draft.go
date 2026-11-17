@@ -43,7 +43,7 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	}
 	c.operations(ctx, t, r, stderr)
 
-	it, en, err := c.enrichedItem(ctx, t, pos[0], *noCode, stderr)
+	it, en, err := c.enrichedItem(ctx, r, pos[0], *noCode, stderr)
 	if err != nil {
 		return err
 	}
