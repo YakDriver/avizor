@@ -732,12 +732,15 @@ func (r *Reconciler) otherServiceOnly(labels, want []string) bool {
 }
 
 var (
-	// closingRE finds a closing keyword, or "part of", and the issue references after it: "Closes #1", "Fixes: #1, #2
+	// closingRE finds a closing keyword, or "part of", and the issue references after it: "Closes #1", "Fixes: #1, #2,
 	// and #3", "Part of #4", or a full issue URL. GitHub needs a keyword for each issue, but people often list several
-	// after one.
-	closingRE = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|part of)\b:?\s+((?:(?:#|https://github\.com/[\w.-]+/[\w.-]+/(?:issues|pull)/)\d+(?:\s*(?:,|and)\s*)?)+)`)
-	refRE     = regexp.MustCompile(`(?:#|https://github\.com/([\w.-]+/[\w.-]+)/(?:issues|pull)/)(\d+)`)
+	// after one. URLs are matched in the forms signal.NormalizeURL accepts: http or https, with or without www.
+	closingRE = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|part of)\b:?\s+((?:(?:#|` + ghIssueURL + `)\d+(?:\s*,?\s*(?:and\s+)?)?)+)`)
+	refRE     = regexp.MustCompile(`(?i)(?:#|` + ghIssueURL + `)(\d+)`)
 )
+
+// ghIssueURL is the start of a GitHub issue or pull request URL, with the repository as its group.
+const ghIssueURL = `https?://(?:www\.)?github\.com/([\w.-]+/[\w.-]+)/(?:issues|pull)/`
 
 // closedIssues returns the issues of repo that text closes with a closing keyword or says it's part of.
 func closedIssues(text, repo string) map[int]bool {

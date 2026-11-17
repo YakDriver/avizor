@@ -540,9 +540,11 @@ Part of #6
 closes https://github.com/other/repo/issues/7
 Relates #8
 Fixed a bug in #9's code
-Closes #0000`
+Closes #0000
+Fixes #10, #11, and #12
+Closes http://www.github.com/Hashicorp/terraform-provider-aws/pull/13`
 	got := closedIssues(text, "hashicorp/terraform-provider-aws")
-	for _, n := range []int{1, 2, 3, 4, 5, 6, 0} {
+	for _, n := range []int{1, 2, 3, 4, 5, 6, 0, 10, 11, 12, 13} {
 		if !got[n] {
 			t.Errorf("#%d not closed", n)
 		}
