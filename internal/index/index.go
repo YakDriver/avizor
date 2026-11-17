@@ -152,7 +152,10 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("creating state directory: %w", err)
 	}
-	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	// Memory-map the database. Reconciliation runs many small queries over an index of hundreds of megabytes, and
+	// without mmap each page read is a pread syscall: they took 80% of an eval's CPU time. A larger page cache didn't
+	// help.
+	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=mmap_size(1073741824)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening index %s: %w", path, err)
