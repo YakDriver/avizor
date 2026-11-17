@@ -1668,6 +1668,20 @@ case "item-covered-dynamodb-2026-10-20" {
   different = [50777]
 }
 
+case "item-covered-ec2-2026-10-22" {
+  item  = "aws-sdk-go-v2/ec2/release-2026-10-22"
+  as_of = "2026-11-17T12:00:00Z"
+  code  = true
+  kind  = "item-covered"
+  note  = "tracker #50613 and its PRs carry service/transitgateway, an ec2 sub-service (#22); the Cloud WAN PRs are the networkmanager item's work"
+  expect {
+    number   = 50613
+    category = "already_tracked"
+  }
+  same = [50669, 50672, 50683]
+  different = [50689, 50690, 50700]
+}
+
 case "item-covered-cognitoidentityprovider-2026-06-01" {
   item  = "aws-sdk-go-v2/cognitoidentityprovider/release-2026-06-01"
   as_of = "2026-11-12T21:00:00Z"
