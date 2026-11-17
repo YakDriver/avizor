@@ -314,7 +314,7 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 		out = append(out, *c)
 	}
 
-	if out, err = r.followReferences(ctx, out, commonThreshold); err != nil {
+	if out, err = r.followReferences(ctx, out, commonThreshold, in.itemLabels); err != nil {
 		return nil, err
 	}
 	// After following references, which can add a strong match to the bump PR.
@@ -711,12 +711,27 @@ func inferRequest(text string, res *Result) string {
 	return kind
 }
 
+// otherServiceOnly reports whether labels has a service label and none of want.
+func (r *Reconciler) otherServiceOnly(labels, want []string) bool {
+	other := false
+	for _, l := range labels {
+		if slices.Contains(want, l) {
+			return false
+		}
+		other = other || strings.HasPrefix(l, r.Target.ServiceLabelPrefix)
+	}
+	return other
+}
+
 // followReferences adds PRs that reference strongly matched issues. A tracking issue usually doesn't link the PR that
 // implements it, but the PR links the issue ("Closes #N"), so following that link finds work the input's own signals
 // miss. Only title and body references count; comment references are mostly "+1, see #N".
 //
 // The PR inherits the issue's strong match, so its category follows its own state: merged is "already implemented".
-func (r *Reconciler) followReferences(ctx context.Context, out []Candidate, commonThreshold int) ([]Candidate, error) {
+// For an item, labels lists the item's service labels, and a PR labeled only with other services inherits a weak
+// match: a launch tracker often spans services, and its PRs for another service's half aren't the item's work. A PR
+// with no service label keeps the strong match.
+func (r *Reconciler) followReferences(ctx context.Context, out []Candidate, commonThreshold int, labels []string) ([]Candidate, error) {
 	at := map[int]int{}
 	for i, c := range out {
 		if c.Number != 0 {
@@ -773,8 +788,12 @@ func (r *Reconciler) followReferences(ctx context.Context, out []Candidate, comm
 			i = len(out) - 1
 			at[n] = i
 		}
+		strength := StrengthStrong
+		if labels != nil && r.otherServiceOnly(is.Labels, labels) {
+			strength = StrengthWeak
+		}
 		for _, l := range links[n] {
-			out[i].addSignal(Match{Type: matchReferencesCandidate, Value: "#" + strconv.Itoa(l.issue), Where: l.where, Strength: StrengthStrong})
+			out[i].addSignal(Match{Type: matchReferencesCandidate, Value: "#" + strconv.Itoa(l.issue), Where: l.where, Strength: strength})
 		}
 		out[i].Category = categorize(&out[i], is)
 	}

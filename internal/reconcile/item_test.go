@@ -112,7 +112,7 @@ func TestRunItemAnnouncement(t *testing.T) {
 }
 
 // TestRunItemSubServiceLabel checks that a candidate with a sub-service label of the item's package keeps its strong
-// signals, and that one with another service's label doesn't.
+// signals, and that one with another service's label doesn't, including PRs found by following references.
 func TestRunItemSubServiceLabel(t *testing.T) {
 	t.Parallel()
 
@@ -132,6 +132,11 @@ func TestRunItemSubServiceLabel(t *testing.T) {
 			Title: "Transit Gateway 1:1 NAT", Body: "Uses ModifyTransitGatewayAttachmentNatConfiguration."},
 		{Number: 50614, Kind: index.KindIssue, State: "open", Labels: []string{"service/networkmanager"},
 			Title: "Cloud WAN 1:1 NAT", Body: "Uses ModifyTransitGatewayAttachmentNatConfiguration."},
+		{Number: 50669, Kind: index.KindPR, State: "open", Labels: []string{"service/transitgateway"},
+			Title: "New resource: aws_ec2_transit_gateway_attachment_nat_configuration", Body: "Relates #50613."},
+		{Number: 50689, Kind: index.KindPR, State: "open", Labels: []string{"service/networkmanager"},
+			Title: "New resource: aws_networkmanager_attachment_nat_configuration", Body: "Relates #50613."},
+		{Number: 50700, Kind: index.KindPR, State: "closed", Title: "Transit gateway NAT", Body: "Closes #50613."},
 	} {
 		is.CreatedAt, is.UpdatedAt, is.URL = ts, ts, "https://github.com/"+repo+"/issues/"
 		if err := tx.UpsertIssue(ctx, is, 1); err != nil {
@@ -160,5 +165,14 @@ func TestRunItemSubServiceLabel(t *testing.T) {
 	}
 	if c := find(t, res.Candidates, 50614, ""); c.Category != CategoryRelated {
 		t.Errorf("#50614 = %s %+v, want related: service/networkmanager isn't ec2", c.Category, c.Signals)
+	}
+	if c := find(t, res.Candidates, 50669, ""); c.Category != CategoryTracked {
+		t.Errorf("#50669 = %s %+v, want already_tracked through #50613", c.Category, c.Signals)
+	}
+	if c := find(t, res.Candidates, 50689, ""); c.Category != CategoryRelated {
+		t.Errorf("#50689 = %s %+v, want related: it references #50613 but is labeled service/networkmanager", c.Category, c.Signals)
+	}
+	if c := find(t, res.Candidates, 50700, ""); c.Category != CategoryConsidered {
+		t.Errorf("#50700 = %s %+v, want previously_considered: a PR without service labels keeps the match", c.Category, c.Signals)
 	}
 }
