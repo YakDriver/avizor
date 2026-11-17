@@ -397,8 +397,14 @@ func writeEnrichmentText(w io.Writer, e *enrich.Result) error {
 				fmt.Fprintf(w, "      provider calls these operations in: %s\n", strings.Join(wk.UsedBy, ", "))
 			}
 			switch {
+			case wk.Member != "" && len(wk.FoundIn) > 0 && len(wk.Parent) > 0:
+				fmt.Fprintf(w, "      %s is used in %s in: %s\n", wk.Member, parentList(wk.Parent), strings.Join(wk.FoundIn, ", "))
 			case wk.Member != "" && len(wk.FoundIn) > 0:
 				fmt.Fprintf(w, "      %s is used in: %s\n", wk.Member, strings.Join(wk.FoundIn, ", "))
+			case wk.Member != "" && len(wk.OutsideBlock) > 0 && len(wk.Parent) > 0:
+				fmt.Fprintf(w, "      %s is used in %s, but not inside a %s block\n", wk.Member, strings.Join(wk.OutsideBlock, ", "), parentList(wk.Parent))
+			case wk.Member != "" && len(wk.OutsideBlock) > 0:
+				fmt.Fprintf(w, "      %s is used in %s, but its parent block wasn't found there\n", wk.Member, strings.Join(wk.OutsideBlock, ", "))
 			case wk.Member != "":
 				fmt.Fprintf(w, "      %s isn't used in those files\n", wk.Member)
 			}
@@ -511,4 +517,9 @@ func shapes(ss []smithy.ShapeRef) []string {
 
 func short(sha string) string {
 	return sha[:min(len(sha), 10)]
+}
+
+// parentList names a member's possible parent blocks: "contextual_grounding_policy_config", or "a or b".
+func parentList(ps []string) string {
+	return strings.Join(ps, " or ")
 }
