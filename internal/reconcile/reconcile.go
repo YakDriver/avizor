@@ -731,11 +731,17 @@ func (r *Reconciler) otherServiceOnly(labels, want []string) bool {
 	return other
 }
 
+// isBot reports whether a GitHub login is a bot's, as dependabot[bot].
+func isBot(author string) bool {
+	return strings.HasSuffix(author, "[bot]")
+}
+
 // followReferences adds PRs that reference strongly matched issues. A tracking issue usually doesn't link the PR that
 // implements it, but the PR links the issue ("Closes #N"), so following that link finds work the input's own signals
 // miss. Only title and body references count; comment references are mostly "+1, see #N".
 //
 // The PR inherits the issue's strong match, so its category follows its own state: merged is "already implemented".
+// PRs by bots aren't followed: dependency updates quote upstream changelogs, whose #N refer to other repositories.
 // For an item, labels lists the item's service labels, and a PR labeled only with other services inherits a weak
 // match: a launch tracker often spans services, and its PRs for another service's half aren't the item's work. A PR
 // with no service label keeps the strong match.
@@ -785,7 +791,7 @@ func (r *Reconciler) followReferences(ctx context.Context, out []Candidate, comm
 	slices.Sort(numbers)
 	for _, n := range numbers {
 		is := records[n]
-		if is == nil || is.Kind != index.KindPR {
+		if is == nil || is.Kind != index.KindPR || isBot(is.Author) {
 			continue
 		}
 		i, ok := at[n]

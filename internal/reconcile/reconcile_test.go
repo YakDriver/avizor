@@ -464,7 +464,9 @@ func TestRunFollowsReferences(t *testing.T) {
 		{Number: 46000, Kind: index.KindPR, State: "closed", Merged: true, MergedAt: ts, Title: "r/aws_fsx_s3_access_point_attachment: new resource",
 			Body: "Closes #45362."},
 		// Open PR for #45362.
-		{Number: 46001, Kind: index.KindPR, State: "open", Title: "Docs tweak", Body: "Relates #45362."},
+		{Number: 46001, Kind: index.KindPR, State: "open", Title: "FSx access point attachment", Body: "### Relations\n\nResolves: https://github.com/hashicorp/terraform-provider-aws/issues/45362"},
+		// A dependency update quoting an upstream changelog, whose #45362 is another repository's (#39).
+		{Number: 46006, Kind: index.KindPR, State: "open", Author: "dependabot[bot]", Title: "Bump actions/setup-go", Body: "Fixes #45362 (upstream)."},
 		// An issue, not a PR, that references #45362.
 		{Number: 46002, Kind: index.KindIssue, State: "open", Title: "Question", Body: "Is #45362 done?"},
 		// A PR that references #30001, which matches only weakly.
@@ -500,7 +502,7 @@ func TestRunFollowsReferences(t *testing.T) {
 	}
 	for _, c := range res.Candidates {
 		switch c.Number {
-		case 46002, 46003, 46004:
+		case 46002, 46003, 46004, 46006:
 			if hasSignal(c, matchReferencesCandidate, "#45362") || c.Category != CategoryRelated {
 				t.Errorf("#%d should not be followed: %+v", c.Number, c)
 			}
