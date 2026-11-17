@@ -188,6 +188,7 @@ func TestCountsUseIndexes(t *testing.T) {
 		want  []string
 	}{
 		{countIssues + cond, cargs, []string{"COVERING INDEX issues_created"}},
+		{hiddenIssues, cargs, []string{"COVERING INDEX issues_created"}},
 		{statsQuery, nil, []string{"COVERING INDEX issues_kind", "COVERING INDEX signals_number"}},
 	} {
 		plan := queryPlan(t, st, tc.query, tc.args...)

@@ -464,41 +464,66 @@ func (s *Store) Search(ctx context.Context, terms []string, limit int) ([]Search
 	if err := s.db.QueryRowContext(ctx, countIssues+cond, cargs...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("counting documents: %w", err)
 	}
+	// Records this view can't see are dropped from FTS results here, instead of joining every hit to its issue row.
+	var hidden []int
+	if s.before != "" {
+		var err error
+		// Sorting here, not in SQL, lets the query read only the created_at index.
+		if hidden, err = s.numbers(ctx, hiddenIssues, s.before); err != nil {
+			return nil, fmt.Errorf("listing hidden issues: %w", err)
+		}
+		slices.Sort(hidden)
+	}
 
-	scores := map[int]float64{}
+	// scores is indexed by issue number. Hits are sorted by number, so the title and label hits of each term are
+	// merged with its hits in any column.
+	var scores []float64
 	for _, t := range terms {
-		any, err := s.matching(ctx, t, cond, cargs)
+		anyHits, err := s.matching(ctx, t, hidden)
 		if err != nil {
 			return nil, err
 		}
-		if len(any) == 0 {
+		if len(anyHits) == 0 {
 			continue
 		}
-		title, err := s.matching(ctx, "title : "+t, cond, cargs)
+		title, err := s.matching(ctx, "title : "+t, hidden)
 		if err != nil {
 			return nil, err
 		}
-		labels, err := s.matching(ctx, "labels : "+t, cond, cargs)
+		labels, err := s.matching(ctx, "labels : "+t, hidden)
 		if err != nil {
 			return nil, err
 		}
-		df := float64(len(any))
+		df := float64(len(anyHits))
 		idf := math.Log(1 + (float64(total)-df+0.5)/(df+0.5))
-		for n := range any {
+		if need := anyHits[len(anyHits)-1] + 1; need > len(scores) {
+			scores = append(scores, make([]float64, need-len(scores))...)
+		}
+		var ti, li int
+		for _, n := range anyHits {
+			for ti < len(title) && title[ti] < n {
+				ti++
+			}
+			for li < len(labels) && labels[li] < n {
+				li++
+			}
 			w := weightBody
 			switch {
-			case title[n]:
+			case ti < len(title) && title[ti] == n:
 				w = weightTitle
-			case labels[n]:
+			case li < len(labels) && labels[li] == n:
 				w = weightLabels
 			}
 			scores[n] += idf * w
 		}
 	}
 
-	out := make([]SearchHit, 0, len(scores))
+	// Every hit scores above 0, since idf is.
+	var out []SearchHit
 	for n, sc := range scores {
-		out = append(out, SearchHit{Number: n, Rank: -sc})
+		if sc != 0 {
+			out = append(out, SearchHit{Number: n, Rank: -sc})
+		}
 	}
 	slices.SortFunc(out, func(a, b SearchHit) int {
 		if c := cmp.Compare(a.Rank, b.Rank); c != 0 {
@@ -510,22 +535,43 @@ func (s *Store) Search(ctx context.Context, terms []string, limit int) ([]Search
 	return out[:min(limit, len(out))], nil
 }
 
-// matching returns the visible issues matching an FTS5 query.
-func (s *Store) matching(ctx context.Context, q, cond string, cargs []any) (map[int]bool, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT issues_fts.rowid FROM issues_fts JOIN issues i ON i.number = issues_fts.rowid
-WHERE issues_fts MATCH ?`+cond, append([]any{q}, cargs...)...)
+// matching returns the issues matching an FTS5 query, sorted by number, without those in hidden (also sorted).
+func (s *Store) matching(ctx context.Context, q string, hidden []int) ([]int, error) {
+	hits, err := s.numbers(ctx, `SELECT rowid FROM issues_fts WHERE issues_fts MATCH ? ORDER BY rowid`, q)
 	if err != nil {
 		return nil, fmt.Errorf("searching %q: %w", q, err)
 	}
+	if len(hidden) == 0 {
+		return hits, nil
+	}
+	out := hits[:0]
+	h := 0
+	for _, n := range hits {
+		for h < len(hidden) && hidden[h] < n {
+			h++
+		}
+		if h < len(hidden) && hidden[h] == n {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+// numbers returns the integers in a query's only column.
+func (s *Store) numbers(ctx context.Context, query string, args ...any) ([]int, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
-	out := map[int]bool{}
+	var out []int
 	for rows.Next() {
 		var n int
 		if err := rows.Scan(&n); err != nil {
-			return nil, fmt.Errorf("scanning search hit: %w", err)
+			return nil, err
 		}
-		out[n] = true
+		out = append(out, n)
 	}
 	return out, rows.Err()
 }
@@ -552,6 +598,9 @@ type Stats struct {
 
 // countIssues counts the issues Search ranks; it takes the view's asOf condition.
 const countIssues = `SELECT COUNT(*) FROM issues i WHERE 1=1`
+
+// hiddenIssues lists the issues created after a view's time.
+const hiddenIssues = `SELECT number FROM issues WHERE created_at > ?`
 
 const statsQuery = `SELECT
 	(SELECT COUNT(*) FROM issues WHERE kind = 'issue'),
