@@ -73,6 +73,38 @@ func (r *Reconciler) RunItem(ctx context.Context, it *Item) (*Result, error) {
 	return r.run(ctx, in)
 }
 
+// ownEvidence reports whether a candidate has evidence for the item beyond a reference: a new operation among its
+// signals, a new member named in its title or body, of any strength, or a title naming a Terraform type for a noun a
+// new operation creates (aws_eventbridgev2_event_bus for CreateEventBus).
+func (it *Item) ownEvidence(c *Candidate, is *index.Issue) bool {
+	if len(it.memberMatches(is)) > 0 || slices.ContainsFunc(c.Signals, func(m Match) bool {
+		return m.Type == signal.KindOp && slices.Contains(it.NewOperations, m.Value)
+	}) {
+		return true
+	}
+	title := strings.ToLower(is.Title)
+	for _, op := range it.NewOperations {
+		for _, verb := range []string{"Create", "Put"} {
+			if noun, ok := strings.CutPrefix(op, verb); ok && noun != "" && typeNamesNoun(title, snakeCase(noun)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// typeNamesNoun reports whether title has a Terraform type name (aws_...) that ends in _noun.
+func typeNamesNoun(title, noun string) bool {
+	for _, m := range tfTypeRE.FindAllString(title, -1) {
+		if strings.HasSuffix(m, "_"+noun) {
+			return true
+		}
+	}
+	return false
+}
+
+var tfTypeRE = regexp.MustCompile(`\baws_[a-z0-9_]+`)
+
 // itemLabels returns the labels of a package and its sub-services. Trackers for EC2 features often carry only a
 // sub-service label, such as service/transitgateway.
 func (r *Reconciler) itemLabels(pkg string) []string {

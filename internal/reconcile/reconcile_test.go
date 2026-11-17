@@ -465,6 +465,8 @@ func TestRunFollowsReferences(t *testing.T) {
 			Body: "Closes #45362."},
 		// Open PR for #45362.
 		{Number: 46001, Kind: index.KindPR, State: "open", Title: "FSx access point attachment", Body: "### Relations\n\nResolves: https://github.com/hashicorp/terraform-provider-aws/issues/45362"},
+		// A PR that only relates to #45362 (#38).
+		{Number: 46005, Kind: index.KindPR, State: "open", Title: "Docs tweak", Body: "Relates #45362."},
 		// A dependency update quoting an upstream changelog, whose #45362 is another repository's (#39).
 		{Number: 46006, Kind: index.KindPR, State: "open", Author: "dependabot[bot]", Title: "Bump actions/setup-go", Body: "Fixes #45362 (upstream)."},
 		// An issue, not a PR, that references #45362.
@@ -506,6 +508,10 @@ func TestRunFollowsReferences(t *testing.T) {
 			if hasSignal(c, matchReferencesCandidate, "#45362") || c.Category != CategoryRelated {
 				t.Errorf("#%d should not be followed: %+v", c.Number, c)
 			}
+		case 46005:
+			if c.Category != CategoryRelated {
+				t.Errorf("#46005 = %s, want related: it only relates to #45362", c.Category)
+			}
 		}
 	}
 
@@ -518,6 +524,32 @@ func TestRunFollowsReferences(t *testing.T) {
 	for _, c := range res.Candidates {
 		if c.Number == 46000 || c.Number == 46001 {
 			t.Errorf("#%d returned before it was created", c.Number)
+		}
+	}
+}
+
+func TestClosedIssues(t *testing.T) {
+	t.Parallel()
+
+	text := `### Relations
+
+Closes #1
+Fixes: #2, #3 and #4.
+Resolves https://github.com/hashicorp/terraform-provider-aws/issues/5
+Part of #6
+closes https://github.com/other/repo/issues/7
+Relates #8
+Fixed a bug in #9's code
+Closes #0000`
+	got := closedIssues(text, "hashicorp/terraform-provider-aws")
+	for _, n := range []int{1, 2, 3, 4, 5, 6, 0} {
+		if !got[n] {
+			t.Errorf("#%d not closed", n)
+		}
+	}
+	for _, n := range []int{7, 8, 9} {
+		if got[n] {
+			t.Errorf("#%d closed, want not", n)
 		}
 	}
 }

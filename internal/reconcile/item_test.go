@@ -133,10 +133,17 @@ func TestRunItemSubServiceLabel(t *testing.T) {
 		{Number: 50614, Kind: index.KindIssue, State: "open", Labels: []string{"service/networkmanager"},
 			Title: "Cloud WAN 1:1 NAT", Body: "Uses ModifyTransitGatewayAttachmentNatConfiguration."},
 		{Number: 50669, Kind: index.KindPR, State: "open", Labels: []string{"service/transitgateway"},
-			Title: "New resource: aws_ec2_transit_gateway_attachment_nat_configuration", Body: "Relates #50613."},
+			Title: "New resource: aws_ec2_transit_gateway_attachment_nat_configuration", Body: "Closes #50613."},
 		{Number: 50689, Kind: index.KindPR, State: "open", Labels: []string{"service/networkmanager"},
 			Title: "New resource: aws_networkmanager_attachment_nat_configuration", Body: "Relates #50613."},
 		{Number: 50700, Kind: index.KindPR, State: "closed", Title: "Transit gateway NAT", Body: "Closes #50613."},
+		// PRs that only relate to #50613 (#38): with their own evidence for the item, and without.
+		{Number: 50672, Kind: index.KindPR, State: "open", Labels: []string{"service/transitgateway"},
+			Title: "d/aws_ec2_transit_gateway_attachment: Add attribute", Body: "Adds NatGatewaySupport. Relates #50613."},
+		{Number: 50683, Kind: index.KindPR, State: "open", Labels: []string{"service/transitgateway"},
+			Title: "New resource: aws_ec2_transit_gateway_nat_policy", Body: "Relates #50613."},
+		{Number: 50684, Kind: index.KindPR, State: "open", Labels: []string{"service/transitgateway"},
+			Title: "r/aws_ec2_transit_gateway: Fix docs", Body: "Relates #50613."},
 	} {
 		is.CreatedAt, is.UpdatedAt, is.URL = ts, ts, "https://github.com/"+repo+"/issues/"
 		if err := tx.UpsertIssue(ctx, is, 1); err != nil {
@@ -154,8 +161,9 @@ func TestRunItemSubServiceLabel(t *testing.T) {
 	r.Services = services.New(&services.Service{Package: "ec2", SubServices: []string{"transitgateway", "vpc"}})
 	res, err := r.RunItem(ctx, &Item{
 		ID: "sdk/ec2/release-1", Title: "EC2: 1:1 NAT", Text: "Adds 1:1 NAT.", Package: "ec2",
-		NewOperations: []string{"ModifyTransitGatewayAttachmentNatConfiguration"},
-		Request:       RequestChange, RequestBasis: "test",
+		NewOperations: []string{"ModifyTransitGatewayAttachmentNatConfiguration", "CreateTransitGatewayNatPolicy"},
+		NewMembers:    []string{"NatGatewaySupport"}, Published: ts.Add(-24 * time.Hour),
+		Request: RequestChange, RequestBasis: "test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -171,6 +179,14 @@ func TestRunItemSubServiceLabel(t *testing.T) {
 	}
 	if c := find(t, res.Candidates, 50689, ""); c.Category != CategoryRelated {
 		t.Errorf("#50689 = %s %+v, want related: it references #50613 but is labeled service/networkmanager", c.Category, c.Signals)
+	}
+	for _, n := range []int{50672, 50683} {
+		if c := find(t, res.Candidates, n, ""); c.Category != CategoryTracked {
+			t.Errorf("#%d = %s %+v, want already_tracked: it relates to #50613 and has its own evidence", n, c.Category, c.Signals)
+		}
+	}
+	if c := find(t, res.Candidates, 50684, ""); c.Category != CategoryRelated {
+		t.Errorf("#50684 = %s %+v, want related: it only relates to #50613", c.Category, c.Signals)
 	}
 	if c := find(t, res.Candidates, 50700, ""); c.Category != CategoryConsidered {
 		t.Errorf("#50700 = %s %+v, want previously_considered: a PR without service labels keeps the match", c.Category, c.Signals)
