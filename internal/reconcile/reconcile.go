@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/YakDriver/avizor/internal/config"
+	"github.com/YakDriver/avizor/internal/gitcmd"
 	"github.com/YakDriver/avizor/internal/index"
 	"github.com/YakDriver/avizor/internal/services"
 	"github.com/YakDriver/avizor/internal/signal"
@@ -72,6 +73,9 @@ type Reconciler struct {
 	// AsOf, if set, reconciles against the index as it was at that time. See index.Store.AsOf. Code search reflects
 	// the checkout as it is now, so callers usually set Options.NoCode with it.
 	AsOf time.Time
+	// Git runs git in the checkout. Share one across a run's reconcilers so the checkout's ref is read once. Nil runs
+	// every command.
+	Git *gitcmd.Cache
 
 	// view is Store, or Store.AsOf(AsOf), for the current run.
 	view     *index.Store
@@ -415,7 +419,7 @@ func (r *Reconciler) fillTarget(ctx context.Context, t *TargetInfo) error {
 		t.AsOf = r.AsOf.UTC().Format(time.RFC3339)
 	}
 	if t.Checkout != "" && !r.Options.NoCode {
-		t.CheckoutRef = checkoutRef(ctx, t.Checkout)
+		t.CheckoutRef = r.checkoutRef(ctx)
 	}
 	return nil
 }

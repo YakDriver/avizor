@@ -358,7 +358,7 @@ type itemResult struct {
 }
 
 func (c *common) candidatesItem(ctx context.Context, r *reconcile.Reconciler, id string, noCode bool, stdout, stderr io.Writer) error {
-	it, en, err := c.enrichedItem(ctx, r.Target, id, noCode, stderr)
+	it, en, err := c.enrichedItem(ctx, r, id, noCode, stderr)
 	if err != nil {
 		return err
 	}
@@ -375,8 +375,8 @@ func (c *common) candidatesItem(ctx context.Context, r *reconcile.Reconciler, id
 	return writeJSON(stdout, itemResult{Result: res, Enrichment: en})
 }
 
-// enrichedItem loads a pulled item and enriches it for t. Call after open.
-func (c *common) enrichedItem(ctx context.Context, t *config.Target, id string, noCode bool, stderr io.Writer) (*awssdk.Item, *enrich.Result, error) {
+// enrichedItem loads a pulled item and enriches it for r's target, with r's service map and git cache. Call after open.
+func (c *common) enrichedItem(ctx context.Context, r *reconcile.Reconciler, id string, noCode bool, stderr io.Writer) (*awssdk.Item, *enrich.Result, error) {
 	st, err := openItems(c.dir)
 	if err != nil {
 		return nil, nil, err
@@ -393,7 +393,7 @@ func (c *common) enrichedItem(ctx context.Context, t *config.Target, id string, 
 	if err != nil {
 		return nil, nil, err
 	}
-	return it, newEnricher(c.cfg, c.dir, t, it, noCode, stderr).Enrich(ctx, it), nil
+	return it, newEnricher(c.cfg, c.dir, r.Target, r.Services, r.Git, it, noCode, stderr).Enrich(ctx, it), nil
 }
 
 func defaultHTTP() *http.Client {

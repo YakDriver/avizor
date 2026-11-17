@@ -34,6 +34,9 @@ const (
 
 const schemaVersion = 2
 
+// maxConns is the most connections an open index uses.
+const maxConns = 8
+
 const schema = `
 CREATE TABLE IF NOT EXISTS meta (
 	key   TEXT PRIMARY KEY,
@@ -88,6 +91,9 @@ CREATE TABLE IF NOT EXISTS signals (
 CREATE INDEX IF NOT EXISTS signals_kind_value ON signals(kind, value);
 CREATE INDEX IF NOT EXISTS signals_number ON signals(number);
 CREATE INDEX IF NOT EXISTS signals_comment ON signals(comment_id) WHERE comment_id <> 0;
+-- Counts by kind (Stats) and as of a time (Search) read these instead of every row, bodies included.
+CREATE INDEX IF NOT EXISTS issues_kind ON issues(kind);
+CREATE INDEX IF NOT EXISTS issues_created ON issues(created_at);
 `
 
 // Issue is an indexed issue or pull request.
@@ -113,6 +119,8 @@ type Store struct {
 	db *sql.DB
 	// before, if set, limits queries to records and signals created at or before it. See AsOf.
 	before string
+	// searchHook, if set, runs in Search after hidden issues are listed. Tests use it to write mid-search.
+	searchHook func()
 }
 
 // AsOf returns a view of the store as it would have looked at t: issues created after t are hidden, signals from text
@@ -154,13 +162,17 @@ func Open(path string) (*Store, error) {
 	}
 	// Memory-map the database. Reconciliation runs many small queries over an index of hundreds of megabytes, and
 	// without mmap each page read is a pread syscall: they took 80% of an eval's CPU time. A larger page cache didn't
-	// help.
-	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=mmap_size(1073741824)"
+	// help. Write transactions take the write lock when they begin (_txlock), so one that reads first can't fail to
+	// upgrade while another connection writes.
+	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=mmap_size(1073741824)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening index %s: %w", path, err)
 	}
-	db.SetMaxOpenConns(1)
+	// WAL lets reads on other connections run during a write, so concurrent reconciliations (queue and eval jobs)
+	// don't wait on each other. Idle connections are kept, since each new one maps the file and reads the schema.
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
 
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
@@ -450,45 +462,80 @@ func (s *Store) Search(ctx context.Context, terms []string, limit int) ([]Search
 	}
 	cond, cargs := s.asOf("i.created_at")
 
+	// One read transaction is one snapshot, so the count, hidden issues, and hits agree while a sync writes. A
+	// read-only transaction doesn't take the write lock (_txlock applies only to writes).
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("beginning search: %w", err)
+	}
+	defer tx.Rollback()
+
 	var total int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues i WHERE 1=1`+cond, cargs...).Scan(&total); err != nil {
+	if err := tx.QueryRowContext(ctx, countIssues+cond, cargs...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("counting documents: %w", err)
 	}
+	// Records this view can't see are dropped from FTS results here, instead of joining every hit to its issue row.
+	var hidden []int
+	if s.before != "" {
+		// Sorting here, not in SQL, lets the query read only the created_at index.
+		if hidden, err = numbers(ctx, tx, hiddenIssues, s.before); err != nil {
+			return nil, fmt.Errorf("listing hidden issues: %w", err)
+		}
+		slices.Sort(hidden)
+	}
+	if s.searchHook != nil {
+		s.searchHook()
+	}
 
-	scores := map[int]float64{}
+	// scores is indexed by issue number. Hits are sorted by number, so the title and label hits of each term are
+	// merged with its hits in any column.
+	var scores []float64
 	for _, t := range terms {
-		any, err := s.matching(ctx, t, cond, cargs)
+		anyHits, err := matching(ctx, tx, t, hidden)
 		if err != nil {
 			return nil, err
 		}
-		if len(any) == 0 {
+		if len(anyHits) == 0 {
 			continue
 		}
-		title, err := s.matching(ctx, "title : "+t, cond, cargs)
+		title, err := matching(ctx, tx, "title : "+t, hidden)
 		if err != nil {
 			return nil, err
 		}
-		labels, err := s.matching(ctx, "labels : "+t, cond, cargs)
+		labels, err := matching(ctx, tx, "labels : "+t, hidden)
 		if err != nil {
 			return nil, err
 		}
-		df := float64(len(any))
+		df := float64(len(anyHits))
 		idf := math.Log(1 + (float64(total)-df+0.5)/(df+0.5))
-		for n := range any {
+		if need := anyHits[len(anyHits)-1] + 1; need > len(scores) {
+			scores = append(scores, make([]float64, need-len(scores))...)
+		}
+		var ti, li int
+		for _, n := range anyHits {
+			for ti < len(title) && title[ti] < n {
+				ti++
+			}
+			for li < len(labels) && labels[li] < n {
+				li++
+			}
 			w := weightBody
 			switch {
-			case title[n]:
+			case ti < len(title) && title[ti] == n:
 				w = weightTitle
-			case labels[n]:
+			case li < len(labels) && labels[li] == n:
 				w = weightLabels
 			}
 			scores[n] += idf * w
 		}
 	}
 
-	out := make([]SearchHit, 0, len(scores))
+	// Every hit scores above 0, since idf is.
+	var out []SearchHit
 	for n, sc := range scores {
-		out = append(out, SearchHit{Number: n, Rank: -sc})
+		if sc != 0 {
+			out = append(out, SearchHit{Number: n, Rank: -sc})
+		}
 	}
 	slices.SortFunc(out, func(a, b SearchHit) int {
 		if c := cmp.Compare(a.Rank, b.Rank); c != 0 {
@@ -500,22 +547,43 @@ func (s *Store) Search(ctx context.Context, terms []string, limit int) ([]Search
 	return out[:min(limit, len(out))], nil
 }
 
-// matching returns the visible issues matching an FTS5 query.
-func (s *Store) matching(ctx context.Context, q, cond string, cargs []any) (map[int]bool, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT issues_fts.rowid FROM issues_fts JOIN issues i ON i.number = issues_fts.rowid
-WHERE issues_fts MATCH ?`+cond, append([]any{q}, cargs...)...)
+// matching returns the issues matching an FTS5 query, sorted by number, without those in hidden (also sorted).
+func matching(ctx context.Context, tx *sql.Tx, q string, hidden []int) ([]int, error) {
+	hits, err := numbers(ctx, tx, `SELECT rowid FROM issues_fts WHERE issues_fts MATCH ? ORDER BY rowid`, q)
 	if err != nil {
 		return nil, fmt.Errorf("searching %q: %w", q, err)
 	}
+	if len(hidden) == 0 {
+		return hits, nil
+	}
+	out := hits[:0]
+	h := 0
+	for _, n := range hits {
+		for h < len(hidden) && hidden[h] < n {
+			h++
+		}
+		if h < len(hidden) && hidden[h] == n {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+// numbers returns the integers in a query's only column.
+func numbers(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]int, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
-	out := map[int]bool{}
+	var out []int
 	for rows.Next() {
 		var n int
 		if err := rows.Scan(&n); err != nil {
-			return nil, fmt.Errorf("scanning search hit: %w", err)
+			return nil, err
 		}
-		out[n] = true
+		out = append(out, n)
 	}
 	return out, rows.Err()
 }
@@ -540,13 +608,21 @@ type Stats struct {
 	Signals int `json:"signals"`
 }
 
+// countIssues counts the issues Search ranks; it takes the view's asOf condition.
+const countIssues = `SELECT COUNT(*) FROM issues i WHERE 1=1`
+
+// hiddenIssues lists the issues created after a view's time.
+const hiddenIssues = `SELECT number FROM issues WHERE created_at > ?`
+
+const statsQuery = `SELECT
+	(SELECT COUNT(*) FROM issues WHERE kind = 'issue'),
+	(SELECT COUNT(*) FROM issues WHERE kind = 'pr'),
+	(SELECT COUNT(*) FROM signals)`
+
 // Stats returns record counts.
 func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	var st Stats
-	err := s.db.QueryRowContext(ctx, `SELECT
-	(SELECT COUNT(*) FROM issues WHERE kind = 'issue'),
-	(SELECT COUNT(*) FROM issues WHERE kind = 'pr'),
-	(SELECT COUNT(*) FROM signals)`).Scan(&st.Issues, &st.PRs, &st.Signals)
+	err := s.db.QueryRowContext(ctx, statsQuery).Scan(&st.Issues, &st.PRs, &st.Signals)
 	if err != nil {
 		return st, fmt.Errorf("reading stats: %w", err)
 	}

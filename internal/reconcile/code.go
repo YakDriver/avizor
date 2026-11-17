@@ -137,14 +137,15 @@ func (r *Reconciler) rg(ctx context.Context, args []string) ([]string, error) {
 }
 
 // checkoutRef returns "branch@shortsha" for the checkout, or "" if it isn't a git repository.
-func checkoutRef(ctx context.Context, dir string) string {
-	branch, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD").Output()
+func (r *Reconciler) checkoutRef(ctx context.Context) string {
+	dir := r.Target.Checkout
+	branch, err := r.Git.Output(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return ""
 	}
-	sha, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--short", "HEAD").Output()
+	sha, err := r.Git.Output(ctx, dir, "rev-parse", "--short", "HEAD")
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(branch)) + "@" + strings.TrimSpace(string(sha))
+	return strings.TrimSpace(branch) + "@" + strings.TrimSpace(sha)
 }

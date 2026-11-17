@@ -11,10 +11,10 @@ import (
 
 	"github.com/YakDriver/avizor"
 	"github.com/YakDriver/avizor/internal/awssdk"
-	"github.com/YakDriver/avizor/internal/config"
 	"github.com/YakDriver/avizor/internal/draft"
 	"github.com/YakDriver/avizor/internal/enrich"
 	"github.com/YakDriver/avizor/internal/eval"
+	"github.com/YakDriver/avizor/internal/gitcmd"
 	"github.com/YakDriver/avizor/internal/queue"
 	"github.com/YakDriver/avizor/internal/reconcile"
 )
@@ -64,12 +64,13 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		Target:   t,
 		Services: loadServices(t, stderr),
 		Options:  reconcile.Options{NoFetch: !*fetch, Version: version},
+		Git:      &gitcmd.Cache{},
 	}
 	c.operations(ctx, t, base, stderr)
 	if *fetch {
 		base.HTTP = defaultHTTP()
 	}
-	items := &evalItems{c: &c, t: t, stderr: stderr, enriched: map[string]*evalItem{}}
+	items := &evalItems{c: &c, r: base, stderr: stderr, enriched: map[string]*evalItem{}}
 	rep, err := (&eval.Runner{Base: base, Items: items, Jobs: *jobs}).Run(ctx, corpus, name)
 	if err != nil {
 		return err
@@ -180,8 +181,9 @@ func shortCategory(c string) string {
 // Enrichment searches the checkout only for cases with code = true. It's safe for concurrent use, and each item is
 // enriched once.
 type evalItems struct {
-	c      *common
-	t      *config.Target
+	c *common
+	// r supplies the target, service map, and git cache.
+	r      *reconcile.Reconciler
 	stderr io.Writer
 
 	mu       sync.Mutex
@@ -206,7 +208,7 @@ func (e *evalItems) enrich(ctx context.Context, id string, code bool) (*awssdk.I
 	}
 	e.mu.Unlock()
 	ei.once.Do(func() {
-		ei.it, ei.en, ei.err = e.c.enrichedItem(ctx, e.t, id, !code, e.stderr)
+		ei.it, ei.en, ei.err = e.c.enrichedItem(ctx, e.r, id, !code, e.stderr)
 	})
 	return ei.it, ei.en, ei.err
 }
@@ -224,7 +226,8 @@ func (e *evalItems) State(ctx context.Context, id string, code bool, rec *reconc
 	if err != nil {
 		return "", "", err
 	}
-	d, err := draft.New(it, en, rec, draft.Options{Repo: e.t.Repo, Checkout: e.t.Checkout, Prefix: e.t.TypePrefix, LabelPrefix: e.t.ServiceLabelPrefix})
+	t := e.r.Target
+	d, err := draft.New(it, en, rec, draft.Options{Repo: t.Repo, Checkout: t.Checkout, Prefix: t.TypePrefix, LabelPrefix: t.ServiceLabelPrefix})
 	if err != nil {
 		return "", "", err
 	}

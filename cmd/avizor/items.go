@@ -17,8 +17,10 @@ import (
 	"github.com/YakDriver/avizor/internal/awssdk"
 	"github.com/YakDriver/avizor/internal/config"
 	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/gitcmd"
 	"github.com/YakDriver/avizor/internal/github"
 	"github.com/YakDriver/avizor/internal/items"
+	"github.com/YakDriver/avizor/internal/services"
 	"github.com/YakDriver/avizor/internal/smithy"
 	"github.com/YakDriver/avizor/internal/whatsnew"
 )
@@ -286,7 +288,7 @@ func cmdInspect(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		if err != nil {
 			return err
 		}
-		out.Enrichment = newEnricher(cfg, dir, t, it, *noCode, stderr).Enrich(ctx, it)
+		out.Enrichment = newEnricher(cfg, dir, t, loadServices(t, stderr), nil, it, *noCode, stderr).Enrich(ctx, it)
 	}
 	if c.format != "text" {
 		return writeJSON(stdout, out)
@@ -306,15 +308,16 @@ type inspected struct {
 	Enrichment *enrich.Result `json:"enrichment,omitempty"`
 }
 
-// newEnricher builds an enricher for t, reading models from the item's source clone if it exists.
-func newEnricher(cfg *config.Config, dir string, t *config.Target, it *awssdk.Item, noCode bool, stderr io.Writer) *enrich.Enricher {
+// newEnricher builds an enricher for t, reading models from the item's source clone if it exists. git may be nil.
+func newEnricher(cfg *config.Config, dir string, t *config.Target, svcs *services.Map, git *gitcmd.Cache, it *awssdk.Item, noCode bool, stderr io.Writer) *enrich.Enricher {
 	e := &enrich.Enricher{
 		Target:      t.Name,
-		Services:    loadServices(t, stderr),
+		Services:    svcs,
 		LabelPrefix: t.ServiceLabelPrefix,
 		Checkout:    t.Checkout,
 		Ref:         t.Ref,
 		NoCode:      noCode,
+		Git:         git,
 	}
 	if src, err := cfg.Source(it.Source); err == nil {
 		if p := src.ModelsPath(dir); dirExists(p) {

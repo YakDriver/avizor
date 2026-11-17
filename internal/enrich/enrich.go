@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/gitcmd"
 	"github.com/YakDriver/avizor/internal/services"
 	"github.com/YakDriver/avizor/internal/smithy"
 	"github.com/YakDriver/avizor/internal/whatsnew"
@@ -146,6 +147,9 @@ type Enricher struct {
 	NoCode bool
 	// Announcements matches the item to a What's New announcement. Nil skips that.
 	Announcements *whatsnew.Matcher
+	// Git runs git in the checkout. Share one across a run's enrichers so the checkout's go.mod and history are read
+	// once. Nil runs every command.
+	Git *gitcmd.Cache
 
 	rgPath string
 }
@@ -224,12 +228,12 @@ func (e *Enricher) ref() string {
 }
 
 func (e *Enricher) availability(ctx context.Context, it *awssdk.Item) (*Availability, error) {
-	commit, err := git(ctx, e.Checkout, "log", "-1", "--format=%H %cI", e.ref(), "--")
+	commit, err := e.Git.Output(ctx, e.Checkout, "log", "-1", "--format=%H %cI", e.ref(), "--")
 	if err != nil {
 		return nil, err
 	}
 	sha, when, _ := strings.Cut(strings.TrimSpace(commit), " ")
-	gomod, err := git(ctx, e.Checkout, "show", sha+":go.mod")
+	gomod, err := e.Git.Output(ctx, e.Checkout, "show", sha+":go.mod")
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +278,7 @@ func (e *Enricher) bump(ctx context.Context, head string, it *awssdk.Item) (*Bum
 		args = append(args, "--since="+it.Release.PublishedAt.Add(-24*time.Hour).UTC().Format(time.RFC3339))
 	}
 	args = append(args, head, "--", "go.mod")
-	out, err := git(ctx, e.Checkout, args...)
+	out, err := e.Git.Output(ctx, e.Checkout, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +287,7 @@ func (e *Enricher) bump(ctx context.Context, head string, it *awssdk.Item) (*Bum
 		if len(f) != 3 {
 			continue
 		}
-		gomod, err := git(ctx, e.Checkout, "show", f[0]+":go.mod")
+		gomod, err := e.Git.Output(ctx, e.Checkout, "show", f[0]+":go.mod")
 		if err != nil {
 			return nil, err
 		}
@@ -439,17 +443,6 @@ func (e *Enricher) usedBy(ctx context.Context, pkg string, ws []Work) error {
 		slices.Sort(ws[i].UsedBy)
 	}
 	return nil
-}
-
-func git(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
-	}
-	return string(out), nil
 }
 
 // itemText is the item's release notes, without the new-module marker.
