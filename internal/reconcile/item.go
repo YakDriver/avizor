@@ -68,8 +68,24 @@ func (r *Reconciler) RunItem(ctx context.Context, it *Item) (*Result, error) {
 	}
 	if it.Package != "" {
 		in.info.Labels = []string{r.Target.ServiceLabelPrefix + it.Package}
+		in.itemLabels = r.itemLabels(it.Package)
 	}
 	return r.run(ctx, in)
+}
+
+// itemLabels returns the labels of a package and its sub-services. Trackers for EC2 features often carry only a
+// sub-service label, such as service/transitgateway.
+func (r *Reconciler) itemLabels(pkg string) []string {
+	out := []string{r.Target.ServiceLabelPrefix + pkg}
+	if r.Services == nil {
+		return out
+	}
+	if svc := r.Services.ByPackage(pkg); svc != nil {
+		for _, sub := range svc.SubServices {
+			out = append(out, r.Target.ServiceLabelPrefix+sub)
+		}
+	}
+	return out
 }
 
 // itemSignals are the item's own exact signals, beyond those in its text.

@@ -26,6 +26,9 @@ type Service struct {
 	Module string `json:"module,omitempty"`
 	// NotImplemented is set for services the provider lists but doesn't implement.
 	NotImplemented bool `json:"not_implemented,omitempty"`
+	// SubServices are the names of sub_service blocks, parts of the package with their own labels, e.g.
+	// "transitgateway" and "vpc" for "ec2".
+	SubServices []string `json:"sub_services,omitempty"`
 	// Names are the strings matched in free text.
 	Names []string `json:"-"`
 }
@@ -62,8 +65,14 @@ type serviceBlock struct {
 	GoPackages     *goPackagesBlock     `hcl:"go_packages,block"`
 	Names          *namesBlock          `hcl:"names,block"`
 	ResourcePrefix *resourcePrefixBlock `hcl:"resource_prefix,block"`
+	SubServices    []subServiceBlock    `hcl:"sub_service,block"`
 	NotImplemented bool                 `hcl:"not_implemented,optional"`
 	Remain         hcl.Body             `hcl:",remain"`
+}
+
+type subServiceBlock struct {
+	Label  string   `hcl:"name,label"`
+	Remain hcl.Body `hcl:",remain"`
 }
 
 type sdkBlock struct {
@@ -101,6 +110,9 @@ func Load(path string) (*Map, error) {
 		// The block label is the provider package, its directory, and its label suffix. provider_package_correct is
 		// only the preferred name (for example "es" for "elasticsearch"), so it isn't used.
 		svc := &Service{Package: b.Label, Module: b.Label, NotImplemented: b.NotImplemented}
+		for _, sub := range b.SubServices {
+			svc.SubServices = append(svc.SubServices, sub.Label)
+		}
 		// go_packages.v2_package overrides the module; an empty one means the service has no v2 module.
 		if b.GoPackages != nil && b.GoPackages.V2Package != nil {
 			svc.Module = *b.GoPackages.V2Package

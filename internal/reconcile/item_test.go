@@ -2,10 +2,12 @@ package reconcile
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/YakDriver/avizor/internal/index"
+	"github.com/YakDriver/avizor/internal/services"
 )
 
 func TestSnakeCase(t *testing.T) {
@@ -106,5 +108,71 @@ func TestRunItemAnnouncement(t *testing.T) {
 		if c.Number == 43195 && c.Category != CategoryRelated {
 			t.Errorf("#43195 = %s %+v, want related: the announcement is only in a comment, and the label is s3control", c.Category, c.Signals)
 		}
+	}
+}
+
+// TestRunItemSubServiceLabel checks that a candidate with a sub-service label of the item's package keeps its strong
+// signals, and that one with another service's label doesn't, including PRs found by following references.
+func TestRunItemSubServiceLabel(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st, err := index.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ts := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
+	tx, err := st.Begin(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, is := range []*index.Issue{
+		{Number: 50613, Kind: index.KindIssue, State: "open", Labels: []string{"enhancement", "service/transitgateway"},
+			Title: "Transit Gateway 1:1 NAT", Body: "Uses ModifyTransitGatewayAttachmentNatConfiguration."},
+		{Number: 50614, Kind: index.KindIssue, State: "open", Labels: []string{"service/networkmanager"},
+			Title: "Cloud WAN 1:1 NAT", Body: "Uses ModifyTransitGatewayAttachmentNatConfiguration."},
+		{Number: 50669, Kind: index.KindPR, State: "open", Labels: []string{"service/transitgateway"},
+			Title: "New resource: aws_ec2_transit_gateway_attachment_nat_configuration", Body: "Relates #50613."},
+		{Number: 50689, Kind: index.KindPR, State: "open", Labels: []string{"service/networkmanager"},
+			Title: "New resource: aws_networkmanager_attachment_nat_configuration", Body: "Relates #50613."},
+		{Number: 50700, Kind: index.KindPR, State: "closed", Title: "Transit gateway NAT", Body: "Closes #50613."},
+	} {
+		is.CreatedAt, is.UpdatedAt, is.URL = ts, ts, "https://github.com/"+repo+"/issues/"
+		if err := tx.UpsertIssue(ctx, is, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetMeta(ctx, "last_sync", ts.Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+
+	r := reconciler(t, st, "")
+	r.Services = services.New(&services.Service{Package: "ec2", SubServices: []string{"transitgateway", "vpc"}})
+	res, err := r.RunItem(ctx, &Item{
+		ID: "sdk/ec2/release-1", Title: "EC2: 1:1 NAT", Text: "Adds 1:1 NAT.", Package: "ec2",
+		NewOperations: []string{"ModifyTransitGatewayAttachmentNatConfiguration"},
+		Request:       RequestChange, RequestBasis: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res.Candidates, 50613, ""); c.Category != CategoryTracked || !hasSignal(c, "label", "service/transitgateway") {
+		t.Errorf("#50613 = %s %+v, want already_tracked with a label signal: service/transitgateway is an ec2 sub-service", c.Category, c.Signals)
+	}
+	if c := find(t, res.Candidates, 50614, ""); c.Category != CategoryRelated {
+		t.Errorf("#50614 = %s %+v, want related: service/networkmanager isn't ec2", c.Category, c.Signals)
+	}
+	if c := find(t, res.Candidates, 50669, ""); c.Category != CategoryTracked {
+		t.Errorf("#50669 = %s %+v, want already_tracked through #50613", c.Category, c.Signals)
+	}
+	if c := find(t, res.Candidates, 50689, ""); c.Category != CategoryRelated {
+		t.Errorf("#50689 = %s %+v, want related: it references #50613 but is labeled service/networkmanager", c.Category, c.Signals)
+	}
+	if c := find(t, res.Candidates, 50700, ""); c.Category != CategoryConsidered {
+		t.Errorf("#50700 = %s %+v, want previously_considered: a PR without service labels keeps the match", c.Category, c.Signals)
 	}
 }

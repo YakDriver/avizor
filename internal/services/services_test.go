@@ -3,6 +3,7 @@ package services
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -64,6 +65,30 @@ service "amp" {
   provider_package_correct = "amp"
 }
 
+service "ec2" {
+  names {
+    provider_name_upper = "EC2"
+    human_friendly      = "EC2 (Elastic Compute Cloud)"
+  }
+  resource_prefix {
+    actual  = "aws_(ami|ec2_|instance)"
+    correct = "aws_ec2_"
+  }
+
+  sub_service "transitgateway" {
+    names {
+      provider_name_upper = "TransitGateway"
+      human_friendly      = "Transit Gateway"
+    }
+    split_package = "ec2"
+    exclude       = true
+  }
+
+  sub_service "vpc" {
+    split_package = "ec2"
+  }
+}
+
 service "gone" {
   names {
     provider_name_upper = "Gone"
@@ -117,8 +142,14 @@ func TestLoad(t *testing.T) {
 	t.Parallel()
 
 	m := load(t)
-	if m.Len() != 6 {
-		t.Errorf("Len = %d, want 6 (not_implemented skipped)", m.Len())
+	if m.Len() != 7 {
+		t.Errorf("Len = %d, want 7 (not_implemented skipped)", m.Len())
+	}
+	if s := m.ByPackage("ec2"); s == nil || !slices.Equal(s.SubServices, []string{"transitgateway", "vpc"}) {
+		t.Errorf("ByPackage(ec2) = %+v, want sub-services transitgateway, vpc", s)
+	}
+	if s := m.ByPackage("transitgateway"); s != nil {
+		t.Errorf("ByPackage(transitgateway) = %+v, want nil: sub-services aren't packages", s)
 	}
 	for name, want := range map[string]string{
 		"aws_fsx_file_system":        "fsx",
