@@ -145,7 +145,7 @@ avizor queue --format text
 avizor queue --since 90d --service s3 --all --format text
 ```
 
-`avizor queue` enriches and reconciles the items with API changes from the last 30 days and lists the ones that need a decision. Skipped items, including constraint changes, aren't queued even with `--all`; list them with `avizor items --status skipped`. It runs 4 items at a time (`--jobs`), and 30 days takes about 15 seconds. Each entry has the inferred work, a draft title, the announcement, and up to 3 related issues and PRs.
+`avizor queue` enriches and reconciles the items with API changes from the last 30 days and lists the ones that need a decision. Skipped items, including constraint changes, aren't queued even with `--all`; list them with `avizor items --status skipped`. It runs 4 items at a time (`--jobs`), and 30 days takes about 10 seconds. Each entry has the inferred work, a draft title, the announcement, and up to 3 related issues and PRs.
 
 | State | Shown | Meaning |
 |---|---|---|
