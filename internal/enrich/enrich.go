@@ -119,8 +119,12 @@ type Work struct {
 	UsedBy []string `json:"used_by,omitempty"`
 	// Member is the likely Terraform name of a new argument of a write operation, and FoundIn the UsedBy files that
 	// already use it. A name found for another field matches too, so FoundIn suggests, not proves, the argument exists.
-	Member  string   `json:"member,omitempty"`
-	FoundIn []string `json:"found_in,omitempty"`
+	// For a member of a nested structure, FoundIn counts only uses inside the parent's block (Parent), and files that
+	// use the name only elsewhere are in OutsideBlock.
+	Member       string   `json:"member,omitempty"`
+	FoundIn      []string `json:"found_in,omitempty"`
+	Parent       []string `json:"parent,omitempty"`
+	OutsideBlock []string `json:"outside_block,omitempty"`
 	// SharedName is set for a new member when another shape already had a member of that name, as when an update
 	// request gains a member its create request has. Text naming it is likely about the existing member.
 	SharedName bool `json:"shared_name,omitempty"`
@@ -189,7 +193,7 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 			warnf("code search: %v", err)
 		} else {
 			res.CodeSearched = modelOK
-			e.findMembers(res.Work)
+			e.findMembers(res.Work, model)
 		}
 	}
 	return res
