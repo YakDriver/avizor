@@ -59,7 +59,14 @@ func MemberNames(member string) []string {
 // findMembers records, for each new argument of a write operation, its likely Terraform name and the files calling
 // its operations that already use that name, as a quoted string or a names.Attr constant. It's evidence that the
 // argument is implemented; a name found for another field gives a false match, so a match never hides work by itself.
-func (e *Enricher) findMembers(ws []Work) {
+//
+// A member of a nested structure counts only inside its parent's block: the schema entry or the model struct of a
+// Terraform name for a member that targets the structure. Common nested names such as tier_config are often on
+// another block of the same file. Providers flatten two kinds of shape into the block above, so when the file has no
+// block for the parent, the check moves up a level: from a union, whose members become blocks of its parent, and from
+// a structure that an operation's input wraps (its only structure or union member), whose members become top-level
+// arguments and count anywhere in the file. Otherwise a name used elsewhere in the file doesn't count. With no model, the whole file counts.
+func (e *Enricher) findMembers(ws []Work, m *smithy.Model) {
 	attrs := attrConstants(e.Checkout)
 	files := map[string]string{}
 	read := func(f string) string {
@@ -70,23 +77,245 @@ func (e *Enricher) findMembers(ws []Work) {
 		files[f] = string(b)
 		return files[f]
 	}
+	inputs := operationInputs(m)
 	for i := range ws {
 		w := &ws[i]
 		if w.Kind != WorkNewArgument || len(w.UsedBy) == 0 || !writes(w.Operations) {
 			continue
 		}
-		_, member, _ := strings.Cut(w.Subject, ".")
+		shape, member, _ := strings.Cut(w.Subject, ".")
 		names := MemberNames(member)
 		w.Member = names[0]
+		nested := m != nil && !inputs[shape]
+		if nested {
+			_, w.Parent = parents(m, []string{shape})
+		}
 		for _, f := range w.UsedBy {
 			src := read(f)
-			if slices.ContainsFunc(names, func(n string) bool {
-				return strings.Contains(src, `"`+n+`"`) || (attrs[n] != "" && hasIdent(src, "names."+attrs[n]))
-			}) {
+			uses := func(s string) bool {
+				return slices.ContainsFunc(names, func(n string) bool {
+					return strings.Contains(s, `"`+n+`"`) || (attrs[n] != "" && hasIdent(s, "names."+attrs[n]))
+				})
+			}
+			switch {
+			case !uses(src):
+			case !nested || inBlock(src, m, shape, inputs, attrs, uses):
 				w.FoundIn = append(w.FoundIn, f)
+			default:
+				w.OutsideBlock = append(w.OutsideBlock, f)
 			}
 		}
 	}
+}
+
+// maxClimb is how many levels above a member's shape inBlock looks for a block in the file.
+const maxClimb = 4
+
+// inBlock reports whether uses matches inside a block of shape's parent in src. When src has no block for a parent,
+// it moves up a level only through flattened shapes; see findMembers.
+func inBlock(src string, m *smithy.Model, shape string, inputs map[string]bool, attrs map[string]string, uses func(string) bool) bool {
+	level := []string{shape}
+	for range maxClimb {
+		up, names := parents(m, level)
+		if bs := blocks(src, names, attrs); len(bs) > 0 {
+			return slices.ContainsFunc(bs, uses)
+		}
+		if slices.ContainsFunc(up, func(s string) bool { return inputs[s] && wraps(m, s, level) }) {
+			return true
+		}
+		if len(up) == 0 || !slices.ContainsFunc(level, func(s string) bool { return m.Shapes[s].Type == smithy.TypeUnion }) {
+			return false
+		}
+		level = up
+	}
+	return false
+}
+
+// wraps reports whether the only structure or union member of input targets one of shapes, as
+// CreatePrivateVirtualInterfaceInput wraps NewPrivateVirtualInterface.
+func wraps(m *smithy.Model, input string, shapes []string) bool {
+	var nested []string
+	for _, target := range m.Shapes[input].Members {
+		if t := m.Shapes[target].Type; t == smithy.TypeStructure || t == smithy.TypeUnion {
+			nested = append(nested, target)
+		}
+	}
+	return len(nested) == 1 && slices.Contains(shapes, nested[0])
+}
+
+// operationInputs returns the model's operation input shapes. Their members are top-level arguments.
+func operationInputs(m *smithy.Model) map[string]bool {
+	out := map[string]bool{}
+	if m == nil {
+		return out
+	}
+	for _, op := range m.Operations() {
+		if in := m.Shapes[op].Input; in != "" {
+			out[in] = true
+		}
+	}
+	return out
+}
+
+// parents returns the structures and unions with a member that targets one of shapes, directly or as the element of
+// a list or map, and those members' likely Terraform names, both sorted.
+func parents(m *smithy.Model, shapes []string) (up, names []string) {
+	for name, sh := range m.Shapes {
+		if sh.Type != smithy.TypeStructure && sh.Type != smithy.TypeUnion {
+			continue
+		}
+		for member, target := range sh.Members {
+			if !slices.Contains(shapes, target) && !slices.ContainsFunc(m.Shapes[target].Elems, func(e string) bool { return slices.Contains(shapes, e) }) {
+				continue
+			}
+			if !slices.Contains(up, name) {
+				up = append(up, name)
+			}
+			for _, n := range MemberNames(member) {
+				if !slices.Contains(names, n) {
+					names = append(names, n)
+				}
+			}
+		}
+	}
+	slices.Sort(up)
+	slices.Sort(names)
+	return up, names
+}
+
+var (
+	// genericRE finds the type argument of a generic type, as in ListNestedObjectValueOf[fooModel].
+	genericRE = regexp.MustCompile(`\[\s*\*?([A-Za-z_]\w*)\s*\]`)
+	identRE   = regexp.MustCompile(`^\s*\*?([A-Za-z_]\w*)`)
+)
+
+// blocks returns the parts of src that hold a block named by one of names: the value of each schema map entry with
+// that key, and the struct each model field tagged tfsdk:"name" refers to.
+func blocks(src string, names []string, attrs map[string]string) []string {
+	var out []string
+	structOf := func(typ string) {
+		if t := genericRE.FindStringSubmatch(typ); t != nil {
+			typ = t[1]
+		} else if t := identRE.FindStringSubmatch(typ); t != nil {
+			typ = t[1]
+		}
+		if body, ok := structBody(src, typ); ok {
+			out = append(out, body)
+		}
+	}
+	for _, n := range names {
+		keys := []string{`"` + n + `"`}
+		if attrs[n] != "" {
+			keys = append(keys, "names."+attrs[n])
+		}
+		for _, key := range keys {
+			for i := 0; ; {
+				j := strings.Index(src[i:], key)
+				if j < 0 {
+					break
+				}
+				start := i + j + len(key)
+				i = start
+				if key[0] != '"' && start < len(src) && isIdentByte(src[start]) {
+					continue
+				}
+				rest := strings.TrimLeft(src[start:], " \t")
+				if !strings.HasPrefix(rest, ":") {
+					continue
+				}
+				value := rest[1:]
+				if v, ok := entryValue(value); ok {
+					out = append(out, v)
+					structOf(v)
+				}
+			}
+		}
+		tag := `tfsdk:"` + n + `"`
+		for _, line := range strings.Split(src, "\n") {
+			if !strings.Contains(line, tag) {
+				continue
+			}
+			// A model field: Name Type `tfsdk:"name"`.
+			if f := strings.Fields(strings.TrimSpace(line[:strings.Index(line, "`")])); len(f) == 2 {
+				structOf(f[1])
+			}
+		}
+	}
+	return out
+}
+
+// entryValue returns a map entry's value from just after its colon: up to the comma or closing brace that ends it,
+// with nested braces, brackets, parentheses, strings, and comments skipped.
+func entryValue(s string) (string, bool) {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '"', '`', '\'':
+			end := skipQuoted(s, i)
+			if end < 0 {
+				return "", false
+			}
+			i = end
+		case '/':
+			if i+1 < len(s) && (s[i+1] == '/' || s[i+1] == '*') {
+				i = skipComment(s, i)
+			}
+		case '{', '[', '(':
+			depth++
+		case '}', ']', ')':
+			if depth == 0 {
+				return s[:i], true
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				return s[:i], true
+			}
+		}
+	}
+	return "", false
+}
+
+// structBody returns the body of "type name struct { ... }" in src.
+func structBody(src, name string) (string, bool) {
+	loc := regexp.MustCompile(`(?m)^\s*(?:type\s+)?` + regexp.QuoteMeta(name) + `\s+struct\s*\{`).FindStringIndex(src)
+	if loc == nil {
+		return "", false
+	}
+	v, ok := entryValue(src[loc[1]:])
+	return v, ok
+}
+
+// skipQuoted returns the index of the quote closing the string or rune literal that starts at i, or -1.
+func skipQuoted(s string, i int) int {
+	q := s[i]
+	for j := i + 1; j < len(s); j++ {
+		switch {
+		case s[j] == '\\' && q != '`':
+			j++
+		case s[j] == q:
+			return j
+		}
+	}
+	return -1
+}
+
+// skipComment returns the index of the last byte of the comment that starts at i.
+func skipComment(s string, i int) int {
+	if s[i+1] == '/' {
+		if j := strings.IndexByte(s[i:], '\n'); j >= 0 {
+			return i + j
+		}
+		return len(s) - 1
+	}
+	if j := strings.Index(s[i+2:], "*/"); j >= 0 {
+		return i + 2 + j + 1
+	}
+	return len(s) - 1
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
 
 // existingMembers returns the member names of the model's structures and unions that the change didn't add.

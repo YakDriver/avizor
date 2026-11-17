@@ -378,7 +378,7 @@ func TestFindMembers(t *testing.T) {
 		// Inputs of reads are filters, not arguments.
 		{Kind: WorkNewArgument, Subject: "ListReq.Color", Operations: []string{"ListThings"}, UsedBy: []string{"thing.go"}},
 	}
-	(&Enricher{Checkout: dir}).findMembers(ws)
+	(&Enricher{Checkout: dir}).findMembers(ws, nil)
 
 	for i, want := range []struct {
 		member string
@@ -386,6 +386,138 @@ func TestFindMembers(t *testing.T) {
 	}{{"secondary_interfaces", []string{"thing.go"}}, {"kms_key_arn", []string{"other.go"}}, {"color", nil}, {"", nil}} {
 		if ws[i].Member != want.member || !slices.Equal(ws[i].FoundIn, want.found) {
 			t.Errorf("%s: member %q found in %q, want %q in %q", ws[i].Subject, ws[i].Member, ws[i].FoundIn, want.member, want.found)
+		}
+	}
+}
+
+// TestFindMembersBlock checks that a nested structure's member counts only inside its parent's block, from the schema
+// or the model struct, as in aws_bedrock_guardrail, where tier_config is on the content and topic policies only.
+func TestFindMembersBlock(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	src := `package bedrock
+
+func (r *guardrailResource) Schema() {
+	s := schema.Schema{
+		Blocks: map[string]schema.Block{
+			"content_policy_config": schema.ListNestedBlock{
+				NestedObject: schema.NestedBlockObject{
+					Attributes: map[string]schema.Attribute{
+						"tier_config": framework.SingleNestedChildObjectAttribute[contentTierModel](ctx), // "x", {
+					},
+				},
+			},
+			"contextual_grounding_policy_config": schema.ListNestedBlock{
+				NestedObject: schema.NestedBlockObject{
+					Blocks: map[string]schema.Block{
+						"filters": schema.ListNestedBlock{},
+					},
+				},
+			},
+			"word_policy_config": schema.ListNestedBlock{},
+			"sensitive_information_policy_config": schema.ListNestedBlock{},
+			"legacy": {
+				Type: schema.TypeList,
+				Elem: &schema.Resource{Schema: map[string]*schema.Schema{"mode": {Type: schema.TypeString}}},
+			},
+			"step": schema.ListNestedBlock{
+				NestedObject: schema.NestedBlockObject{
+					Blocks: map[string]schema.Block{
+						"lambda_config": lambdaBlock(ctx),
+					},
+				},
+			},
+			"model": schema.ListNestedBlock{
+				NestedObject: schema.NestedBlockObject{
+					Blocks: map[string]schema.Block{
+						"litellm_config": schema.ListNestedBlock{Attributes: map[string]schema.Attribute{"api_base": schema.StringAttribute{}}},
+					},
+				},
+			},
+			"top_level_size": schema.Int64Attribute{},
+		},
+	}
+}
+
+type guardrailModel struct {
+	ContentPolicy    fwtypes.ListNestedObjectValueOf[contentPolicyModel] ` + "`tfsdk:\"content_policy_config\"`" + `
+	GroundingPolicy  fwtypes.ListNestedObjectValueOf[groundingPolicyModel] ` + "`tfsdk:\"contextual_grounding_policy_config\"`" + `
+	WordPolicy       fwtypes.ListNestedObjectValueOf[wordPolicyModel] ` + "`tfsdk:\"word_policy_config\"`" + `
+}
+
+type groundingPolicyModel struct {
+	Filters fwtypes.ListNestedObjectValueOf[filterModel] ` + "`tfsdk:\"filters\"`" + `
+}
+
+type wordPolicyModel struct {
+	TierConfig fwtypes.ListNestedObjectValueOf[wordTierModel] ` + "`tfsdk:\"tier_config\"`" + `
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "guardrail.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := &smithy.Model{Shapes: map[string]smithy.Shape{
+		"CreateGuardrail":        {Type: smithy.TypeOperation, Input: "CreateGuardrailRequest"},
+		"CreateGuardrailRequest": {Type: smithy.TypeStructure, Members: map[string]string{"contentPolicyConfig": "ContentConfig", "contextualGroundingPolicyConfig": "GroundingConfig", "wordPolicyConfig": "WordConfig", "sensitiveInformationPolicyConfig": "SensitiveConfig", "legacy": "LegacyList", "name": "String", "steps": "StepList", "model": "ModelConfig", "newThing": "NewThing"}},
+		"CreateVIF":              {Type: smithy.TypeOperation, Input: "CreateVIFInput"},
+		"CreateVIFInput":         {Type: smithy.TypeStructure, Members: map[string]string{"connectionId": "String", "newVif": "NewVIF"}},
+		"NewVIF":                 {Type: smithy.TypeStructure, Members: map[string]string{"topLevelSize": "Integer"}},
+		"StepList":               {Type: "list", Elems: []string{"Step"}},
+		"Step":                   {Type: smithy.TypeStructure, Members: map[string]string{"executionBlockConfiguration": "ExecutionBlock"}},
+		"ExecutionBlock":         {Type: smithy.TypeUnion, Members: map[string]string{"lambdaConfig": "String", "rdsConfig": "String"}},
+		"ModelConfig":            {Type: smithy.TypeUnion, Members: map[string]string{"liteLlmConfig": "LiteLLM", "openAiModelConfig": "OpenAI"}},
+		"LiteLLM":                {Type: smithy.TypeStructure, Members: map[string]string{"apiBase": "String"}},
+		"OpenAI":                 {Type: smithy.TypeStructure, Members: map[string]string{"apiBase": "String"}},
+		"NewThing":               {Type: smithy.TypeStructure, Members: map[string]string{"topLevelSize": "Integer"}},
+		"ContentConfig":          {Type: smithy.TypeStructure, Members: map[string]string{"tierConfig": "Tier"}},
+		"GroundingConfig":        {Type: smithy.TypeStructure, Members: map[string]string{"filtersConfig": "Filters", "tierConfig": "Tier"}},
+		"WordConfig":             {Type: smithy.TypeStructure, Members: map[string]string{"tierConfig": "Tier"}},
+		"SensitiveConfig":        {Type: smithy.TypeStructure, Members: map[string]string{"tierConfig": "Tier"}},
+		"LegacyList":             {Type: "list", Elems: []string{"Legacy"}},
+		"Legacy":                 {Type: smithy.TypeStructure, Members: map[string]string{"mode": "String", "tierConfig": "Tier"}},
+	}}
+	op := []string{"CreateGuardrail"}
+	used := []string{"guardrail.go"}
+	ws := []Work{
+		{Kind: WorkNewArgument, Subject: "ContentConfig.tierConfig", Operations: op, UsedBy: used},
+		{Kind: WorkNewArgument, Subject: "GroundingConfig.tierConfig", Operations: op, UsedBy: used},
+		{Kind: WorkNewArgument, Subject: "WordConfig.tierConfig", Operations: op, UsedBy: used},
+		{Kind: WorkNewArgument, Subject: "SensitiveConfig.tierConfig", Operations: op, UsedBy: used},
+		{Kind: WorkNewArgument, Subject: "Legacy.mode", Operations: op, UsedBy: used},
+		{Kind: WorkNewArgument, Subject: "Legacy.tierConfig", Operations: op, UsedBy: used},
+		// An operation input's members are top-level arguments: the whole file counts.
+		{Kind: WorkNewArgument, Subject: "CreateGuardrailRequest.contentPolicyConfig", Operations: op, UsedBy: used},
+		// A union is flattened into its parent's block (step), so its members count there.
+		{Kind: WorkNewArgument, Subject: "ExecutionBlock.lambdaConfig", Operations: op, UsedBy: used},
+		// A structure with no block of its own (the provider names it openai_model_config) doesn't climb to model,
+		// where api_base is another structure's.
+		{Kind: WorkNewArgument, Subject: "OpenAI.apiBase", Operations: op, UsedBy: used},
+		// A structure with no block, beside other structures in the input, isn't flattened, as with EC2 Fleet's
+		// ReservedCapacityOptions.
+		{Kind: WorkNewArgument, Subject: "NewThing.topLevelSize", Operations: op, UsedBy: used},
+		// A structure an operation input wraps is flattened into top-level arguments.
+		{Kind: WorkNewArgument, Subject: "NewVIF.topLevelSize", Operations: []string{"CreateVIF"}, UsedBy: used},
+	}
+	(&Enricher{Checkout: dir}).findMembers(ws, m)
+
+	for i, want := range []struct {
+		found, outside []string
+	}{
+		{used, nil}, // schema entry
+		{nil, used}, // tier_config is only on other blocks
+		{used, nil}, // model struct
+		{nil, used}, // the parent's block has no tier_config
+		{used, nil}, // inline SDKv2 block of a list element
+		{nil, used},
+		{used, nil},
+		{used, nil},
+		{nil, used},
+		{nil, used},
+		{used, nil},
+	} {
+		if !slices.Equal(ws[i].FoundIn, want.found) || !slices.Equal(ws[i].OutsideBlock, want.outside) {
+			t.Errorf("%s (parent %q): found in %q, outside block %q; want %q, %q", ws[i].Subject, ws[i].Parent, ws[i].FoundIn, ws[i].OutsideBlock, want.found, want.outside)
 		}
 	}
 }
