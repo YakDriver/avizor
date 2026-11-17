@@ -1718,8 +1718,8 @@ case "item-covered-sample-athena-2026-11-06" {
   as_of = "2026-11-13T19:00:00Z"
   code  = true
   kind  = "item-covered-sample"
-  note  = "workgroup system_table_statuses argument has no code or issue"
-  state = "partial"
+  note  = "covered by #50887 and #50893; SystemTableStatuses is documented as read-only and ignored on write, so it isn't an argument (#25; relabeled from partial after seeing output)"
+  state = "covered"
   same  = [50887, 50893]
 }
 

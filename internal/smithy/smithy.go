@@ -35,6 +35,8 @@ type Shape struct {
 	Input, Output string
 	// Elems are a list's member target and a map's key and value targets.
 	Elems []string
+	// Docs are structure and union members' documentation, as written (HTML), for members that have it.
+	Docs map[string]string
 }
 
 type astModel struct {
@@ -83,6 +85,18 @@ func Parse(data []byte) (*Model, error) {
 			sh.Members = make(map[string]string, len(s.Members))
 			for mn, mem := range s.Members {
 				sh.Members[mn] = memberValue(s.Type, mn, mem)
+				if s.Type != TypeStructure && s.Type != TypeUnion {
+					continue
+				}
+				if raw, ok := mem.Traits["smithy.api#documentation"]; ok {
+					var doc string
+					if json.Unmarshal(raw, &doc) == nil && doc != "" {
+						if sh.Docs == nil {
+							sh.Docs = map[string]string{}
+						}
+						sh.Docs[mn] = doc
+					}
+				}
 			}
 		}
 		m.Shapes[name] = sh

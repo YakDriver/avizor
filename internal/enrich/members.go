@@ -1,6 +1,7 @@
 package enrich
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -317,6 +318,41 @@ func typeName(e ast.Expr) string {
 		return ""
 	}
 	return ""
+}
+
+var (
+	// notSettableRE finds documentation saying a member can't be set: "This field is read-only", "Read-only.", "ignored
+	// on write", "isn't accepted in CreateTrainingJob requests", "output-only". Looser wording ("cannot be changed",
+	// "the only valid value is") mostly describes real arguments, so it isn't matched.
+	notSettableRE = regexp.MustCompile(`(?i)\b(?:this|the)\s+(?:field|property|parameter|value|member|attribute)\s+is\s+read[- ]only\b|^(?:the\s+|a\s+)?read[- ]only\b|\bignored\s+(?:on|when|in|for|during)\s+(?:write|input|requests?|calling|\w*(?:Create|Update|Put)\w*)|\b(?:isn't|is\s+not)\s+accepted\s+in\b|\boutput[- ]only\b`)
+	tagRE         = regexp.MustCompile(`<[^>]*>`)
+	spaceRE       = regexp.MustCompile(`\s+`)
+)
+
+// markNotSettable turns new arguments whose documentation says they can't be set into attributes, quoting the
+// documentation in the basis. Athena's WorkGroupConfiguration.SystemTableStatuses is in the create and update input,
+// but "is ignored on write".
+func markNotSettable(ws []Work, m *smithy.Model) {
+	if m == nil {
+		return
+	}
+	for i := range ws {
+		w := &ws[i]
+		if w.Kind != WorkNewArgument {
+			continue
+		}
+		shape, member, ok := strings.Cut(w.Subject, ".")
+		if !ok {
+			continue
+		}
+		doc := strings.TrimSpace(spaceRE.ReplaceAllString(tagRE.ReplaceAllString(m.Shapes[shape].Docs[member], " "), " "))
+		loc := notSettableRE.FindStringIndex(doc)
+		if loc == nil {
+			continue
+		}
+		w.Kind = WorkNewAttribute
+		w.Basis = fmt.Sprintf("%s; documented as not settable (%q)", w.Basis, doc[loc[0]:loc[1]])
+	}
 }
 
 // existingMembers returns the member names of the model's structures and unions that the change didn't add.
