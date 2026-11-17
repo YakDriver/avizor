@@ -7,7 +7,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+	"unicode"
 
+	"github.com/YakDriver/avizor/internal/index"
 	"github.com/YakDriver/avizor/internal/signal"
 )
 
@@ -35,6 +38,17 @@ type Item struct {
 	ReleaseCommitURL string
 	// Request is RequestNewType or RequestChange, and RequestBasis why.
 	Request, RequestBasis string
+	// AnnouncementURL is the What's New post the change was matched to, if the match is confident. Like the release
+	// commit, a candidate citing it in its title or body, with the service label, is a strong match.
+	AnnouncementURL string
+	// NewMembers are API member names the change adds to existing shapes, such as Route53ResolvedIPValidation. A
+	// candidate created around the release (see memberWindow), with the service label, whose title names one is a
+	// strong match: as the API name, in snake_case, or in words ("Route 53 Resolved IP Validation"). Naming it only in
+	// the body is weak: config examples and lists of SDK fields mention members the issue isn't about. Single-word
+	// names like Name or Tags are too common to count.
+	NewMembers []string
+	// Published is when the change was released. Without it, member names don't count.
+	Published time.Time
 	// BumpPR is the target PR that brought the item's SDK version in, if known. It makes the change available but
 	// doesn't implement it, so it's only related, however strongly it matches.
 	BumpPR int
@@ -64,10 +78,116 @@ func (it *Item) signals() []signal.Signal {
 	for _, op := range slices.Concat(it.NewOperations, it.Operations) {
 		out = append(out, signal.Signal{Kind: signal.KindOp, Value: op})
 	}
-	if it.ReleaseCommitURL != "" {
-		out = append(out, signal.Signal{Kind: signal.KindURL, Value: signal.NormalizeURL(it.ReleaseCommitURL)})
+	for _, u := range []string{it.ReleaseCommitURL, it.AnnouncementURL} {
+		if u != "" {
+			out = append(out, signal.Signal{Kind: signal.KindURL, Value: signal.NormalizeURL(u)})
+		}
 	}
 	return out
+}
+
+// isAnnouncement reports whether sg is the item's matched announcement URL.
+func (it *Item) isAnnouncement(sg signal.Signal) bool {
+	return it.AnnouncementURL != "" && sg.Kind == signal.KindURL && sg.Value == signal.NormalizeURL(it.AnnouncementURL)
+}
+
+// A candidate counts for a member match only if it was created from memberGrace before the release to memberWindow
+// after it. What's New posts, and requests filed from them, can precede the SDK release by a day. Earlier issues can't
+// be about the new member. Much later ones usually mention it because it exists: in the eval, trackers came 0 to 33
+// days after the release, and follow-ups naming an implemented member came 145 days or more after.
+const (
+	memberGrace  = 48 * time.Hour
+	memberWindow = 60 * 24 * time.Hour
+)
+
+// MatchMember marks a candidate that names one of the item's new members.
+const MatchMember = "member"
+
+// identRE matches identifiers in text, including snake_case and camelCase names, and numbers ("Route 53").
+var identRE = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9_]*`)
+
+// memberMatches returns matches for the item's new members a candidate names: strong in its title, weak in its body.
+func (it *Item) memberMatches(is *index.Issue) []Match {
+	if len(it.NewMembers) == 0 || it.Published.IsZero() ||
+		is.CreatedAt.Before(it.Published.Add(-memberGrace)) || is.CreatedAt.After(it.Published.Add(memberWindow)) {
+		return nil
+	}
+	title := words(is.Title)
+	bodyIdents := map[string]bool{}
+	for _, tok := range identRE.FindAllString(is.Body, -1) {
+		bodyIdents[strings.ToLower(tok)] = true
+	}
+	var out []Match
+	for _, m := range it.NewMembers {
+		snake := snakeCase(m)
+		parts := words(m)
+		if len(parts) < 2 {
+			continue
+		}
+		if containsRun(title, strings.Join(parts, "")) {
+			out = append(out, Match{Type: MatchMember, Value: m, Where: index.WhereTitle, Strength: StrengthStrong})
+			continue
+		}
+		if bodyIdents[strings.ToLower(m)] || bodyIdents[snake] {
+			out = append(out, Match{Type: MatchMember, Value: m, Where: index.WhereBody, Strength: StrengthWeak})
+		}
+	}
+	return out
+}
+
+// words splits text into lowercase words at spaces, punctuation, underscores, and camelCase boundaries, and drops a
+// plural "s" so "tags" and "tag" compare equal: "Route53ResolvedIPValidation" -> route53, resolved, ip, validation.
+func words(text string) []string {
+	var out []string
+	for _, tok := range identRE.FindAllString(strings.ReplaceAll(text, "-", " "), -1) {
+		for w := range strings.SplitSeq(snakeCase(tok), "_") {
+			if len(w) > 3 {
+				w = strings.TrimSuffix(w, "s")
+			}
+			if w != "" {
+				out = append(out, w)
+			}
+		}
+	}
+	return out
+}
+
+// containsRun reports whether consecutive words concatenate to target, so a member matches only as whole words:
+// "Route 53 Resolved IP Validation" contains route53resolvedipvalidation, and "redaction configuration" doesn't
+// contain actionconfiguration.
+func containsRun(ws []string, target string) bool {
+	for i := range ws {
+		var b strings.Builder
+		for _, w := range ws[i:] {
+			b.WriteString(w)
+			s := b.String()
+			if s == target {
+				return true
+			}
+			if !strings.HasPrefix(target, s) {
+				break
+			}
+		}
+	}
+	return false
+}
+
+// snakeCase converts an API member name to snake_case: Route53ResolvedIPValidation -> route53_resolved_ip_validation.
+func snakeCase(s string) string {
+	var b strings.Builder
+	rs := []rune(s)
+	for i, r := range rs {
+		upper := unicode.IsUpper(r)
+		if upper && i > 0 {
+			prev := rs[i-1]
+			nextLower := i+1 < len(rs) && unicode.IsLower(rs[i+1])
+			if unicode.IsLower(prev) || unicode.IsDigit(prev) || (unicode.IsUpper(prev) && nextLower) {
+				b.WriteByte('_')
+			}
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
 }
 
 // isReleaseCommit reports whether sg is the item's release commit URL.
@@ -82,7 +202,7 @@ func (it *Item) strength(kind, value, where string) string {
 	switch {
 	case kind == signal.KindOp && slices.Contains(it.NewOperations, value):
 		return StrengthStrong
-	case it.isReleaseCommit(signal.Signal{Kind: kind, Value: value}) && where != "comment":
+	case (it.isReleaseCommit(signal.Signal{Kind: kind, Value: value}) || it.isAnnouncement(signal.Signal{Kind: kind, Value: value})) && where != "comment":
 		return StrengthStrong
 	}
 	return StrengthWeak
@@ -178,7 +298,7 @@ func requireLabel(c *Candidate, hasLabel bool) {
 		return
 	}
 	for i := range c.Signals {
-		if c.Signals[i].Type == signal.KindOp || c.Signals[i].Type == signal.KindURL {
+		if c.Signals[i].Type == signal.KindOp || c.Signals[i].Type == signal.KindURL || c.Signals[i].Type == MatchMember {
 			c.Signals[i].Strength = StrengthWeak
 		}
 	}

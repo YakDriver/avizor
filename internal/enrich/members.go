@@ -1,6 +1,9 @@
 package enrich
 
 import (
+	"github.com/YakDriver/avizor/internal/smithy"
+	"maps"
+
 	"os"
 	"path/filepath"
 	"regexp"
@@ -84,6 +87,95 @@ func (e *Enricher) findMembers(ws []Work) {
 			}
 		}
 	}
+}
+
+// existingMembers returns the member names of the model's structures and unions that the change didn't add.
+func existingMembers(d *smithy.Diff, m *smithy.Model) map[string]bool {
+	added := map[[2]string]bool{}
+	for _, mc := range d.AddedMembers {
+		added[[2]string{mc.Shape, mc.Member}] = true
+	}
+	newShape := map[string]bool{}
+	for _, sh := range d.AddedShapes {
+		newShape[sh.Name] = true
+	}
+	existing := map[string]bool{}
+	for name, sh := range m.Shapes {
+		if newShape[name] || (sh.Type != smithy.TypeStructure && sh.Type != smithy.TypeUnion) {
+			continue
+		}
+		for member := range sh.Members {
+			if !added[[2]string{name, member}] {
+				existing[member] = true
+			}
+		}
+	}
+	return existing
+}
+
+// markSharedNames sets SharedName on new members whose name another shape's existing member already has.
+func markSharedNames(ws []Work, d *smithy.Diff, m *smithy.Model) {
+	if d == nil || m == nil {
+		return
+	}
+	existing := existingMembers(d, m)
+	for i := range ws {
+		if ws[i].Kind != WorkNewArgument && ws[i].Kind != WorkNewAttribute {
+			continue
+		}
+		if _, member, ok := strings.Cut(ws[i].Subject, "."); ok && existing[member] {
+			ws[i].SharedName = true
+		}
+	}
+}
+
+// newMembers lists the member names a change introduces to existing shapes: new members from ws, and the members of
+// a new structure or union that a new member targets, as AlarmTagsPropagation in a new ActionConfiguration. Names an
+// existing shape already has are left out. Members of other new shapes belong to new operations, which their
+// operation names identify.
+func newMembers(ws []Work, d *smithy.Diff, m *smithy.Model) []string {
+	var out []string
+	add := func(name string) {
+		if !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	for _, w := range ws {
+		if (w.Kind == WorkNewArgument || w.Kind == WorkNewAttribute) && !w.SharedName {
+			if _, member, ok := strings.Cut(w.Subject, "."); ok {
+				add(member)
+			}
+		}
+	}
+	if d == nil || m == nil {
+		return out
+	}
+	newShape := map[string]bool{}
+	for _, sh := range d.AddedShapes {
+		newShape[sh.Name] = true
+	}
+	existing := existingMembers(d, m)
+	for _, w := range ws {
+		// A shared name is left out above, but its new target's members can still be new.
+		if w.Kind != WorkNewArgument && w.Kind != WorkNewAttribute {
+			continue
+		}
+		shape, member, ok := strings.Cut(w.Subject, ".")
+		if !ok {
+			continue
+		}
+		target := m.Shapes[shape].Members[member]
+		sh, ok := m.Shapes[target]
+		if !ok || !newShape[target] || (sh.Type != smithy.TypeStructure && sh.Type != smithy.TypeUnion) {
+			continue
+		}
+		for _, name := range slices.Sorted(maps.Keys(sh.Members)) {
+			if !existing[name] {
+				add(name)
+			}
+		}
+	}
+	return out
 }
 
 // hasIdent reports whether src contains id not followed by another identifier character, so names.AttrName doesn't

@@ -13,6 +13,7 @@ import (
 	"github.com/YakDriver/avizor/internal/awssdk"
 	"github.com/YakDriver/avizor/internal/services"
 	"github.com/YakDriver/avizor/internal/smithy"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 func TestWork(t *testing.T) {
@@ -385,6 +386,52 @@ func TestFindMembers(t *testing.T) {
 	}{{"secondary_interfaces", []string{"thing.go"}}, {"kms_key_arn", []string{"other.go"}}, {"color", nil}, {"", nil}} {
 		if ws[i].Member != want.member || !slices.Equal(ws[i].FoundIn, want.found) {
 			t.Errorf("%s: member %q found in %q, want %q in %q", ws[i].Subject, ws[i].Member, ws[i].FoundIn, want.member, want.found)
+		}
+	}
+}
+
+func TestNewMembers(t *testing.T) {
+	t.Parallel()
+
+	m := &smithy.Model{Shapes: map[string]smithy.Shape{
+		"PutAlarm":               {Type: smithy.TypeOperation, Input: "PutAlarmInput"},
+		"PutAlarmInput":          {Type: smithy.TypeStructure, Members: map[string]string{"AlarmName": "String", "ActionConfiguration": "ActionConfiguration"}},
+		"ActionConfiguration":    {Type: smithy.TypeStructure, Members: map[string]string{"AlarmTagsPropagation": "Boolean", "AlarmName": "String"}},
+		"CreateThing":            {Type: smithy.TypeOperation, Input: "CreateThingInput"},
+		"CreateThingInput":       {Type: smithy.TypeStructure, Members: map[string]string{"ThingSetting": "String"}},
+		"CreateCEInput":          {Type: smithy.TypeStructure, Members: map[string]string{"EksConfiguration": "EksConfiguration"}},
+		"UpdateCEInput":          {Type: smithy.TypeStructure, Members: map[string]string{"EksConfiguration": "EksConfigurationUpdate"}},
+		"EksConfiguration":       {Type: smithy.TypeStructure, Members: map[string]string{"EksClusterArn": "String"}},
+		"EksConfigurationUpdate": {Type: smithy.TypeStructure, Members: map[string]string{"AccessEntry": "String", "EksClusterArn": "String"}},
+	}}
+	d := &smithy.Diff{
+		AddedOperations: []string{"CreateThing"},
+		AddedShapes:     []smithy.ShapeRef{{Name: "ActionConfiguration", Type: "structure"}, {Name: "CreateThingInput", Type: "structure"}, {Name: "EksConfigurationUpdate", Type: "structure"}},
+		AddedMembers:    []smithy.MemberChange{{Shape: "PutAlarmInput", Member: "ActionConfiguration"}, {Shape: "UpdateCEInput", Member: "EksConfiguration"}},
+	}
+	ws := []Work{
+		{Kind: WorkNewArgument, Subject: "PutAlarmInput.ActionConfiguration"},
+		{Kind: WorkNewArgument, Subject: "UpdateCEInput.EksConfiguration"},
+	}
+	markSharedNames(ws, d, m)
+	if ws[0].SharedName || !ws[1].SharedName {
+		t.Errorf("shared names = %v, %v; want false, true", ws[0].SharedName, ws[1].SharedName)
+	}
+	// AlarmTagsPropagation and AccessEntry are in new structures that new members target, even when the member's own
+	// name is shared, as EksConfiguration is with the create input. AlarmName and EksClusterArn already exist, and
+	// ThingSetting is a new operation's parameter.
+	if got, want := newMembers(ws, d, m), []string{"ActionConfiguration", "AlarmTagsPropagation", "AccessEntry"}; !slices.Equal(got, want) {
+		t.Errorf("newMembers = %v, want %v", got, want)
+	}
+}
+
+func TestReconcileItemAnnouncementFloor(t *testing.T) {
+	t.Parallel()
+
+	for score, want := range map[float64]string{0.42: "", 0.57: "https://aws.amazon.com/x"} {
+		res := &Result{Announcement: &whatsnew.Match{Announcement: whatsnew.Announcement{URL: "https://aws.amazon.com/x"}, Score: score}}
+		if got := ReconcileItem(&awssdk.Item{ID: "x"}, res).AnnouncementURL; got != want {
+			t.Errorf("score %.2f: announcement URL = %q, want %q", score, got, want)
 		}
 	}
 }
