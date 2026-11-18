@@ -88,11 +88,11 @@ type SpecDelete struct {
 }
 
 // SpecUpdate is how the resource is updated: Kind is "none", "put" (the create operation is a Put, which also
-// updates), "add_remove" (members to add and to remove), or "fields". Replaces is set when an update operation's documentation says the values it takes replace the current
-// ones.
+// updates), "add_remove" (members to add and to remove), or "fields". Replaces lists the update operations and input
+// members whose documentation says the values they take replace the current ones.
 type SpecUpdate struct {
 	Kind     string   `json:"kind"`
-	Replaces bool     `json:"replaces,omitempty"`
+	Replaces []string `json:"replaces,omitempty"`
 	Members  []string `json:"members,omitempty"`
 }
 
@@ -150,6 +150,10 @@ func buildSpec(m *smithy.Model, w Work, resourceTypes []string) *Spec {
 	ops := s.Operations
 
 	create, read := first(ops.Create), first(ops.Read)
+	if create == "" && read == "" {
+		// A list-only data source (ListContactFlowAliases) reads with its list.
+		read = first(ops.List)
+	}
 	updateInputs := map[string]bool{}
 	for _, op := range ops.Update {
 		for name := range m.Shapes[m.Shapes[op].Input].Members {
@@ -210,7 +214,15 @@ func buildSpec(m *smithy.Model, w Work, resourceTypes []string) *Spec {
 		}
 		s.Tagging = tagging(m, m.Shapes[create].Input, resourceTypes)
 	}
-	s.Notes = notes(m, slices.Concat(ops.Create, ops.Update, ops.Delete, ops.Read), slices.Concat(argInputs(m, ops.Create), argInputs(m, ops.Update)))
+	noteOps, noteInputs := slices.Concat(ops.Create, ops.Update, ops.Delete, ops.Read), slices.Concat(argInputs(m, ops.Create), argInputs(m, ops.Update))
+	if create == "" && read != "" {
+		// A data source's arguments are its read input.
+		if !slices.Contains(noteOps, read) {
+			noteOps = append(noteOps, read)
+		}
+		noteInputs = argInputs(m, []string{read})
+	}
+	s.Notes = notes(m, noteOps, noteInputs)
 	return s
 }
 
@@ -317,27 +329,28 @@ func sortedNames[V any](m map[string]V) []string {
 	return names
 }
 
-// readResult returns the structure a read operation's output describes: the output itself, or its one structure
-// member (DescribeWidgetOutput.Widget), or the element of its one list of structures (a plural Describe).
+// readResult returns the structure a read operation's output describes: its only member other than paging, when
+// that's a structure (DescribeWidgetOutput.Widget) or a list of structures (a plural Describe), or else the output
+// itself, as a flat output with the resource's fields.
 func readResult(m *smithy.Model, output string) string {
 	out := m.Shapes[output]
-	var structs []string
+	var payload []string
 	for _, name := range sortedNames(out.Members) {
-		if slices.Contains(pagingMembers, name) {
-			continue
-		}
-		t := out.Members[name]
-		switch m.TypeOf(t) {
-		case smithy.TypeStructure:
-			structs = append(structs, t)
-		case "list":
-			if e := m.Shapes[t].Elems; len(e) == 1 && m.TypeOf(e[0]) == smithy.TypeStructure {
-				structs = append(structs, e[0])
-			}
+		if !slices.Contains(pagingMembers, name) {
+			payload = append(payload, out.Members[name])
 		}
 	}
-	if len(structs) == 1 && len(out.Members) <= 3 {
-		return structs[0]
+	if len(payload) != 1 {
+		return output
+	}
+	t := payload[0]
+	switch m.TypeOf(t) {
+	case smithy.TypeStructure:
+		return t
+	case "list":
+		if e := m.Shapes[t].Elems; len(e) == 1 && m.TypeOf(e[0]) == smithy.TypeStructure {
+			return e[0]
+		}
 	}
 	return output
 }
@@ -435,13 +448,18 @@ func updateShape(m *smithy.Model, ops []string) *SpecUpdate {
 			}
 		}
 		if replacesRE.MatchString(text(m.Shapes[op].Doc)) {
-			u.Replaces = true
+			u.Replaces = append(u.Replaces, op)
+		}
+		for _, name := range sortedNames(in.Members) {
+			if replacesRE.MatchString(text(in.Docs[name])) {
+				u.Replaces = append(u.Replaces, m.Shapes[op].Input+"."+name)
+			}
 		}
 	}
 	return u
 }
 
-var replacesRE = regexp.MustCompile(`(?i)\breplaces? (all|the|any|its|their|your|current|existing)\b`)
+var replacesRE = regexp.MustCompile(`(?i)\breplaces? (?:all|the|any|its|their|your|current|existing)\b|\breplaces? [^.]{0,40}\bcurrent\b`)
 
 // tagging says how the resource is tagged.
 func tagging(m *smithy.Model, input string, resourceTypes []string) *SpecTags {
@@ -578,6 +596,13 @@ func constraintText(f Field) string {
 	bounds(c.RangeMin, c.RangeMax, "")
 	if c.Unique {
 		parts = append(parts, "unique")
+	}
+	if c.Pattern != "" {
+		p := c.Pattern
+		if len(p) > 60 {
+			p = p[:57] + "..."
+		}
+		parts = append(parts, "pattern "+p)
 	}
 	return strings.Join(parts, ", ")
 }

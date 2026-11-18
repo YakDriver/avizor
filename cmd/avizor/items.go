@@ -594,14 +594,14 @@ func writeSpecText(w io.Writer, s *enrich.Spec) {
 	if u := s.Update; u != nil {
 		switch u.Kind {
 		case "none":
-			fmt.Fprintf(w, "%supdate: no update operation; every argument is create-only\n", in)
+			fmt.Fprintf(w, "%supdate: no update operation\n", in)
 		case "put":
 			fmt.Fprintf(w, "%supdate: the create operation is a Put, which also updates\n", in)
 		case "add_remove":
 			fmt.Fprintf(w, "%supdate: add and remove (%s)\n", in, strings.Join(u.Members, ", "))
 		default:
-			if u.Replaces {
-				fmt.Fprintf(w, "%supdate: fields; the documentation says the values replace the current ones\n", in)
+			if len(u.Replaces) > 0 {
+				fmt.Fprintf(w, "%supdate: fields; the documentation says values replace the current ones (%s)\n", in, strings.Join(u.Replaces, ", "))
 			} else {
 				fmt.Fprintf(w, "%supdate: fields\n", in)
 			}

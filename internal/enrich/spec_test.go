@@ -27,7 +27,8 @@ const specModel = `{
       "Tags": {"target": "com.amazonaws.x#TagList"}}},
     "com.amazonaws.x#UpdateRouterRequest": {"type": "structure", "members": {
       "RouterName": {"target": "com.amazonaws.x#Name", "traits": {"smithy.api#required": {}}},
-      "Targets": {"target": "com.amazonaws.x#Targets", "traits": {"smithy.api#required": {}}}}},
+      "Targets": {"target": "com.amazonaws.x#Targets", "traits": {"smithy.api#required": {},
+        "smithy.api#documentation": "<p>The complete list of targets. This list replaces the current set.</p>"}}}},
     "com.amazonaws.x#DescribeRouterRequest": {"type": "structure", "members": {
       "RouterName": {"target": "com.amazonaws.x#Name", "traits": {"smithy.api#required": {}}}}},
     "com.amazonaws.x#DescribeRouterOutput": {"type": "structure", "members": {
@@ -38,7 +39,7 @@ const specModel = `{
       "StatusReason": {"target": "smithy.api#String"}}},
     "com.amazonaws.x#DeleteRouterRequest": {"type": "structure", "members": {
       "RouterName": {"target": "com.amazonaws.x#Name", "traits": {"smithy.api#required": {}}}}},
-    "com.amazonaws.x#Name": {"type": "string", "traits": {"smithy.api#length": {"min": 1, "max": 63}}},
+    "com.amazonaws.x#Name": {"type": "string", "traits": {"smithy.api#length": {"min": 1, "max": 63}, "smithy.api#pattern": "^[a-z-]+$"}},
     "com.amazonaws.x#Targets": {"type": "list", "member": {"target": "com.amazonaws.x#Target"}, "traits": {"smithy.api#length": {"min": 1, "max": 20}}},
     "com.amazonaws.x#Target": {"type": "structure", "members": {
       "Name": {"target": "com.amazonaws.x#Name", "traits": {"smithy.api#required": {}}},
@@ -56,6 +57,14 @@ const specModel = `{
     "com.amazonaws.x#TagList": {"type": "list", "member": {"target": "com.amazonaws.x#Tag"}},
     "com.amazonaws.x#Tag": {"type": "structure", "members": {"Key": {"target": "smithy.api#String"}, "Value": {"target": "smithy.api#String"}}},
 
+    "com.amazonaws.x#ListAliases": {"type": "operation", "input": {"target": "com.amazonaws.x#ListAliasesRequest"}, "output": {"target": "com.amazonaws.x#ListAliasesResponse"}},
+    "com.amazonaws.x#ListAliasesRequest": {"type": "structure", "members": {
+      "FlowId": {"target": "smithy.api#String", "traits": {"smithy.api#required": {}, "smithy.api#documentation": "<p>The flow. You can't change it after you create the alias.</p>"}},
+      "NextToken": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#ListAliasesResponse": {"type": "structure", "members": {
+      "Aliases": {"target": "com.amazonaws.x#AliasList"}, "NextToken": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#AliasList": {"type": "list", "member": {"target": "com.amazonaws.x#Alias"}},
+    "com.amazonaws.x#Alias": {"type": "structure", "members": {"AliasArn": {"target": "smithy.api#String"}}},
     "com.amazonaws.x#CreatePolicy": {"type": "operation", "input": {"target": "com.amazonaws.x#CreatePolicyRequest"}},
     "com.amazonaws.x#ModifyPolicy": {"type": "operation", "input": {"target": "com.amazonaws.x#ModifyPolicyRequest"}},
     "com.amazonaws.x#DeletePolicies": {"type": "operation", "input": {"target": "com.amazonaws.x#DeletePoliciesRequest"}},
@@ -88,7 +97,7 @@ func TestBuildSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := &smithy.Diff{
-		AddedOperations: []string{"CreateRouter", "DescribeRouter", "UpdateRouter", "DeleteRouter", "ListRouters",
+		AddedOperations: []string{"CreateRouter", "DescribeRouter", "UpdateRouter", "DeleteRouter", "ListRouters", "ListAliases",
 			"CreatePolicy", "ModifyPolicy", "DeletePolicies", "DescribePolicies"},
 		AddedEnumValues: []smithy.MemberChange{{Shape: "ResourceType", Member: "FCA", Value: "fca-policy"}},
 	}
@@ -100,8 +109,15 @@ func TestBuildSpec(t *testing.T) {
 			byNoun[w.Subject] = w.Spec
 		}
 	}
-	if len(byNoun) != 2 {
-		t.Fatalf("specs for %v, want Router and Policy (the plural delete and describe join Policy)", ws)
+	if len(byNoun) != 3 {
+		t.Fatalf("specs for %v, want Router, Alias, and Policy (the plural delete and describe join Policy)", ws)
+	}
+
+	// A list-only data source reads with its list.
+	a := byNoun["Alias"]
+	if len(a.Arguments) != 1 || a.Arguments[0].Member != "FlowId" || len(a.Attributes) != 1 || a.Attributes[0].Member != "AliasArn" ||
+		len(a.Notes) != 1 || a.Notes[0].Source != "ListAliasesRequest.FlowId" {
+		t.Errorf("Alias spec = %+v", a)
 	}
 
 	r := byNoun["Router"]
@@ -119,7 +135,7 @@ func TestBuildSpec(t *testing.T) {
 	if _, ok := args["ClientToken"]; ok {
 		t.Error("ClientToken is an argument; idempotency tokens aren't")
 	}
-	if a := args["RouterName"]; !a.Required || !a.CreateOnly || a.Name != "router_name" || constraintText(a) != "1 to 63 characters" {
+	if a := args["RouterName"]; !a.Required || !a.CreateOnly || a.Name != "router_name" || constraintText(a) != "1 to 63 characters, pattern ^[a-z-]+$" {
 		t.Errorf("RouterName = %+v (%s)", a, constraintText(a))
 	}
 	targets := args["Targets"]
@@ -153,7 +169,7 @@ func TestBuildSpec(t *testing.T) {
 		!slices.Equal(st.Delete, []string{"Deleting"}) || st.Reason != "StatusReason" {
 		t.Errorf("Router status = %+v", r.Status)
 	}
-	if r.Delete.Kind != "delete" || r.Delete.Plural || r.Update.Kind != "fields" || !r.Update.Replaces || r.Tagging.Kind != "tags" {
+	if r.Delete.Kind != "delete" || r.Delete.Plural || r.Update.Kind != "fields" || !slices.Equal(r.Update.Replaces, []string{"UpdateRouter", "UpdateRouterRequest.Targets"}) || r.Tagging.Kind != "tags" {
 		t.Errorf("Router delete %+v, update %+v, tagging %+v", r.Delete, r.Update, r.Tagging)
 	}
 	if !slices.ContainsFunc(r.Notes, func(n SpecNote) bool { return n.Source == "UpdateRouter" }) ||
