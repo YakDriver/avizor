@@ -460,6 +460,11 @@ func (e *Enricher) usedBy(ctx context.Context, pkg string, ws []Work) error {
 }
 
 // itemText is the item's release notes, without the new-module marker.
+// AnnouncementQuery is what an item's announcement is matched on: its release notes and its service's name.
+func AnnouncementQuery(it *awssdk.Item) (text, service string) {
+	return itemText(it), cmp.Or(it.Service.SDKID, it.Service.Module)
+}
+
 func itemText(it *awssdk.Item) string {
 	var notes []string
 	for _, n := range it.Notes {

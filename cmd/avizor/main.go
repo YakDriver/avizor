@@ -37,6 +37,7 @@ Usage:
   avizor pull [flags] [source]                Pull new items and announcements (default: every source).
   avizor items [flags]                        List pulled items.
   avizor inspect [flags] <item-id>            Show an item's evidence.
+  avizor brief [flags] <item-id>...           Show what deciding an item needs: state, work, candidates, announcements.
   avizor draft [flags] <item-id>              Draft a new issue for an item.
   avizor queue [flags]                        List recent items that need a decision.
   avizor decide [flags] <item-id> <decision> [issue...]
@@ -94,6 +95,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return cmdDraft(ctx, args[1:], stdout, stderr)
 	case "inspect":
 		return cmdInspect(ctx, args[1:], stdout, stderr)
+	case "brief":
+		return cmdBrief(ctx, args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, "avizor", version)
 		return nil
