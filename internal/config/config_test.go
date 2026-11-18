@@ -91,8 +91,9 @@ target "tfaws" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Sources) != 2 || cfg.Sources[1].Name != DefaultWhatsNewName || cfg.Sources[1].Type != SourceAWSWhatsNew ||
-		cfg.Sources[1].URL != DefaultWhatsNewURL || cfg.Sources[1].Start != DefaultStart {
+	if len(cfg.Sources) != 3 || cfg.Sources[1].Name != DefaultWhatsNewName || cfg.Sources[1].Type != SourceAWSWhatsNew ||
+		cfg.Sources[1].URL != DefaultWhatsNewURL || cfg.Sources[1].Start != DefaultStart ||
+		cfg.Sources[2].Name != DefaultBlogsName || cfg.Sources[2].Type != SourceAWSBlogs || cfg.Sources[2].URL != DefaultBlogsURL {
 		t.Errorf("default sources = %+v", cfg.Sources)
 	}
 	s, err := cfg.Source(DefaultSourceName)

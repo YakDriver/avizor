@@ -130,6 +130,16 @@ A match is a guess ([measurements](docs/design/avizor.md#step-4-announcements)).
 
 The source reads the undocumented JSON endpoint behind the What's New pages, because the RSS feed holds only the latest 100 posts. Set `url` in the source config to read another endpoint.
 
+### Blog posts
+
+The `aws-blogs` source pulls [AWS blog](https://aws.amazon.com/blogs/) posts from the same endpoint: title, link, creation time, excerpt, and tags. The tags give the post type (`GLOBAL#content-type#launch-announcement`) and product categories (`blog-posts#category-database-amazon-aurora#dsql`). The directory has no post bodies. Like announcements, posts aren't items, and each pull starts a week before the previous one. An issue with a related blog post should link it ([#62](https://github.com/YakDriver/avizor/issues/62)); matching posts to items comes next.
+
+A year of posts (4,352 up to 2026-11-18) takes about 8 seconds to pull:
+
+```
+avizor pull aws-blogs --since 365d
+```
+
 ## Inspect
 
 `avizor inspect` shows an item and relates it to the target (`--no-enrich` skips that):

@@ -45,6 +45,8 @@ const (
 	SourceAWSSDKGoV2 = "aws-sdk-go-v2"
 	// SourceAWSWhatsNew is AWS What's New announcements. They don't become items; enrichment matches them to items.
 	SourceAWSWhatsNew = "aws-whats-new"
+	// SourceAWSBlogs is AWS blog posts. Like announcements, they don't become items.
+	SourceAWSBlogs = "aws-blogs"
 )
 
 // Source defaults.
@@ -59,6 +61,10 @@ const (
 	DefaultWhatsNewName = "aws-whats-new"
 	// DefaultWhatsNewURL is whatsnew.DefaultURL, repeated to keep config free of other packages.
 	DefaultWhatsNewURL = "https://aws.amazon.com/api/dirs/items/search?item.directoryId=whats-new-v2&sort_by=item.additionalFields.postDateTime&sort_order=desc&item.locale=en_US"
+
+	DefaultBlogsName = "aws-blogs"
+	// DefaultBlogsURL is whatsnew.BlogsURL.
+	DefaultBlogsURL = "https://aws.amazon.com/api/dirs/items/search?item.directoryId=blog-posts&sort_by=item.additionalFields.createdDate&sort_order=desc&item.locale=en_US"
 )
 
 // Source produces items. Every setting except type has a default; a config with no source blocks gets one
@@ -83,7 +89,7 @@ type Source struct {
 	// ExcludeServices drops items for these modules.
 	ExcludeServices []string `hcl:"exclude_services,optional"`
 
-	// URL is an aws-whats-new source's directory search URL.
+	// URL is an aws-whats-new or aws-blogs source's directory search URL.
 	URL string `hcl:"url,optional"`
 }
 
@@ -103,9 +109,12 @@ func (s *Source) ModelsPath(stateDir string) string {
 func (s *Source) setDefaults() error {
 	switch s.Type {
 	case SourceAWSSDKGoV2:
-	case SourceAWSWhatsNew:
+	case SourceAWSWhatsNew, SourceAWSBlogs:
 		if s.URL == "" {
 			s.URL = DefaultWhatsNewURL
+			if s.Type == SourceAWSBlogs {
+				s.URL = DefaultBlogsURL
+			}
 		}
 		if s.Start == "" {
 			s.Start = DefaultStart
@@ -115,7 +124,7 @@ func (s *Source) setDefaults() error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("source %q: unknown type %q (supported: %q, %q)", s.Name, s.Type, SourceAWSSDKGoV2, SourceAWSWhatsNew)
+		return fmt.Errorf("source %q: unknown type %q (supported: %q, %q, %q)", s.Name, s.Type, SourceAWSSDKGoV2, SourceAWSWhatsNew, SourceAWSBlogs)
 	}
 	if s.ReleasesRepo == "" {
 		s.ReleasesRepo = DefaultReleasesRepo
@@ -275,7 +284,8 @@ func Load(path string) (*Config, error) {
 		cfg.StateDir = expandHome(cfg.StateDir)
 	}
 	if len(cfg.Sources) == 0 {
-		cfg.Sources = []Source{{Name: DefaultSourceName, Type: SourceAWSSDKGoV2}, {Name: DefaultWhatsNewName, Type: SourceAWSWhatsNew}}
+		cfg.Sources = []Source{{Name: DefaultSourceName, Type: SourceAWSSDKGoV2}, {Name: DefaultWhatsNewName, Type: SourceAWSWhatsNew},
+			{Name: DefaultBlogsName, Type: SourceAWSBlogs}}
 	}
 	seenSources := map[string]bool{}
 	for i := range cfg.Sources {

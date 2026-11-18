@@ -84,8 +84,8 @@ func cmdPull(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	for _, src := range srcs {
 		var res any
 		switch src.Type {
-		case config.SourceAWSWhatsNew:
-			res, err = pullWhatsNew(ctx, src, st, since, logf)
+		case config.SourceAWSWhatsNew, config.SourceAWSBlogs:
+			res, err = pullDirectory(ctx, src, st, since, logf)
 		default:
 			res, err = pullSDK(ctx, src, dir, st, since, *noFetch, logf)
 		}
@@ -102,7 +102,11 @@ func cmdPull(ctx context.Context, args []string, stdout, stderr io.Writer) error
 					fmt.Fprintf(stdout, "warning: %s\n", w)
 				}
 			case *whatsNewResult:
-				fmt.Fprintf(stdout, "pulled %s since %s: %d announcement(s), in %s\n", r.Source, r.Since, r.Announcements, r.Duration)
+				if r.Posts != nil {
+					fmt.Fprintf(stdout, "pulled %s since %s: %d post(s), in %s\n", r.Source, r.Since, *r.Posts, r.Duration)
+				} else {
+					fmt.Fprintf(stdout, "pulled %s since %s: %d announcement(s), in %s\n", r.Source, r.Since, *r.Announcements, r.Duration)
+				}
 			}
 		}
 	}
@@ -137,17 +141,21 @@ func pullSDK(ctx context.Context, src *config.Source, dir string, st *items.Stor
 	return res, err
 }
 
+// whatsNewResult is an aws-whats-new or aws-blogs pull's result.
 type whatsNewResult struct {
-	Source        string `json:"source"`
-	Since         string `json:"since"`
-	Announcements int    `json:"announcements"`
+	Source string `json:"source"`
+	Since  string `json:"since"`
+	// Announcements is set for aws-whats-new, Posts for aws-blogs.
+	Announcements *int   `json:"announcements,omitempty"`
+	Posts         *int   `json:"posts,omitempty"`
 	Duration      string `json:"duration"`
 }
 
 // whatsNewOverlap is how far before the checkpoint a pull starts again, for posts published late or back-dated.
 const whatsNewOverlap = 7 * 24 * time.Hour
 
-func pullWhatsNew(ctx context.Context, src *config.Source, st *items.Store, since time.Time, logf func(string, ...any)) (*whatsNewResult, error) {
+// pullDirectory pulls an aws-whats-new or aws-blogs source from its checkpoint, or since.
+func pullDirectory(ctx context.Context, src *config.Source, st *items.Store, since time.Time, logf func(string, ...any)) (*whatsNewResult, error) {
 	start := time.Now()
 	key := "checkpoint:" + src.Name
 	explicit := !since.IsZero()
@@ -167,7 +175,13 @@ func pullWhatsNew(ctx context.Context, src *config.Source, st *items.Store, sinc
 		}
 	}
 	c := &whatsnew.Client{URL: src.URL, HTTP: &http.Client{Timeout: time.Minute}, UserAgent: "avizor/" + version}
-	n, err := whatsnew.Pull(ctx, c, items.AnnouncementStore{Store: st, Source: src.Name}, since, logf)
+	var n int
+	var err error
+	if src.Type == config.SourceAWSBlogs {
+		n, err = whatsnew.PullPosts(ctx, c, items.PostStore{Store: st, Source: src.Name}, since, logf)
+	} else {
+		n, err = whatsnew.Pull(ctx, c, items.AnnouncementStore{Store: st, Source: src.Name}, since, logf)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -176,8 +190,13 @@ func pullWhatsNew(ctx context.Context, src *config.Source, st *items.Store, sinc
 			return nil, err
 		}
 	}
-	return &whatsNewResult{Source: src.Name, Since: since.UTC().Format(time.RFC3339), Announcements: n,
-		Duration: time.Since(start).Round(time.Millisecond).String()}, nil
+	res := &whatsNewResult{Source: src.Name, Since: since.UTC().Format(time.RFC3339), Duration: time.Since(start).Round(time.Millisecond).String()}
+	if src.Type == config.SourceAWSBlogs {
+		res.Posts = &n
+	} else {
+		res.Announcements = &n
+	}
+	return res, nil
 }
 
 func cmdItems(_ context.Context, args []string, stdout, stderr io.Writer) error {

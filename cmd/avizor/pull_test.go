@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -33,8 +34,8 @@ func TestPullWhatsNewCheckpoint(t *testing.T) {
 	defer st.Close()
 	src := &config.Source{Name: "wn", Type: config.SourceAWSWhatsNew, URL: srv.URL + "/s", Start: "30d"}
 
-	res, err := pullWhatsNew(ctx, src, st, time.Time{}, nil)
-	if err != nil || res.Announcements != 1 {
+	res, err := pullDirectory(ctx, src, st, time.Time{}, nil)
+	if err != nil || res.Announcements == nil || *res.Announcements != 1 {
 		t.Fatalf("first pull = %+v, %v", res, err)
 	}
 	cp, _ := st.Meta(ctx, "checkpoint:wn")
@@ -43,8 +44,8 @@ func TestPullWhatsNewCheckpoint(t *testing.T) {
 	}
 
 	// The next pull starts a week before the checkpoint, so it sees the two-day-old post again.
-	res, err = pullWhatsNew(ctx, src, st, time.Time{}, nil)
-	if err != nil || res.Announcements != 1 {
+	res, err = pullDirectory(ctx, src, st, time.Time{}, nil)
+	if err != nil || res.Announcements == nil || *res.Announcements != 1 {
 		t.Fatalf("second pull = %+v, %v", res, err)
 	}
 	cpTime, _ := time.Parse(time.RFC3339, cp)
@@ -53,10 +54,52 @@ func TestPullWhatsNewCheckpoint(t *testing.T) {
 	}
 
 	// An explicit --since doesn't move the checkpoint.
-	if _, err := pullWhatsNew(ctx, src, st, time.Now().Add(-time.Hour), nil); err != nil {
+	if _, err := pullDirectory(ctx, src, st, time.Now().Add(-time.Hour), nil); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := st.Meta(ctx, "checkpoint:wn"); got == "" {
 		t.Error("checkpoint cleared")
+	}
+}
+
+func TestPullBlogs(t *testing.T) {
+	t.Parallel()
+
+	created := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339)
+	old := time.Now().UTC().Add(-90 * 24 * time.Hour).Format(time.RFC3339)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") != "0" {
+			w.Write([]byte(`{"items":[]}`))
+			return
+		}
+		w.Write([]byte(`{"items":[
+{"item":{"name":"p1","additionalFields":{"title":" Use query statistics in Aurora DSQL ","link":"https://aws.amazon.com/blogs/database/q/","createdDate":"` + created + `","postExcerpt":"Find slow queries."}},
+ "tags":[{"id":"blog-posts#category-post-types#announcements"},{"id":"blog-posts#category-database-amazon-aurora#dsql"}]},
+{"item":{"name":"p0","additionalFields":{"title":"Old","link":"https://aws.amazon.com/blogs/x/old/","createdDate":"` + old + `"}}}]}`))
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	st, err := items.Open(filepath.Join(t.TempDir(), "items.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	src := &config.Source{Name: "blogs", Type: config.SourceAWSBlogs, URL: srv.URL + "/s", Start: "30d"}
+	res, err := pullDirectory(ctx, src, st, time.Time{}, nil)
+	if err != nil || res.Posts == nil || *res.Posts != 1 || res.Announcements != nil {
+		t.Fatalf("pull = %+v, %v", res, err)
+	}
+	ps, err := st.Posts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ps) != 1 || ps[0].Title != "Use query statistics in Aurora DSQL" || ps[0].Excerpt != "Find slow queries." ||
+		!slices.Equal(ps[0].Tags, []string{"blog-posts#category-post-types#announcements", "blog-posts#category-database-amazon-aurora#dsql"}) {
+		t.Errorf("posts = %+v", ps)
+	}
+	// Blog posts aren't announcements.
+	if as, err := st.Announcements(ctx); err != nil || len(as) != 0 {
+		t.Errorf("announcements = %v, %v", as, err)
 	}
 }

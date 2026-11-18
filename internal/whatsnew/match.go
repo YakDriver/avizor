@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"html"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
@@ -105,9 +106,11 @@ func (m *Matcher) vector(ts []string) vector {
 	for _, w := range ts {
 		v[w] += m.weight(w)
 	}
+	// Sum in word order: float addition isn't associative, and map order is random, so scores would differ in the last
+	// bits from run to run and ties would break differently.
 	var norm float64
-	for _, x := range v {
-		norm += x * x
+	for _, w := range slices.Sorted(maps.Keys(v)) {
+		norm += v[w] * v[w]
 	}
 	norm = math.Sqrt(norm)
 	if norm == 0 {
@@ -186,6 +189,7 @@ type scored struct {
 // announcements were loaded.
 func (m *Matcher) score(text, service string, published time.Time, before, after time.Duration, regions bool) []scored {
 	q := m.vector(slices.Concat(Tokens(text), Tokens(service), Tokens(service)))
+	words := slices.Sorted(maps.Keys(q))
 	var best []scored
 	for i, a := range m.anns {
 		d := a.PostedAt.Sub(published)
@@ -193,8 +197,8 @@ func (m *Matcher) score(text, service string, published time.Time, before, after
 			continue
 		}
 		var s float64
-		for w, x := range q {
-			s += x * m.vecs[i][w]
+		for _, w := range words {
+			s += q[w] * m.vecs[i][w]
 		}
 		days := d.Hours() / 24
 		if math.Abs(days) > nearDays {

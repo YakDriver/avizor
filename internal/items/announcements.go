@@ -66,6 +66,8 @@ func (s *Store) Announcements(ctx context.Context) ([]whatsnew.Announcement, err
 		if err := rows.Scan(&a.ID, &a.URL, &a.Headline, &posted, &a.Body, &tags); err != nil {
 			return nil, fmt.Errorf("reading announcements: %w", err)
 		}
+		// Rows pulled before relative URLs without a leading slash were resolved.
+		a.URL = whatsnew.Absolute(a.URL)
 		if a.PostedAt, err = time.Parse(time.RFC3339, posted); err != nil {
 			return nil, fmt.Errorf("announcement %s: %w", a.ID, err)
 		}

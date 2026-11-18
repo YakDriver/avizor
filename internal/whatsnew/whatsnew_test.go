@@ -18,6 +18,9 @@ func TestDefaultURL(t *testing.T) {
 	if DefaultURL != config.DefaultWhatsNewURL {
 		t.Errorf("DefaultURL and config.DefaultWhatsNewURL differ")
 	}
+	if BlogsURL != config.DefaultBlogsURL {
+		t.Errorf("BlogsURL and config.DefaultBlogsURL differ")
+	}
 }
 
 func TestTokens(t *testing.T) {
@@ -180,5 +183,21 @@ func TestPull(t *testing.T) {
 	}
 	if st.got[1].URL != "https://example.com/two" {
 		t.Errorf("absolute URL = %q", st.got[1].URL)
+	}
+}
+
+func TestAbsolute(t *testing.T) {
+	t.Parallel()
+
+	for in, want := range map[string]string{
+		"/about-aws/whats-new/2026/01/a/": Site + "/about-aws/whats-new/2026/01/a/",
+		"about-aws/whats-new/2026/02/b":   Site + "/about-aws/whats-new/2026/02/b",
+		"https://aws.amazon.com/blogs/x/": "https://aws.amazon.com/blogs/x/",
+		"http://example.com/c":            "http://example.com/c",
+		"":                                "",
+	} {
+		if got := Absolute(in); got != want {
+			t.Errorf("Absolute(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

@@ -92,6 +92,13 @@ func TestChanges(t *testing.T) {
 	if got := Changes(withAnn, next); !slices.Equal(got, []string{"announcement u1 → u2"}) {
 		t.Errorf("announcement change = %q", got)
 	}
+	// A URL saved relative is the same announcement as its absolute URL.
+	rel, abs := withAnn, withAnn
+	rel.Announcement = "about-aws/whats-new/2026/02/zurich"
+	abs.Announcement = "https://aws.amazon.com/about-aws/whats-new/2026/02/zurich"
+	if got := Changes(rel, abs); got != nil {
+		t.Errorf("relative vs. absolute announcement URL = %q", got)
+	}
 	if got := Changes(was, was); got != nil {
 		t.Errorf("no change = %q", got)
 	}
