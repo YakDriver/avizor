@@ -225,6 +225,18 @@ func TestAnnouncement(t *testing.T) {
 		t.Errorf("body =\n%s\nwant\n%s", d.Body, want)
 	}
 
+	// A chosen blog post is linked below the announcement.
+	o.BlogPost = &whatsnew.Post{Title: "Widget sizes deep dive", URL: "https://aws.amazon.com/blogs/x/sizes/"}
+	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
+		t.Fatal(err)
+	}
+	want = "> Adds sizes. More.\n\n[Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/)\n\n" +
+		"Blog post: [Widget sizes deep dive](https://aws.amazon.com/blogs/x/sizes/)\n\n" + requires + "\n"
+	if d.Body != want {
+		t.Errorf("body with a blog post =\n%s\nwant\n%s", d.Body, want)
+	}
+	o.BlogPost = nil
+
 	// Asking for an announcement when none matched warns, even with no release notes.
 	if d, err = New(item("widget", NewModuleNote), implemented("widget"), nil, o); err != nil {
 		t.Fatal(err)

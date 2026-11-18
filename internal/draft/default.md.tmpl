@@ -3,6 +3,8 @@
 
 {{end}}{{if .Announcement}}[{{.Announcement.Headline}}]({{.Announcement.URL}})
 
+{{end}}{{if .BlogPost}}Blog post: [{{.BlogPost.Title}}]({{.BlogPost.URL}})
+
 {{end -}}
 Requires AWS SDK for Go v2 [{{.Release}}]({{.ReleaseURL}}){{if .Module}} (`{{.Module}}` {{.Version}}){{end}}.{{if .BumpPRURL}} The target has it since {{.BumpPRURL}}.{{end}}
 {{if or .Resources .Changes}}
