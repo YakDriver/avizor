@@ -90,7 +90,7 @@ func TestScopeChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Title != "r/aws_widget_cluster: Add `metric_groups` and `egress_mode`" {
+	if d.Title != "r/aws_widget_cluster: Add `metric_groups` and `vpc.egress_mode`" {
 		t.Errorf("title = %q", d.Title)
 	}
 	for _, want := range []string{

@@ -389,9 +389,9 @@ func changes(en *enrich.Result, checkout string, decide decider) (lines, notes, 
 		switch {
 		case len(rs) == 0:
 		case c.argument:
-			names = append(names, c.name)
+			names = append(names, where)
 		default:
-			attrNames = append(attrNames, c.name)
+			attrNames = append(attrNames, where)
 		}
 
 		for _, w := range c.works {
