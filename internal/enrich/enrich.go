@@ -131,6 +131,12 @@ type Work struct {
 	SharedName bool `json:"shared_name,omitempty"`
 	// Spec is what the model says about a new resource or data source.
 	Spec *Spec `json:"spec,omitempty"`
+	// Schema is where a new nested member's parent block is defined in the files that call its operations.
+	Schema []SchemaPlace `json:"schema,omitempty"`
+	// EnumUses are the provider package's uses of a new enum value's SDK type.
+	EnumUses []EnumUse `json:"enum_uses,omitempty"`
+	// EnumSearched is set when the package was searched for EnumUses, so none means unused.
+	EnumSearched bool `json:"enum_searched,omitempty"`
 }
 
 // Enricher enriches items for one target.
@@ -202,6 +208,10 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 		} else {
 			res.CodeSearched = modelOK
 			e.findMembers(res.Work, model)
+			e.schemaPlaces(res.Work, model)
+		}
+		if err := e.enumUses(ctx, res.Service.Package, res.Work); err != nil {
+			warnf("enum search: %v", err)
 		}
 	}
 	return res

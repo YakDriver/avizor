@@ -147,6 +147,9 @@ The source reads the undocumented JSON endpoint behind the What's New pages, bec
   - documentation sentences that state design facts ("can't change", "ignores this field", "If you omit"), quoted with their source.
 
   Create-only and the names are inferred; the rest is what the model says.
+- **Provider facts** for new members and enum values, from the code:
+  - for a new nested argument or attribute, where its parent block is defined in each file that calls its operations: the Terraform path (`configuration.vpc_egress_configuration`), the schema kind (`ListNestedBlock`, `TypeList (MaxItems 1)`), the plugin library, and the nearest block on the path that forces replacement;
+  - for a new enum value, the package's uses of the SDK type, split into uses that validate with it (`enum.Validate[awstypes.RoutingStrategy]`, `fwtypes.StringEnum[...]`), which accept the new value without a code change, and other uses. Whether a new value matters is left to the reader; the state doesn't change.
 - **Announcement** (inferred): the matched post, with its score and the runner-up's.
 
 ## Queue
