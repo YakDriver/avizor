@@ -98,10 +98,21 @@ func migrateDispositions(db *sql.DB) error {
 			continue
 		}
 		if _, err := db.Exec(`ALTER TABLE dispositions ADD COLUMN ` + c + ` TEXT NOT NULL DEFAULT ''`); err != nil {
+			// Another process opening the same database may have added it first.
+			if ok, cerr := hasColumn(db, "dispositions", c); cerr == nil && ok {
+				continue
+			}
 			return fmt.Errorf("adding dispositions column %s: %w", c, err)
 		}
 	}
 	return nil
+}
+
+// hasColumn reports whether a table has a column.
+func hasColumn(db *sql.DB, table, column string) (bool, error) {
+	var n int
+	err := db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&n)
+	return n > 0, err
 }
 
 // Decide records a decision.

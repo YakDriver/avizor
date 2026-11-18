@@ -255,13 +255,18 @@ func issueList(ns []int) string {
 	return strings.Join(out, ", ")
 }
 
-// commentURLRE matches a GitHub issue or PR comment URL; the groups are the repository and the issue or PR number.
-var commentURLRE = regexp.MustCompile(`^https://github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)#issuecomment-\d+$`)
+// commentURLRE matches a GitHub issue or PR comment URL, including a PR review comment (#discussion_r…). The groups are
+// the repository and the issue or PR number.
+var commentURLRE = regexp.MustCompile(`^https://github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)#(?:issuecomment-|discussion_r)\d+$`)
 
 // isCommentURL reports whether u is a comment URL on an issue or PR in repo.
 func isCommentURL(u, repo string) bool {
 	m := commentURLRE.FindStringSubmatch(u)
-	return m != nil && strings.EqualFold(m[1], repo)
+	if m == nil || !strings.EqualFold(m[1], repo) {
+		return false
+	}
+	// Review comments exist only on PRs.
+	return !strings.Contains(u, "#discussion_r") || strings.Contains(u, "/pull/")
 }
 
 // stringList is a repeatable string flag.

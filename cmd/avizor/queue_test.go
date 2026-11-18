@@ -91,6 +91,8 @@ func TestIsCommentURL(t *testing.T) {
 		"https://github.com/hashicorp/terraform-provider-aws/issues/50573#issuecomment-6986110833": true,
 		"https://github.com/hashicorp/terraform-provider-aws/pull/50896#issuecomment-6986111563":   true,
 		"https://github.com/HashiCorp/Terraform-Provider-AWS/issues/1#issuecomment-2":              true,
+		"https://github.com/hashicorp/terraform-provider-aws/pull/50896#discussion_r123":           true,
+		"https://github.com/hashicorp/terraform-provider-aws/issues/50896#discussion_r123":         false,
 		"https://github.com/hashicorp/terraform-provider-aws/issues/50573":                         false,
 		"https://github.com/other/repo/issues/1#issuecomment-2":                                    false,
 		"https://github.com/hashicorp/terraform-provider-aws/issues/1#issuecomment-2/x":            false,
