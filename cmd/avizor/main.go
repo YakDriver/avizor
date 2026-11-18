@@ -39,7 +39,7 @@ Usage:
   avizor inspect [flags] <item-id>            Show an item's evidence.
   avizor draft [flags] <item-id>              Draft a new issue for an item.
   avizor queue [flags]                        List recent items that need a decision.
-  avizor decide [flags] <item-id> <decision> [issue]
+  avizor decide [flags] <item-id> <decision> [issue...]
                                              Record a decision: created, duplicate, skipped, deferred, or cleared.
   avizor decisions [flags] [item-id]          List recorded decisions.
   avizor version

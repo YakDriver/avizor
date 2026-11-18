@@ -28,12 +28,14 @@ func cmdDecide(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	reason := fs.String("reason", "", "why (required for skipped)")
 	revisitFlag := fs.String("revisit", "", "re-surface the item after an age (30d) or date; deferred defaults to 30d")
 	by := fs.String("by", os.Getenv("USER"), "who decided")
+	var comments stringList
+	fs.Var(&comments, "comment", "URL of a comment made on an existing issue or PR for the item (repeatable)")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errUsage, err)
 	}
-	if len(pos) < 2 || len(pos) > 3 {
-		return fmt.Errorf("%w: decide takes an item ID, a decision (%s), and for created or duplicate an issue number",
+	if len(pos) < 2 {
+		return fmt.Errorf("%w: decide takes an item ID, a decision (%s), and for created or duplicate one or more issue numbers",
 			errUsage, strings.Join(items.Decisions, ", "))
 	}
 	now := time.Now()
@@ -41,21 +43,38 @@ func cmdDecide(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	if !slices.Contains(items.Decisions, d.Decision) {
 		return fmt.Errorf("%w: unknown decision %q; decisions are %s", errUsage, d.Decision, strings.Join(items.Decisions, ", "))
 	}
+	numbers := pos[2:]
 	switch d.Decision {
 	case items.DecisionCreated, items.DecisionDuplicate:
-		if len(pos) != 3 {
+		if len(numbers) == 0 {
 			return fmt.Errorf("%w: %s needs the issue or PR number", errUsage, d.Decision)
 		}
-		if d.Number, err = strconv.Atoi(strings.TrimPrefix(pos[2], "#")); err != nil || d.Number <= 0 {
-			return fmt.Errorf("%w: %q isn't an issue or PR number", errUsage, pos[2])
+		seen := map[int]bool{}
+		for _, a := range numbers {
+			n, err := strconv.Atoi(strings.TrimPrefix(a, "#"))
+			if err != nil || n <= 0 {
+				return fmt.Errorf("%w: %q isn't an issue or PR number", errUsage, a)
+			}
+			if seen[n] {
+				return fmt.Errorf("%w: #%d is listed twice", errUsage, n)
+			}
+			seen[n] = true
+			if d.Number == 0 {
+				d.Number = n
+			} else {
+				d.Also = append(d.Also, n)
+			}
 		}
 	default:
-		if len(pos) == 3 {
+		if len(numbers) > 0 {
 			return fmt.Errorf("%w: %s takes no issue number", errUsage, d.Decision)
 		}
 	}
 	if d.Decision == items.DecisionSkipped && d.Reason == "" {
 		return fmt.Errorf("%w: skipped needs --reason", errUsage)
+	}
+	if len(comments) > 0 && d.Decision == items.DecisionCleared {
+		return fmt.Errorf("%w: cleared takes no --comment", errUsage)
 	}
 	if d.Decision == items.DecisionDeferred && *revisitFlag == "" {
 		*revisitFlag = "30d"
@@ -75,9 +94,18 @@ func cmdDecide(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	}
 	defer st.Close()
 	d.Target = t.Name
-	if d.Number != 0 {
-		if is, err := st.Issue(ctx, d.Number); err == nil && is == nil {
-			fmt.Fprintf(stderr, "avizor: warning: #%d isn't in the index yet; run `avizor sync` to see it in candidates\n", d.Number)
+	for _, u := range comments {
+		if !isCommentURL(u, t.Repo) {
+			return fmt.Errorf("%w: --comment %q isn't a comment URL in %s (https://github.com/%s/issues/N#issuecomment-M)",
+				errUsage, u, t.Repo, t.Repo)
+		}
+		if !slices.Contains(d.Comments, u) {
+			d.Comments = append(d.Comments, u)
+		}
+	}
+	for _, n := range d.Numbers() {
+		if is, err := st.Issue(ctx, n); err == nil && is == nil {
+			fmt.Fprintf(stderr, "avizor: warning: #%d isn't in the index yet; run `avizor sync` to see it in candidates\n", n)
 		}
 	}
 
@@ -188,7 +216,8 @@ func cmdDecisions(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	return nil
 }
 
-// decisionText is a decision in a few words: "duplicate of #5", "skipped (no provider work), revisit 2026-12-01".
+// decisionText is a decision in a few words: "duplicate of #5", "created #7, also #8", "skipped (no provider work),
+// revisit 2026-12-01".
 func decisionText(d items.Disposition) string {
 	var s string
 	switch d.Decision {
@@ -199,6 +228,16 @@ func decisionText(d items.Disposition) string {
 	default:
 		s = d.Decision
 	}
+	if len(d.Also) > 0 {
+		s += ", also " + issueList(d.Also)
+	}
+	if len(d.Comments) > 0 {
+		var ns []string
+		for _, u := range d.Comments {
+			ns = append(ns, "#"+commentURLRE.FindStringSubmatch(u)[2])
+		}
+		s += ", commented on " + strings.Join(ns, ", ")
+	}
 	if d.Reason != "" {
 		s += " (" + d.Reason + ")"
 	}
@@ -206,6 +245,33 @@ func decisionText(d items.Disposition) string {
 		s += ", revisit " + d.RevisitAfter.UTC().Format(time.DateOnly)
 	}
 	return s
+}
+
+func issueList(ns []int) string {
+	var out []string
+	for _, n := range ns {
+		out = append(out, fmt.Sprintf("#%d", n))
+	}
+	return strings.Join(out, ", ")
+}
+
+// commentURLRE matches a GitHub issue or PR comment URL; the groups are the repository and the issue or PR number.
+var commentURLRE = regexp.MustCompile(`^https://github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)#issuecomment-\d+$`)
+
+// isCommentURL reports whether u is a comment URL on an issue or PR in repo.
+func isCommentURL(u, repo string) bool {
+	m := commentURLRE.FindStringSubmatch(u)
+	return m != nil && strings.EqualFold(m[1], repo)
+}
+
+// stringList is a repeatable string flag.
+type stringList []string
+
+func (l *stringList) String() string { return strings.Join(*l, ",") }
+
+func (l *stringList) Set(s string) error {
+	*l = append(*l, strings.TrimSpace(s))
+	return nil
 }
 
 var revisitAgeRE = regexp.MustCompile(`^\d+[dh]$`)

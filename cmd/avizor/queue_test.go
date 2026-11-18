@@ -74,9 +74,29 @@ func TestDecisionText(t *testing.T) {
 		"duplicate of #6":              {Decision: items.DecisionDuplicate, Number: 6},
 		"skipped (no work)":            {Decision: items.DecisionSkipped, Reason: "no work"},
 		"deferred, revisit 2027-01-02": {Decision: items.DecisionDeferred, RevisitAfter: at},
+		"created #7, also #8, #9":      {Decision: items.DecisionCreated, Number: 7, Also: []int{8, 9}},
+		"duplicate of #1, commented on #2, #3": {Decision: items.DecisionDuplicate, Number: 1, Comments: []string{
+			"https://github.com/o/r/issues/2#issuecomment-10", "https://github.com/o/r/pull/3#issuecomment-11"}},
 	} {
 		if got := decisionText(d); got != want {
 			t.Errorf("decisionText = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestIsCommentURL(t *testing.T) {
+	t.Parallel()
+
+	for u, want := range map[string]bool{
+		"https://github.com/hashicorp/terraform-provider-aws/issues/50573#issuecomment-6986110833": true,
+		"https://github.com/hashicorp/terraform-provider-aws/pull/50896#issuecomment-6986111563":   true,
+		"https://github.com/HashiCorp/Terraform-Provider-AWS/issues/1#issuecomment-2":              true,
+		"https://github.com/hashicorp/terraform-provider-aws/issues/50573":                         false,
+		"https://github.com/other/repo/issues/1#issuecomment-2":                                    false,
+		"https://github.com/hashicorp/terraform-provider-aws/issues/1#issuecomment-2/x":            false,
+	} {
+		if got := isCommentURL(u, "hashicorp/terraform-provider-aws"); got != want {
+			t.Errorf("isCommentURL(%s) = %t, want %t", u, got, want)
 		}
 	}
 }

@@ -170,17 +170,22 @@ A `gap` is a guess. Many need no provider work, and covering work can be in the 
 
 ```
 avizor decide aws-sdk-go-v2/docdb/release-2026-09-21 created 51234
+avizor decide aws-sdk-go-v2/sagemaker/release-2026-11-16 created 51090 51091 51092
 avizor decide aws-sdk-go-v2/cloudwatch/release-2026-05-01 duplicate 48548
+avizor decide aws-sdk-go-v2/ecs/release-2026-11-16 duplicate 50573 \
+  --comment https://github.com/hashicorp/terraform-provider-aws/pull/50896#issuecomment-6986111563
 avizor decide aws-sdk-go-v2/cleanrooms/release-2026-07-27 skipped --reason "query-time setting, no resource"
 avizor decide aws-sdk-go-v2/rds/release-2026-08-27 deferred --revisit 60d
 avizor decide aws-sdk-go-v2/rds/release-2026-08-27 cleared
 avizor decisions --format text
 ```
 
+An item whose work needs several issues (one per resource) records all of them; the first is the item's main issue. `--comment` (repeatable) records comments made on existing issues or PRs instead of filing new ones; it takes the comment's URL.
+
 A decision hides the item from the queue. Avizor records who decided (`--by`, default `$USER`) and what it found at the time. The item comes back as `resurfaced`, with the reason, when:
 
 - the revisit date passes (`--revisit`, an age or date; `deferred` defaults to 30 days);
-- for `duplicate`: the covering issue closes as anything but completed, or the PR closes unmerged;
+- for `duplicate`: any covering issue closes as anything but completed, or any covering PR closes unmerged;
 - for `skipped` or `deferred`: the evidence changes, for example the SDK version becomes available, a tracker appears, or the announcement match changes.
 
 Otherwise `created` stands. The queue also checks decided items older than `--since`. `avizor decisions --history` lists every decision, including cleared ones.
