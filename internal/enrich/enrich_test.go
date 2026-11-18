@@ -48,8 +48,13 @@ func TestWork(t *testing.T) {
 	}
 	type kw struct{ kind, subject string }
 	var got []kw
-	for _, w := range work(d, usages) {
+	ws := work(d, usages)
+	for _, w := range ws {
 		got = append(got, kw{w.Kind, w.Subject})
+	}
+	// The enum's new values, grouped.
+	if i := slices.IndexFunc(ws, func(w Work) bool { return w.Kind == WorkNewEnumValue }); i < 0 || !slices.Equal(ws[i].Values, []string{"blue", "green"}) {
+		t.Errorf("enum work = %+v", ws)
 	}
 	want := []kw{
 		{WorkNewResource, "Widget"},
@@ -69,8 +74,14 @@ func TestWork(t *testing.T) {
 		t.Errorf("work =\n%v\nwant\n%v", got, want)
 	}
 
+	// An argument whose shape is also in an output records the operations that return it.
+	shared := work(&smithy.Diff{AddedMembers: []smithy.MemberChange{{Shape: "Color", Member: "Shade"}}}, usages)
+	if len(shared) != 1 || shared[0].Kind != WorkNewArgument || !slices.Equal(shared[0].Returns, []string{"GetThing"}) {
+		t.Errorf("work for a shape in input and output = %+v", shared)
+	}
+
 	// Without the model, members are reported without operations.
-	ws := work(&smithy.Diff{AddedMembers: []smithy.MemberChange{{Shape: "Thing", Member: "Status"}}}, nil)
+	ws = work(&smithy.Diff{AddedMembers: []smithy.MemberChange{{Shape: "Thing", Member: "Status"}}}, nil)
 	if len(ws) != 1 || ws[0].Kind != WorkNewArgument || ws[0].Operations != nil {
 		t.Errorf("work without usages = %+v", ws)
 	}

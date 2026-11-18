@@ -9,6 +9,7 @@ import (
 
 	"github.com/YakDriver/avizor/internal/draft"
 	"github.com/YakDriver/avizor/internal/enrich"
+	"github.com/YakDriver/avizor/internal/queue"
 	"github.com/YakDriver/avizor/internal/reconcile"
 )
 
@@ -19,7 +20,7 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	c.register(fs)
 	noCode := fs.Bool("no-code", false, "don't search the target checkout")
 	relates := fs.Int("relates", 3, "maximum related issues and PRs to suggest")
-	useAnn := fs.Bool("announcement", false, "put the matched What's New announcement in the body instead of the release notes")
+	useAnn := fs.Bool("announcement", false, "link the matched What's New announcement in the body, below the release notes")
 	bodyOnly := fs.Bool("body", false, "print only the issue body, for piping to `gh issue create --body-file -`")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -51,7 +52,11 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if err != nil {
 		return err
 	}
-	d, err := draft.New(it, en, rec, draft.Options{
+	texts, err := candidateTexts(ctx, st, rec)
+	if err != nil {
+		return err
+	}
+	d, err := queue.Draft(it, en, rec, texts, draft.Options{
 		Repo: t.Repo, Checkout: t.Checkout, Prefix: t.TypePrefix, LabelPrefix: t.ServiceLabelPrefix, Template: t.DraftTemplate,
 		RelatesLimit: *relates, Announcement: *useAnn,
 	})
@@ -98,6 +103,12 @@ func writeDraftText(w io.Writer, d *draft.Draft, regen []string) error {
 	fmt.Fprintln(w, "--- for the reviewer (not part of the issue)")
 	for _, warn := range d.Warnings {
 		fmt.Fprintf(w, "warning: %s\n", warn)
+	}
+	if len(d.Decide) > 0 {
+		fmt.Fprintln(w, "\nto decide (marked <!-- decide: ... --> in the body):")
+		for _, c := range d.Decide {
+			fmt.Fprintf(w, "  %s\n", c)
+		}
 	}
 	if len(d.Inferred) > 0 {
 		fmt.Fprintln(w, "\ninferred:")

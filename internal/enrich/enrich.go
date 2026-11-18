@@ -115,7 +115,9 @@ type Work struct {
 	Subject string `json:"subject"`
 	// Operations are the new operations in the group, or the operations whose input or output reaches the shape.
 	Operations []string `json:"operations,omitempty"`
-	Basis      string   `json:"basis"`
+	// Returns are, for a new argument whose shape is in both inputs and outputs, the operations whose output reaches it.
+	Returns []string `json:"returns,omitempty"`
+	Basis   string   `json:"basis"`
 	// UsedBy are provider files that call one of Operations, from a code search. It's evidence.
 	UsedBy []string `json:"used_by,omitempty"`
 	// Member is the likely Terraform name of a new argument of a write operation, and FoundIn the UsedBy files that
@@ -131,6 +133,10 @@ type Work struct {
 	SharedName bool `json:"shared_name,omitempty"`
 	// Spec is what the model says about a new resource or data source.
 	Spec *Spec `json:"spec,omitempty"`
+	// Field is what the model says about a new argument's or attribute's member: its type and constraints.
+	Field *Field `json:"field,omitempty"`
+	// Values are a new enum value work's new values.
+	Values []string `json:"values,omitempty"`
 	// Schema is where a new nested member's parent block is defined in the files that call its operations.
 	Schema []SchemaPlace `json:"schema,omitempty"`
 	// EnumUses are the provider package's uses of a new enum value's SDK type.
@@ -195,6 +201,7 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 	res.Work = work(it.Diff, usages)
 	buildSpecs(res.Work, model, it.Diff)
 	markNotSettable(res.Work, model)
+	memberFields(res.Work, model)
 	markSharedNames(res.Work, it.Diff, model)
 	res.NewMembers = newMembers(res.Work, it.Diff, model)
 	if e.Announcements != nil {

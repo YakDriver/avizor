@@ -228,20 +228,39 @@ avizor draft aws-sdk-go-v2/kinesis/release-2026-08-31 --format text
 avizor draft aws-sdk-go-v2/kinesis/release-2026-08-31 --body | gh issue create --repo hashicorp/terraform-provider-aws --title ... --label ... --body-file -
 ```
 
-`avizor draft` renders an issue in the format of the provider's trackers. The body holds only facts from the item, so it can be filed as is: the release notes, quoted, then `Requires AWS SDK for Go v2 [release](commit): <bump PR>.` With `--announcement`, the body has the matched post's headline and link in place of the notes. Avizor prints the `gh` command but doesn't run it.
+`avizor draft` renders an issue in the format of the provider's trackers. Avizor prints the `gh` command but doesn't run it. The body has:
 
-Guesses go in a reviewer section (text) or under `inferred` (JSON), each with its basis, never in the body:
+- the release notes, quoted, and with `--announcement`, a link to the matched What's New post;
+- `Requires AWS SDK for Go v2 [Release <date>](<commit>) (<module> <version>).`, and the bump PR if the target has merged one. Reconciliation takes an issue citing the release commit as tracking the whole release, so a `partial` item's draft cites the release tag instead;
+- a Scope section rendered from the model's spec and the provider's facts:
+  - for a new resource or data source, its operations, its arguments (required or optional, forces replacement, type, constraints, and nested fields), and its attributes, then notes: status values to wait on, how update and delete work, how tags are set, documentation sentences that state design facts, and other operations;
+  - for an existing resource, each new argument or attribute with the resource it's in, its type and constraints, the API members it comes from, and the outputs that return it, then notes on the parent block from the schema (its kind, and whether it forces replacement). Members of one noun's create, update, and read shapes are one field; the create input's describes it;
+  - new enum values and whether the provider validates with the SDK's type;
+- for a `partial` item, `Relates #N` lines for the issues and PRs that cover the rest.
+
+The body says what the model shows. Where it can't settle a choice, the line is marked `<!-- decide: ... -->`, and the choices are listed under `decide` (JSON) or in the reviewer section (text):
+
+- a list of structures with one scalar field: a set of strings, or a nested block;
+- an optional argument that read returns, with a default or a list: optional, or optional and computed;
+- a name that abbreviates the resource's name (`FcaPolicyId` for `NetworkingFlexCostAllocationPolicy`);
+- other operations, such as an associate: one resource per association, an argument, or none;
+- a new read-only group: a data source, part of another resource, or none;
+- a new argument that's in no resource, or in several, or under several schema blocks.
+
+A `partial` item's draft covers only the work `queue` reports as uncovered, so it doesn't repeat the tracked work.
+
+Guesses go in a reviewer section (text) or under `inferred` (JSON), each with its basis:
 
 - **Title**: one of
   - ``New resource: `aws_<package>_<noun>` ``;
   - `New data source: ...`;
-  - `r/<resource>: ...`, when the new arguments reach only one resource's operations;
+  - ``r/<resource>: Add `<argument>` ``, when the new arguments (or, with none, attributes) are in one resource;
   - otherwise the announcement headline, or the first sentence of the notes, with a service prefix if it lacks one.
 - **Labels**: `enhancement` and the service label, plus `new-resource` for an inferred resource and `new-service` for a new SDK module or a service the target doesn't implement. For such a service, the service label is a guess from the module name.
 
 The reviewer section also lists warnings and possibly related issues and PRs:
 
-- **Warnings**: confident existing work, an existing docs page for the Terraform name, an SDK version the target lacks, a skipped item, and `--announcement` without a match. Check the existing work before filing a draft warned "already tracked".
+- **Warnings**: confident existing work, an existing docs page for the Terraform name, an SDK version the target lacks, a skipped item, `--announcement` without a match, and for a `partial` item, what the draft covers. Check the existing work before filing a draft warned "already tracked".
 - **Possibly related issues and PRs**: weak matches for a `Relates` line. Bug reports and the bump PR are left out.
 
 `draft_template` replaces the body template. See the example config.

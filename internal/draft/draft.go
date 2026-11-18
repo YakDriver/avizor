@@ -1,6 +1,8 @@
 // Package draft renders a new issue for an SDK item from its evidence, enrichment, and reconciliation. The issue body
-// holds only what the item shows. Inferred values (title, Terraform names, labels) and possible related issues are
-// listed separately, with their basis, for the reviewer to confirm.
+// holds what the item shows: the release notes, the SDK release, and a scope rendered from the model's spec and the
+// provider's facts. Judgment calls the model can't settle are marked in the body with <!-- decide: ... --> and listed
+// in Decide. Inferred values (title, Terraform names, labels) and possible related issues are listed separately, with
+// their basis, for the reviewer to confirm.
 package draft
 
 import (
@@ -38,6 +40,8 @@ type Draft struct {
 	Relates []Relate `json:"relates"`
 	// Warnings are reasons not to file the draft as is, such as existing work that may already cover the item.
 	Warnings []string `json:"warnings"`
+	// Decide lists the judgment calls marked in the body, as "where: choice".
+	Decide []string `json:"decide"`
 }
 
 // Inferred is one guessed value.
@@ -68,10 +72,22 @@ type Data struct {
 	// Release is the release name, such as "Release 2025-12-02".
 	Release    string
 	ReleaseURL string
+	// Module and Version are the SDK module and its version in the release.
+	Module  string
+	Version string
 	// BumpPRURL is the target PR that brought the SDK version in, if it's merged.
 	BumpPRURL string
 	Service   enrich.ServiceMatch
-	Work      []enrich.Work
+	// Work is the work the draft covers: for a partial item, only the uncovered work.
+	Work []enrich.Work
+	// Resources are the new resources and data sources, rendered from their specs.
+	Resources []Resource
+	// Changes are new arguments, attributes, and enum values of existing resources, as Markdown list lines, and
+	// ChangeNotes the provider facts about them.
+	Changes     []string
+	ChangeNotes []string
+	// Relates are the issues and PRs that cover the rest of a partial item.
+	Relates []int
 }
 
 // Options configure rendering.
@@ -90,6 +106,15 @@ type Options struct {
 	RelatesLimit int
 	// Announcement puts the matched announcement in the body. The match is an inference, so the reviewer opts in.
 	Announcement bool
+	// Partial is set for a partial item: the work passed to New is only the uncovered work, and Covered are the labels
+	// of that work, as queue reports them.
+	Partial *Partial
+}
+
+// Partial describes a partial item's draft: the work it covers, and the candidates that cover the rest.
+type Partial struct {
+	Uncovered []string
+	Covering  []reconcile.Candidate
 }
 
 // New renders a draft.
@@ -107,16 +132,19 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 		return nil, fmt.Errorf("parsing draft template: %w", err)
 	}
 
-	d := &Draft{Item: it.ID, Repo: opts.Repo, Inferred: []Inferred{}, Relates: []Relate{}, Warnings: []string{}}
+	d := &Draft{Item: it.ID, Repo: opts.Repo, Inferred: []Inferred{}, Relates: []Relate{}, Warnings: []string{}, Decide: []string{}}
 	infer := func(field, value, basis string) { d.Inferred = append(d.Inferred, Inferred{field, value, basis}) }
 
 	if it.Status != "new" {
 		d.Warnings = append(d.Warnings, fmt.Sprintf("the item is %s: %s", it.Status, it.SkipReason))
 	}
 
-	data := Data{Item: it, Release: releaseName(it.Release.Tag), ReleaseURL: it.Release.CommitURL, Service: en.Service, Work: en.Work}
-	if data.ReleaseURL == "" {
-		data.ReleaseURL = it.Release.URL
+	// The commit URL is the release's citation: reconciliation takes an issue citing it as tracking the whole release.
+	// A partial draft cites the tag, since it tracks only part of the release.
+	data := Data{Item: it, Release: releaseName(it.Release.Tag), ReleaseURL: cmp(it.Release.CommitURL, it.Release.URL),
+		Module: it.Service.ModulePath, Version: it.Service.ModuleVersion, Service: en.Service, Work: en.Work}
+	if opts.Partial != nil {
+		data.ReleaseURL = cmp(it.Release.URL, it.Release.CommitURL)
 	}
 	for _, n := range it.Notes {
 		if n.Text != NewModuleNote {
@@ -149,7 +177,36 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 		}
 	}
 
-	d.Title, d.Labels = titleAndLabels(it, en, data.Headline, opts, infer)
+	decide := d.decider()
+	pkg := en.Service.Package
+	if en.Service.Status != enrich.ServiceImplemented {
+		pkg = it.Service.Module
+	}
+	data.Resources = resources(en, pkg, opts.Prefix, decide)
+	var targets, names []string
+	data.Changes, data.ChangeNotes, targets, names = changes(en, opts.Checkout, decide)
+	d.Title, d.Labels = titleAndLabels(it, en, data.Headline, opts, targets, names, infer)
+	if p := opts.Partial; p != nil {
+		for _, c := range p.Covering {
+			if c.Number != 0 && !slices.Contains(data.Relates, c.Number) {
+				data.Relates = append(data.Relates, c.Number)
+			}
+		}
+		slices.Sort(data.Relates)
+		var refs []string
+		for _, n := range data.Relates {
+			refs = append(refs, fmt.Sprintf("#%d", n))
+		}
+		w := "partial: the draft covers only " + strings.Join(p.Uncovered, ", ")
+		switch len(refs) {
+		case 0:
+		case 1:
+			w += "; " + refs[0] + " covers the rest and is related in the body"
+		default:
+			w += "; " + strings.Join(refs, ", ") + " cover the rest and are related in the body"
+		}
+		d.Warnings = append(d.Warnings, w)
+	}
 
 	var body bytes.Buffer
 	if err := tmpl.Execute(&body, data); err != nil {
@@ -165,7 +222,9 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 		}
 	}
 	if rec != nil {
-		existingWork(rec, d)
+		if opts.Partial == nil {
+			existingWork(rec, d)
+		}
 		relates(rec, en, d, opts.RelatesLimit)
 	}
 
@@ -180,7 +239,8 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 const NewModuleNote = awssdk.NewModuleNote
 
 // titleAndLabels infers the title and labels from the work.
-func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Options, infer func(field, value, basis string)) (string, []string) {
+// targets are the existing resources that changes are in, and names the changes' Terraform names.
+func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Options, targets, names []string, infer func(field, value, basis string)) (string, []string) {
 	labels := []string{"enhancement"}
 	addLabel := func(l, basis string) {
 		if !slices.Contains(labels, l) {
@@ -202,7 +262,7 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 		addLabel(cmp(opts.LabelPrefix, "service/")+pkg, "the new service's package would most likely be named after its SDK module")
 	}
 
-	var newTypes, newDataSources, argTypes []string
+	var newTypes, newDataSources []string
 	for _, w := range en.Work {
 		switch w.Kind {
 		case enrich.WorkNewResource:
@@ -211,12 +271,6 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 		case enrich.WorkNewDataSource:
 			// Not labeled: new read operations are usually statuses or sub-resource listings, not data sources.
 			newDataSources = append(newDataSources, opts.Prefix+pkg+"_"+enrich.Snake(w.Subject))
-		case enrich.WorkNewArgument:
-			for _, n := range resourceNames(opts.Checkout, w.UsedBy) {
-				if !slices.Contains(argTypes, n) {
-					argTypes = append(argTypes, n)
-				}
-			}
 		}
 	}
 
@@ -237,9 +291,9 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 		infer("title", title, "one new data source inferred from new read-only operations")
 		infer("terraform_name", newDataSources[0], "provider prefix, service package, and the new operations' noun in snake case")
 		return title, labels
-	case len(argTypes) == 1 && subject != "":
-		title := fmt.Sprintf("r/%s: %s", argTypes[0], subject)
-		infer("title", title, "new input members of operations called only by "+argTypes[0])
+	case len(newTypes) == 0 && len(newDataSources) == 0 && len(targets) == 1 && len(names) > 0:
+		title := fmt.Sprintf("r/%s: Add %s", targets[0], addNames(names))
+		infer("title", title, "new members of operations called only by "+targets[0])
 		return title, labels
 	}
 	title := subject
@@ -255,6 +309,21 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 	}
 	infer("title", title, "release notes; no single resource is affected")
 	return title, labels
+}
+
+// addNames is "`a`", "`a` and `b`", or "`a`, `b`, and 2 more", without repeats.
+func addNames(names []string) string {
+	names = slices.Compact(slices.Clone(names))
+	var qs []string
+	for _, n := range names {
+		if !slices.Contains(qs, "`"+n+"`") {
+			qs = append(qs, "`"+n+"`")
+		}
+	}
+	if len(qs) > 3 {
+		return strings.Join(qs[:2], ", ") + fmt.Sprintf(", and %d more", len(qs)-2)
+	}
+	return joinAnd(qs)
 }
 
 func cmp(ss ...string) string {

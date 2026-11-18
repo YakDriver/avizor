@@ -186,22 +186,13 @@ func brief(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *reconcil
 	if err != nil {
 		return Brief{}, err
 	}
-	d, err := draft.New(it, en, rec, opts)
+	texts, err := candidateTexts(ctx, r.Store, rec)
 	if err != nil {
 		return Brief{}, err
 	}
-	texts := map[int]string{}
-	for _, c := range rec.Candidates {
-		if c.Number == 0 {
-			continue
-		}
-		is, err := r.Store.Issue(ctx, c.Number)
-		if err != nil {
-			return Brief{}, err
-		}
-		if is != nil {
-			texts[c.Number] = is.Title + "\n" + is.Body
-		}
+	d, err := queue.Draft(it, en, rec, texts, opts)
+	if err != nil {
+		return Brief{}, err
 	}
 	q := queue.Classify(it, en, rec, d, texts)
 	b := Brief{
