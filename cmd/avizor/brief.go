@@ -53,7 +53,12 @@ type Brief struct {
 	// Announcement is the matcher's pick, if it made one. Announcements are every post within the window, best first.
 	Announcement  *whatsnew.Match     `json:"announcement,omitempty"`
 	Announcements []BriefAnnouncement `json:"announcements"`
-	Warnings      []string            `json:"warnings,omitempty"`
+	// Warnings are the enrichment's and reconciliation's, such as a failed model load, an unsynced index, or a
+	// limited search, and a note when no announcements were loaded.
+	Warnings []string `json:"warnings,omitempty"`
+
+	// entry is the queue entry, with the evidence a decision is compared against.
+	entry queue.Entry
 }
 
 // BriefAnnouncement is a post near the release, scored against the item. Matched marks the matcher's pick.
@@ -66,7 +71,12 @@ type BriefAnnouncement struct {
 	Score           float64 `json:"score"`
 	Matched         bool    `json:"matched,omitempty"`
 	MentionsService bool    `json:"mentions_service,omitempty"`
+	// RegionExpansion is set for a post about availability in more Regions, which the matcher never picks.
+	RegionExpansion bool `json:"region_expansion,omitempty"`
 }
+
+// maxRelatedText is how many related candidates text output shows; JSON has all.
+const maxRelatedText = 5
 
 // briefWindow is how far before and after a release brief looks for announcements.
 const briefWindow = 7 * 24 * time.Hour
@@ -116,6 +126,13 @@ func cmdBrief(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	}
 
 	svcs := loadServices(t, stderr)
+	// As for queue: without the service map, every service is unknown and would be reported unimplemented.
+	switch {
+	case t.Checkout == "":
+		return fmt.Errorf("avizor brief needs target %q's checkout for its service map; set checkout in the config", t.Name)
+	case svcs == nil:
+		return fmt.Errorf("avizor brief needs the service map %s", t.NamesDataPath())
+	}
 	git := &gitcmd.Cache{}
 	r := &reconcile.Reconciler{Store: st, Target: t, Services: svcs, Git: git,
 		Options: reconcile.Options{NoFetch: true, NoCode: *noCode, Version: version}}
@@ -191,7 +208,8 @@ func brief(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *reconcil
 		Item: it.ID, Service: q.Service, SDKID: it.Service.SDKID, Release: it.Release, Module: it.Service.ModulePath,
 		Version: it.Service.ModuleVersion, Published: q.Published, Availability: en.Availability, State: q.State, Reason: q.Reason,
 		StateIfAvailable: q.State, Queue: q.State, Title: q.Title, Labels: q.Labels, ServiceMatch: en.Service, Work: en.Work,
-		Candidates: rec.Candidates, Announcement: en.Announcement, Warnings: en.Warnings, Announcements: []BriefAnnouncement{},
+		Candidates: rec.Candidates, Announcement: en.Announcement, Announcements: []BriefAnnouncement{}, entry: q,
+		Warnings: slices.Concat(en.Warnings, rec.Warnings),
 	}
 	if b.State == queue.Pending {
 		// Pending is a gap waiting on the SDK version; Classify checks every other state first.
@@ -203,23 +221,26 @@ func brief(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *reconcil
 	if b.Candidates == nil {
 		b.Candidates = []reconcile.Candidate{}
 	}
-	if e.Announcements != nil {
+	if e.Announcements == nil {
+		b.Warnings = append(b.Warnings, "no announcements loaded, so none are listed; run `avizor pull aws-whats-new`")
+	} else {
 		text, service := enrich.AnnouncementQuery(it)
 		svcWords := serviceWords(service)
 		for _, a := range e.Announcements.Rank(text, service, it.Release.PublishedAt, briefWindow, briefWindow, maxAnns) {
 			ba := BriefAnnouncement{Headline: a.Announcement.Headline, URL: a.Announcement.URL,
 				Posted: a.Announcement.PostedAt.Format(time.DateOnly), Days: a.Days, Score: a.Score,
 				Matched:         en.Announcement != nil && en.Announcement.Announcement.URL == a.Announcement.URL,
-				MentionsService: mentions(a.Announcement, svcWords)}
+				MentionsService: mentions(a.Announcement, svcWords), RegionExpansion: a.RegionExpansion}
 			b.Announcements = append(b.Announcements, ba)
 		}
 	}
 	return b, nil
 }
 
-// decide attaches a decision as the queue does, which can change the state to resurfaced or decided.
+// decide attaches a decision as the queue does, comparing it with the entry's evidence, which can put the item in
+// the decided or resurfaced group.
 func (b *Brief) decide(d items.Disposition, lookup queue.IssueLookup, now time.Time) {
-	e := queue.Entry{State: b.State}
+	e := b.entry
 	queue.Resurface(&e, d, lookup, now)
 	b.Decision, b.Resurfaced, b.Queue = e.Decision, e.Resurfaced, e.Group()
 }
@@ -283,10 +304,15 @@ func writeBriefText(w io.Writer, b Brief) {
 	p("draft title:  %s [%s]", b.Title, strings.Join(b.Labels, ", "))
 
 	var shown []reconcile.Candidate
+	related := 0
 	for _, c := range b.Candidates {
-		if c.Category != reconcile.CategoryRelated || len(shown) < 5 {
-			shown = append(shown, c)
+		if c.Category == reconcile.CategoryRelated {
+			if related == maxRelatedText {
+				continue
+			}
+			related++
 		}
+		shown = append(shown, c)
 	}
 	if len(shown) > 0 {
 		p("\ncandidates")
@@ -310,6 +336,9 @@ func writeBriefText(w io.Writer, b Brief) {
 		}
 		if a.MentionsService {
 			flags = append(flags, "names the service")
+		}
+		if a.RegionExpansion {
+			flags = append(flags, "region expansion")
 		}
 		tail := ""
 		if len(flags) > 0 {

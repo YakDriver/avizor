@@ -102,6 +102,7 @@ func TestRank(t *testing.T) {
 		{URL: "u-b", Headline: "Amazon S3 adds annotations for objects", PostedAt: rel.Add(time.Hour)},
 		{URL: "u-a", Headline: "Amazon S3 adds annotations for objects", PostedAt: rel.Add(time.Hour)},
 		{URL: "u-old", Headline: "Networking Flexible Cost Allocation for Transit Gateway", PostedAt: rel.Add(-8 * day)},
+		{URL: "u-region", Headline: "Networking Flexible Cost Allocation now available in additional AWS Regions", PostedAt: rel.Add(4 * day)},
 	})
 	text := "Adds support for Networking Flexible Cost Allocation APIs to break down shared networking costs."
 	// Match finds no clear winner at this score; Rank still lists the post first.
@@ -110,17 +111,23 @@ func TestRank(t *testing.T) {
 	for _, r := range got {
 		urls = append(urls, r.Announcement.URL)
 	}
-	if !slices.Equal(urls, []string{"u-fca", "u-a", "u-b"}) {
-		t.Errorf("Rank = %v; want the FCA post first, ties by URL, and the post 8 days early left out", urls)
+	if !slices.Equal(urls, []string{"u-fca", "u-region", "u-a", "u-b"}) {
+		t.Errorf("Rank = %v; want the FCA post first, the region expansion kept, ties by URL, and the post 8 days early left out", urls)
 	}
-	if got[0].Days != 2.5 || got[0].Score <= got[1].Score {
+	if !got[1].RegionExpansion || got[0].RegionExpansion {
+		t.Errorf("region expansion flags = %t, %t", got[0].RegionExpansion, got[1].RegionExpansion)
+	}
+	if got := m.Match(text+" Flexible Cost Allocation additional Regions", "EC2", rel); got != nil && got.Announcement.URL == "u-region" {
+		t.Error("Match picked a region expansion")
+	}
+	if got[0].Days != 2.5 || got[0].Score <= got[2].Score {
 		t.Errorf("Rank[0] = %+v", got[0])
 	}
 	if n := m.Rank(text, "EC2", rel, 7*day, 7*day, 1); len(n) != 1 || n[0].Announcement.URL != "u-fca" {
 		t.Errorf("Rank with n = 1 = %+v", n)
 	}
-	if wide := m.Rank(text, "EC2", rel, 9*day, 7*day, 0); len(wide) != 4 {
-		t.Errorf("Rank over 9 days before = %d posts, want 4", len(wide))
+	if wide := m.Rank(text, "EC2", rel, 9*day, 7*day, 0); len(wide) != 5 {
+		t.Errorf("Rank over 9 days before = %d posts, want 5", len(wide))
 	}
 }
 

@@ -45,13 +45,15 @@ type Matcher struct {
 
 	anns []Announcement
 	vecs []vector
-	idf  map[string]float64
-	n    float64
+	// region marks region expansion announcements: ranked, but never matched.
+	region []bool
+	idf    map[string]float64
+	n      float64
 }
 
 type vector map[string]float64
 
-// NewMatcher indexes announcements. Region expansion announcements are left out.
+// NewMatcher indexes announcements. Region expansion announcements are kept for Rank but never matched.
 func NewMatcher(as []Announcement) *Matcher {
 	m := &Matcher{Before: DefaultBefore, After: DefaultAfter, MinScore: DefaultMinScore, Margin: DefaultMargin,
 		idf: map[string]float64{}, n: float64(len(as))}
@@ -73,17 +75,23 @@ func NewMatcher(as []Announcement) *Matcher {
 		m.idf[w] = max(math.Log((m.n+1)/float64(n+1)), minIDF)
 	}
 	for i, a := range as {
-		if RegionExpansion(a.Headline) {
-			continue
-		}
 		m.anns = append(m.anns, a)
 		m.vecs = append(m.vecs, m.vector(docs[i]))
+		m.region = append(m.region, RegionExpansion(a.Headline))
 	}
 	return m
 }
 
-// Len returns the number of announcements that can match.
-func (m *Matcher) Len() int { return len(m.anns) }
+// Len returns the number of announcements that can match: all but region expansions.
+func (m *Matcher) Len() int {
+	n := 0
+	for _, r := range m.region {
+		if !r {
+			n++
+		}
+	}
+	return n
+}
 
 func (m *Matcher) weight(w string) float64 {
 	if v, ok := m.idf[w]; ok {
@@ -124,7 +132,7 @@ type Match struct {
 
 // Match returns the best announcement for an item's text, released at published, or nil if none is clearly best.
 func (m *Matcher) Match(text, service string, published time.Time) *Match {
-	best := m.score(text, service, published, m.Before, m.After)
+	best := m.score(text, service, published, m.Before, m.After, false)
 	if len(best) == 0 {
 		return nil
 	}
@@ -148,18 +156,21 @@ type Ranked struct {
 	Score        float64      `json:"score"`
 	// Days is when the announcement was posted, relative to the release.
 	Days float64 `json:"days"`
+	// RegionExpansion is set for a post about availability in more Regions, which Match never picks.
+	RegionExpansion bool `json:"region_expansion,omitempty"`
 }
 
-// Rank scores every announcement posted from before the release to after it and returns the n best, highest score
-// first; n <= 0 returns all. It doesn't pick one: Match does, with a floor and a margin over the runner-up.
+// Rank scores every announcement posted from before the release to after it, region expansions included, and returns
+// the n best, highest score first; n <= 0 returns all. It doesn't pick one: Match does, with a floor and a margin over
+// the runner-up.
 func (m *Matcher) Rank(text, service string, published time.Time, before, after time.Duration, n int) []Ranked {
-	best := m.score(text, service, published, before, after)
+	best := m.score(text, service, published, before, after, true)
 	if n > 0 && len(best) > n {
 		best = best[:n]
 	}
 	out := make([]Ranked, len(best))
 	for i, b := range best {
-		out[i] = Ranked{Announcement: m.anns[b.i], Score: round(b.score), Days: round(b.days)}
+		out[i] = Ranked{Announcement: m.anns[b.i], Score: round(b.score), Days: round(b.days), RegionExpansion: m.region[b.i]}
 	}
 	return out
 }
@@ -170,14 +181,15 @@ type scored struct {
 	days  float64
 }
 
-// score scores the announcements posted within before and after published, highest first. Ties go to the earlier
-// post, then the URL, so the order doesn't depend on the order announcements were loaded.
-func (m *Matcher) score(text, service string, published time.Time, before, after time.Duration) []scored {
+// score scores the announcements posted within before and after published, highest first, leaving out region
+// expansions unless regions is set. Ties go to the earlier post, then the URL, so the order doesn't depend on the order
+// announcements were loaded.
+func (m *Matcher) score(text, service string, published time.Time, before, after time.Duration, regions bool) []scored {
 	q := m.vector(slices.Concat(Tokens(text), Tokens(service), Tokens(service)))
 	var best []scored
 	for i, a := range m.anns {
 		d := a.PostedAt.Sub(published)
-		if d < -before || d > after {
+		if d < -before || d > after || m.region[i] && !regions {
 			continue
 		}
 		var s float64
