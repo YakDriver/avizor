@@ -36,6 +36,7 @@ State lives in `~/.local/share/avizor` (`$XDG_DATA_HOME/avizor`), or in `state_d
 avizor sync --since 2025-11-01                    # index issues and PRs
 avizor pull                                       # pull SDK releases and What's New announcements
 avizor queue --format text                        # items that need a decision
+avizor brief <item-id> --format text              # everything needed to decide an item
 avizor draft <item-id> --format text              # a new issue for a gap
 avizor decide <item-id> created 51234             # record what you did
 ```
@@ -151,6 +152,22 @@ The source reads the undocumented JSON endpoint behind the What's New pages, bec
   - for a new nested argument or attribute, where its parent block is defined in each file that calls its operations: the Terraform path (`configuration.vpc_egress_configuration`), the schema kind (`ListNestedBlock`, `TypeList (MaxItems 1)`), the plugin library, and the nearest block on the path that forces replacement;
   - for a new enum value, the package's uses of the SDK type, split into uses that validate with it (`enum.Validate[awstypes.RoutingStrategy]`, `fwtypes.StringEnum[...]`), which accept the new value without a code change, and other uses. Whether a new value matters is left to the reader; the state doesn't change.
 - **Announcement** (inferred): the matched post, with its score and the runner-up's.
+
+## Brief
+
+```
+avizor brief aws-sdk-go-v2/dsql/release-2026-11-16 aws-sdk-go-v2/ec2/release-2026-11-13 --format text
+```
+
+`avizor brief` is one call per item, or several, with what deciding it needs:
+
+- the release, its notes, the module version, and availability;
+- the queue state and reason, and the state once the SDK version is available (`pending` is a gap waiting on the SDK, and issues can be filed before it lands);
+- the current decision, if any, and whether it resurfaced;
+- the draft's title and labels;
+- the work with its spec and provider facts, as `inspect` shows them;
+- the candidates, as `candidates` gives them (in text, up to 5 related);
+- every announcement posted within 7 days of the release, scored against the item, best first (`--announcements`, default 10, 0 for all). The matcher's pick is marked, and so is each post whose text names the service. The ranking is for the reader to pick from: in the 2026-11-18 pass, the matcher's one pick was wrong or missing for 4 of 10 items, and the right post was first in this list for the DSQL and EC2 ones.
 
 ## Queue
 

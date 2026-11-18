@@ -395,38 +395,7 @@ func writeEnrichmentText(w io.Writer, e *enrich.Result) error {
 	}
 	if len(e.Work) > 0 {
 		fmt.Fprintf(w, "\n  work (inferred)\n")
-		for _, wk := range e.Work {
-			fmt.Fprintf(w, "    %s: %s (%s)\n", wk.Kind, wk.Subject, wk.Basis)
-			if wk.Spec != nil {
-				writeSpecText(w, wk.Spec)
-			}
-			for _, sp := range wk.Schema {
-				fn := ""
-				if sp.ForceNew != "" {
-					fn = "; " + sp.ForceNew + " forces replacement"
-				}
-				if sp.ForceNewIf != "" {
-					fn += "; " + sp.ForceNewIf + " forces replacement conditionally"
-				}
-				fmt.Fprintf(w, "      parent block %s in %s:%d (%s, %s%s)\n", sp.Path, sp.File, sp.Line, sp.Kind, sp.Framework, fn)
-			}
-			writeEnumUses(w, wk)
-			if len(wk.UsedBy) > 0 {
-				fmt.Fprintf(w, "      provider calls these operations in: %s\n", strings.Join(wk.UsedBy, ", "))
-			}
-			switch {
-			case wk.Member != "" && len(wk.FoundIn) > 0 && len(wk.Parent) > 0:
-				fmt.Fprintf(w, "      %s is used in %s in: %s\n", wk.Member, parentList(wk.Parent), strings.Join(wk.FoundIn, ", "))
-			case wk.Member != "" && len(wk.FoundIn) > 0:
-				fmt.Fprintf(w, "      %s is used in: %s\n", wk.Member, strings.Join(wk.FoundIn, ", "))
-			case wk.Member != "" && len(wk.OutsideBlock) > 0 && len(wk.Parent) > 0:
-				fmt.Fprintf(w, "      %s is used in %s, but not inside a %s block\n", wk.Member, strings.Join(wk.OutsideBlock, ", "), parentList(wk.Parent))
-			case wk.Member != "" && len(wk.OutsideBlock) > 0:
-				fmt.Fprintf(w, "      %s is used in %s, but its parent block wasn't found there\n", wk.Member, strings.Join(wk.OutsideBlock, ", "))
-			case wk.Member != "":
-				fmt.Fprintf(w, "      %s isn't used in those files\n", wk.Member)
-			}
-		}
+		writeWorkText(w, e.Work)
 	}
 	for _, warn := range e.Warnings {
 		fmt.Fprintf(w, "  warning: %s\n", warn)
@@ -685,4 +654,40 @@ func byFileLines(m map[string][]string) []string {
 		out = append(out, ls...)
 	}
 	return out
+}
+
+// writeWorkText prints work entries: kind, subject, and basis, then the spec, code use, and provider facts.
+func writeWorkText(w io.Writer, ws []enrich.Work) {
+	for _, wk := range ws {
+		fmt.Fprintf(w, "    %s: %s (%s)\n", wk.Kind, wk.Subject, wk.Basis)
+		if wk.Spec != nil {
+			writeSpecText(w, wk.Spec)
+		}
+		for _, sp := range wk.Schema {
+			fn := ""
+			if sp.ForceNew != "" {
+				fn = "; " + sp.ForceNew + " forces replacement"
+			}
+			if sp.ForceNewIf != "" {
+				fn += "; " + sp.ForceNewIf + " forces replacement conditionally"
+			}
+			fmt.Fprintf(w, "      parent block %s in %s:%d (%s, %s%s)\n", sp.Path, sp.File, sp.Line, sp.Kind, sp.Framework, fn)
+		}
+		writeEnumUses(w, wk)
+		if len(wk.UsedBy) > 0 {
+			fmt.Fprintf(w, "      provider calls these operations in: %s\n", strings.Join(wk.UsedBy, ", "))
+		}
+		switch {
+		case wk.Member != "" && len(wk.FoundIn) > 0 && len(wk.Parent) > 0:
+			fmt.Fprintf(w, "      %s is used in %s in: %s\n", wk.Member, parentList(wk.Parent), strings.Join(wk.FoundIn, ", "))
+		case wk.Member != "" && len(wk.FoundIn) > 0:
+			fmt.Fprintf(w, "      %s is used in: %s\n", wk.Member, strings.Join(wk.FoundIn, ", "))
+		case wk.Member != "" && len(wk.OutsideBlock) > 0 && len(wk.Parent) > 0:
+			fmt.Fprintf(w, "      %s is used in %s, but not inside a %s block\n", wk.Member, strings.Join(wk.OutsideBlock, ", "), parentList(wk.Parent))
+		case wk.Member != "" && len(wk.OutsideBlock) > 0:
+			fmt.Fprintf(w, "      %s is used in %s, but its parent block wasn't found there\n", wk.Member, strings.Join(wk.OutsideBlock, ", "))
+		case wk.Member != "":
+			fmt.Fprintf(w, "      %s isn't used in those files\n", wk.Member)
+		}
+	}
 }
