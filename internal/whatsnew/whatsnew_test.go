@@ -92,6 +92,38 @@ func TestMatch(t *testing.T) {
 	}
 }
 
+func TestRank(t *testing.T) {
+	t.Parallel()
+
+	rel := time.Date(2026, 11, 13, 19, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+	m := NewMatcher([]Announcement{
+		{URL: "u-fca", Headline: "AWS announces Networking Flexible Cost Allocation for Amazon VPC", PostedAt: rel.Add(2*day + 12*time.Hour)},
+		{URL: "u-b", Headline: "Amazon S3 adds annotations for objects", PostedAt: rel.Add(time.Hour)},
+		{URL: "u-a", Headline: "Amazon S3 adds annotations for objects", PostedAt: rel.Add(time.Hour)},
+		{URL: "u-old", Headline: "Networking Flexible Cost Allocation for Transit Gateway", PostedAt: rel.Add(-8 * day)},
+	})
+	text := "Adds support for Networking Flexible Cost Allocation APIs to break down shared networking costs."
+	// Match finds no clear winner at this score; Rank still lists the post first.
+	got := m.Rank(text, "EC2", rel, 7*day, 7*day, 0)
+	var urls []string
+	for _, r := range got {
+		urls = append(urls, r.Announcement.URL)
+	}
+	if !slices.Equal(urls, []string{"u-fca", "u-a", "u-b"}) {
+		t.Errorf("Rank = %v; want the FCA post first, ties by URL, and the post 8 days early left out", urls)
+	}
+	if got[0].Days != 2.5 || got[0].Score <= got[1].Score {
+		t.Errorf("Rank[0] = %+v", got[0])
+	}
+	if n := m.Rank(text, "EC2", rel, 7*day, 7*day, 1); len(n) != 1 || n[0].Announcement.URL != "u-fca" {
+		t.Errorf("Rank with n = 1 = %+v", n)
+	}
+	if wide := m.Rank(text, "EC2", rel, 9*day, 7*day, 0); len(wide) != 4 {
+		t.Errorf("Rank over 9 days before = %d posts, want 4", len(wide))
+	}
+}
+
 type memStore struct{ got []Announcement }
 
 func (s *memStore) PutAnnouncements(_ context.Context, as []Announcement) error {

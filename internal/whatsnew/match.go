@@ -124,32 +124,10 @@ type Match struct {
 
 // Match returns the best announcement for an item's text, released at published, or nil if none is clearly best.
 func (m *Matcher) Match(text, service string, published time.Time) *Match {
-	q := m.vector(slices.Concat(Tokens(text), Tokens(service), Tokens(service)))
-	type scored struct {
-		i     int
-		score float64
-		days  float64
-	}
-	var best []scored
-	for i, a := range m.anns {
-		d := a.PostedAt.Sub(published)
-		if d < -m.Before || d > m.After {
-			continue
-		}
-		var s float64
-		for w, x := range q {
-			s += x * m.vecs[i][w]
-		}
-		days := d.Hours() / 24
-		if math.Abs(days) > nearDays {
-			s *= 0.75
-		}
-		best = append(best, scored{i, s, days})
-	}
+	best := m.score(text, service, published, m.Before, m.After)
 	if len(best) == 0 {
 		return nil
 	}
-	slices.SortFunc(best, func(a, b scored) int { return cmp.Compare(b.score, a.score) })
 	top := best[0]
 	var second float64
 	if len(best) > 1 {
@@ -162,6 +140,60 @@ func (m *Matcher) Match(text, service string, published time.Time) *Match {
 		Announcement: m.anns[top.i], Score: round(top.score), RunnerUp: round(second), Days: round(top.days),
 		Basis: fmt.Sprintf("text similarity %.2f (next best %.2f), posted %+.1f days from the release", top.score, second, top.days),
 	}
+}
+
+// Ranked is an announcement scored against an item, as Match scores it.
+type Ranked struct {
+	Announcement Announcement `json:"announcement"`
+	Score        float64      `json:"score"`
+	// Days is when the announcement was posted, relative to the release.
+	Days float64 `json:"days"`
+}
+
+// Rank scores every announcement posted from before the release to after it and returns the n best, highest score
+// first; n <= 0 returns all. It doesn't pick one: Match does, with a floor and a margin over the runner-up.
+func (m *Matcher) Rank(text, service string, published time.Time, before, after time.Duration, n int) []Ranked {
+	best := m.score(text, service, published, before, after)
+	if n > 0 && len(best) > n {
+		best = best[:n]
+	}
+	out := make([]Ranked, len(best))
+	for i, b := range best {
+		out[i] = Ranked{Announcement: m.anns[b.i], Score: round(b.score), Days: round(b.days)}
+	}
+	return out
+}
+
+type scored struct {
+	i     int
+	score float64
+	days  float64
+}
+
+// score scores the announcements posted within before and after published, highest first. Ties go to the earlier
+// post, then the URL, so the order doesn't depend on the order announcements were loaded.
+func (m *Matcher) score(text, service string, published time.Time, before, after time.Duration) []scored {
+	q := m.vector(slices.Concat(Tokens(text), Tokens(service), Tokens(service)))
+	var best []scored
+	for i, a := range m.anns {
+		d := a.PostedAt.Sub(published)
+		if d < -before || d > after {
+			continue
+		}
+		var s float64
+		for w, x := range q {
+			s += x * m.vecs[i][w]
+		}
+		days := d.Hours() / 24
+		if math.Abs(days) > nearDays {
+			s *= 0.75
+		}
+		best = append(best, scored{i, s, days})
+	}
+	slices.SortFunc(best, func(a, b scored) int {
+		return cmp.Or(cmp.Compare(b.score, a.score), m.anns[a.i].PostedAt.Compare(m.anns[b.i].PostedAt), strings.Compare(m.anns[a.i].URL, m.anns[b.i].URL))
+	})
+	return best
 }
 
 func round(f float64) float64 { return math.Round(f*100) / 100 }
