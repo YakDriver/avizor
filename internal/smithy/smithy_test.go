@@ -238,3 +238,41 @@ func TestUsages(t *testing.T) {
 		t.Errorf("unreferenced shape has usages: %+v", u["NotFound"])
 	}
 }
+
+func TestParseTraits(t *testing.T) {
+	t.Parallel()
+
+	m, err := Parse([]byte(`{"smithy": "2.0", "shapes": {
+  "com.amazonaws.x#Svc": {"type": "service", "traits": {"aws.api#service": {"sdkId": "X"}}},
+  "com.amazonaws.x#CreateX": {"type": "operation", "traits": {"smithy.api#documentation": "<p>Creates an X.</p>"}},
+  "com.amazonaws.x#Name": {"type": "string", "traits": {"smithy.api#length": {"min": 1, "max": 63}, "smithy.api#pattern": "^[a-z]+$"}},
+  "com.amazonaws.x#Req": {"type": "structure", "members": {
+    "Name": {"target": "com.amazonaws.x#Name", "traits": {"smithy.api#required": {}, "smithy.api#length": {"max": 32}}},
+    "Count": {"target": "smithy.api#Integer", "traits": {"smithy.api#range": {"min": 0, "max": 3600}, "smithy.api#default": 300}},
+    "Token": {"target": "smithy.api#String", "traits": {"smithy.api#idempotencyToken": {}}},
+    "Plain": {"target": "smithy.api#String"}}}
+}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Shapes["CreateX"].Doc; got != "<p>Creates an X.</p>" {
+		t.Errorf("operation doc = %q", got)
+	}
+	name := m.Shapes["Name"].Constraints
+	if *name.LengthMin != 1 || *name.LengthMax != 63 || name.Pattern != "^[a-z]+$" {
+		t.Errorf("Name constraints = %+v", name)
+	}
+	info := m.Shapes["Req"].Info
+	if !info["Name"].Required || *name.Merge(info["Name"].Constraints).LengthMax != 32 {
+		t.Errorf("Req.Name = %+v; the member's length overrides its target's", info["Name"])
+	}
+	if c := info["Count"]; *c.Constraints.RangeMax != 3600 || c.Default != "300" {
+		t.Errorf("Req.Count = %+v", c)
+	}
+	if !info["Token"].IdempotencyToken {
+		t.Error("Req.Token isn't an idempotency token")
+	}
+	if _, ok := info["Plain"]; ok {
+		t.Error("Req.Plain has info; members without traits are left out")
+	}
+}

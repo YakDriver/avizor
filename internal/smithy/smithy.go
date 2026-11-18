@@ -37,6 +37,100 @@ type Shape struct {
 	Elems []string
 	// Docs are structure and union members' documentation, as written (HTML), for members that have it.
 	Docs map[string]string
+	// Doc is the shape's own documentation (HTML), as for an operation.
+	Doc string
+	// Constraints are the shape's own length, range, pattern, and uniqueItems traits.
+	Constraints Constraints
+	// Info has structure and union members' traits that matter for a resource's schema, for members with any.
+	Info map[string]MemberInfo
+}
+
+// Constraints are a shape's or member's validation traits. Length applies to strings, lists, and maps; Range to
+// numbers.
+type Constraints struct {
+	LengthMin *float64 `json:"length_min,omitempty"`
+	LengthMax *float64 `json:"length_max,omitempty"`
+	RangeMin  *float64 `json:"range_min,omitempty"`
+	RangeMax  *float64 `json:"range_max,omitempty"`
+	Pattern   string   `json:"pattern,omitempty"`
+	Unique    bool     `json:"unique,omitempty"`
+}
+
+// Empty reports whether no constraint is set.
+func (c Constraints) Empty() bool {
+	return c == Constraints{}
+}
+
+// Merge returns c with any constraint o sets. A member's traits override its target's.
+func (c Constraints) Merge(o Constraints) Constraints {
+	if o.LengthMin != nil || o.LengthMax != nil {
+		c.LengthMin, c.LengthMax = o.LengthMin, o.LengthMax
+	}
+	if o.RangeMin != nil || o.RangeMax != nil {
+		c.RangeMin, c.RangeMax = o.RangeMin, o.RangeMax
+	}
+	if o.Pattern != "" {
+		c.Pattern = o.Pattern
+	}
+	c.Unique = c.Unique || o.Unique
+	return c
+}
+
+// MemberInfo is a structure or union member's traits.
+type MemberInfo struct {
+	Required bool `json:"required,omitempty"`
+	// IdempotencyToken marks a client token, which a provider generates rather than exposes.
+	IdempotencyToken bool `json:"idempotency_token,omitempty"`
+	// Default is the member's default value as JSON, if it has one.
+	Default     string      `json:"default,omitempty"`
+	Deprecated  bool        `json:"deprecated,omitempty"`
+	Constraints Constraints `json:"constraints,omitzero"`
+}
+
+func (i MemberInfo) empty() bool {
+	return i == MemberInfo{}
+}
+
+// constraintsOf reads validation traits.
+func constraintsOf(traits map[string]json.RawMessage) Constraints {
+	var c Constraints
+	var bounds struct {
+		Min *float64 `json:"min"`
+		Max *float64 `json:"max"`
+	}
+	if raw, ok := traits["smithy.api#length"]; ok && json.Unmarshal(raw, &bounds) == nil {
+		c.LengthMin, c.LengthMax = bounds.Min, bounds.Max
+	}
+	bounds.Min, bounds.Max = nil, nil
+	if raw, ok := traits["smithy.api#range"]; ok && json.Unmarshal(raw, &bounds) == nil {
+		c.RangeMin, c.RangeMax = bounds.Min, bounds.Max
+	}
+	if raw, ok := traits["smithy.api#pattern"]; ok {
+		_ = json.Unmarshal(raw, &c.Pattern)
+	}
+	_, c.Unique = traits["smithy.api#uniqueItems"]
+	return c
+}
+
+// infoOf reads a member's traits.
+func infoOf(traits map[string]json.RawMessage) MemberInfo {
+	i := MemberInfo{Constraints: constraintsOf(traits)}
+	_, i.Required = traits["smithy.api#required"]
+	_, i.IdempotencyToken = traits["smithy.api#idempotencyToken"]
+	_, i.Deprecated = traits["smithy.api#deprecated"]
+	if raw, ok := traits["smithy.api#default"]; ok {
+		i.Default = string(raw)
+	}
+	return i
+}
+
+// docOf returns a documentation trait, or "".
+func docOf(traits map[string]json.RawMessage) string {
+	var doc string
+	if raw, ok := traits["smithy.api#documentation"]; ok {
+		_ = json.Unmarshal(raw, &doc)
+	}
+	return doc
 }
 
 type astModel struct {
@@ -69,7 +163,7 @@ func Parse(data []byte) (*Model, error) {
 	m := &Model{Shapes: make(map[string]Shape, len(ast.Shapes))}
 	for id, s := range ast.Shapes {
 		name := shortName(id)
-		sh := Shape{Type: s.Type}
+		sh := Shape{Type: s.Type, Doc: docOf(s.Traits), Constraints: constraintsOf(s.Traits)}
 		if s.Input != nil {
 			sh.Input = shortName(s.Input.Target)
 		}
@@ -88,14 +182,17 @@ func Parse(data []byte) (*Model, error) {
 				if s.Type != TypeStructure && s.Type != TypeUnion {
 					continue
 				}
-				if raw, ok := mem.Traits["smithy.api#documentation"]; ok {
-					var doc string
-					if json.Unmarshal(raw, &doc) == nil && doc != "" {
-						if sh.Docs == nil {
-							sh.Docs = map[string]string{}
-						}
-						sh.Docs[mn] = doc
+				if doc := docOf(mem.Traits); doc != "" {
+					if sh.Docs == nil {
+						sh.Docs = map[string]string{}
 					}
+					sh.Docs[mn] = doc
+				}
+				if info := infoOf(mem.Traits); !info.empty() {
+					if sh.Info == nil {
+						sh.Info = map[string]MemberInfo{}
+					}
+					sh.Info[mn] = info
 				}
 			}
 		}
@@ -157,6 +254,11 @@ var preludeTypes = map[string]string{
 	"Timestamp": "timestamp", "Document": "document", "PrimitiveBoolean": "boolean", "PrimitiveByte": "byte",
 	"PrimitiveShort": "short", "PrimitiveInteger": "integer", "PrimitiveLong": "long", "PrimitiveFloat": "float",
 	"PrimitiveDouble": "double", "Unit": "structure",
+}
+
+// TypeOf returns the type of a shape by short name, from the model or the prelude, or "" if it's in neither.
+func (m *Model) TypeOf(name string) string {
+	return m.typeOf(name)
 }
 
 // typeOf returns the type of a shape by short name, from the model or the prelude.
