@@ -405,6 +405,9 @@ func writeEnrichmentText(w io.Writer, e *enrich.Result) error {
 				if sp.ForceNew != "" {
 					fn = "; " + sp.ForceNew + " forces replacement"
 				}
+				if sp.ForceNewIf != "" {
+					fn += "; " + sp.ForceNewIf + " forces replacement conditionally"
+				}
 				fmt.Fprintf(w, "      parent block %s in %s:%d (%s, %s%s)\n", sp.Path, sp.File, sp.Line, sp.Kind, sp.Framework, fn)
 			}
 			writeEnumUses(w, wk)

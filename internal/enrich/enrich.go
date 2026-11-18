@@ -210,7 +210,7 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 			e.findMembers(res.Work, model)
 			e.schemaPlaces(res.Work, model)
 		}
-		if err := e.enumUses(ctx, res.Service.Package, res.Work); err != nil {
+		if err := e.enumUses(ctx, res.Service.Package, it.Service.ModulePath, res.Work); err != nil {
 			warnf("enum search: %v", err)
 		}
 	}

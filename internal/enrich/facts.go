@@ -34,8 +34,10 @@ type SchemaPlace struct {
 	// Framework is "plugin-framework" or "sdkv2".
 	Framework string `json:"framework"`
 	// ForceNew is the path of the nearest block on Path, the parent included, that forces replacement (ForceNew or a
-	// RequiresReplace plan modifier), or "".
-	ForceNew string `json:"force_new,omitempty"`
+	// RequiresReplace plan modifier), or "". ForceNewIf is the same for a conditional modifier (RequiresReplaceIf,
+	// RequiresReplaceIfConfigured), whose condition isn't read.
+	ForceNew   string `json:"force_new,omitempty"`
+	ForceNewIf string `json:"force_new_if,omitempty"`
 }
 
 // EnumUse is a line in the provider package that uses an enum's SDK type. Validated is set when the use validates
@@ -211,7 +213,7 @@ func placesOf(f *ast.File, fset *token.FileSet, names []string, attrs map[string
 		}
 		// The path is the keys of the schema definitions that enclose this one, outermost first.
 		var path []string
-		forceNew := ""
+		forceNew, forceNewIf := "", ""
 		var enclosing []*ast.KeyValueExpr
 		for _, a := range stack {
 			// Only named entries count: "name": schema.X{...}. Elem, NestedObject, and Attributes are structure.
@@ -223,11 +225,15 @@ func placesOf(f *ast.File, fset *token.FileSet, names []string, attrs map[string
 		}
 		for _, k := range enclosing {
 			path = append(path, keyName(k.Key, attrs))
-			if _, d := schemaKind(k.Value); forcesNew(d) {
+			_, d := schemaKind(k.Value)
+			switch forcesNew(d) {
+			case replaceAlways:
 				forceNew = strings.Join(path, ".")
+			case replaceIf:
+				forceNewIf = strings.Join(path, ".")
 			}
 		}
-		out = append(out, SchemaPlace{Line: fset.Position(kv.Pos()).Line, Path: strings.Join(path, "."), Kind: kind, ForceNew: forceNew})
+		out = append(out, SchemaPlace{Line: fset.Position(kv.Pos()).Line, Path: strings.Join(path, "."), Kind: kind, ForceNew: forceNew, ForceNewIf: forceNewIf})
 		return true
 	})
 	return out
@@ -340,8 +346,17 @@ func hasSchemaType(cl *ast.CompositeLit) bool {
 	return false
 }
 
-// forcesNew reports whether a schema definition has ForceNew: true or a RequiresReplace plan modifier.
-func forcesNew(cl *ast.CompositeLit) bool {
+// Replacement kinds a schema definition declares.
+const (
+	replaceNever = iota
+	replaceIf
+	replaceAlways
+)
+
+// forcesNew says whether a schema definition forces replacement: always, for ForceNew: true or a RequiresReplace plan
+// modifier; conditionally, for RequiresReplaceIf and RequiresReplaceIfConfigured; or never.
+func forcesNew(cl *ast.CompositeLit) int {
+	out := replaceNever
 	for _, el := range cl.Elts {
 		kv, ok := el.(*ast.KeyValueExpr)
 		if !ok {
@@ -350,22 +365,23 @@ func forcesNew(cl *ast.CompositeLit) bool {
 		switch keyIdent(kv.Key) {
 		case "ForceNew":
 			if id, ok := kv.Value.(*ast.Ident); ok && id.Name == "true" {
-				return true
+				return replaceAlways
 			}
 		case "PlanModifiers":
-			found := false
 			ast.Inspect(kv.Value, func(n ast.Node) bool {
-				if s, ok := n.(*ast.SelectorExpr); ok && strings.HasPrefix(s.Sel.Name, "RequiresReplace") {
-					found = true
+				if s, ok := n.(*ast.SelectorExpr); ok {
+					switch {
+					case s.Sel.Name == "RequiresReplace":
+						out = replaceAlways
+					case strings.HasPrefix(s.Sel.Name, "RequiresReplace"):
+						out = max(out, replaceIf)
+					}
 				}
-				return !found
+				return out != replaceAlways
 			})
-			if found {
-				return true
-			}
 		}
 	}
-	return false
+	return out
 }
 
 // isSchemaKey reports whether a map key names an attribute or block: a string literal or a names.Attr constant.
@@ -422,8 +438,10 @@ func frameworkOf(f *ast.File) string {
 // validatedRE matches uses that validate or type values with the SDK enum type.
 var validatedRE = regexp.MustCompile(`\benum\.(?:Validate|FrameworkValidate|Values|EnumValues)\[|\bfwtypes\.(?:StringEnum|StringEnumType|ListOfStringEnum|SetOfStringEnum|ListOfStringEnumType|SetOfStringEnumType)\[`)
 
-// enumUses records, for each new enum value entry, the lines in the provider package that use the enum's SDK type.
-func (e *Enricher) enumUses(ctx context.Context, pkg string, ws []Work) error {
+// enumUses records, for each new enum value entry, the lines in the provider package that use the enum's SDK type
+// from module's types package. rg finds candidate lines; each file's syntax tree confirms them, so comments, strings,
+// and other services' types of the same name don't count.
+func (e *Enricher) enumUses(ctx context.Context, pkg, module string, ws []Work) error {
 	var enums []string
 	for _, w := range ws {
 		if w.Kind == WorkNewEnumValue {
@@ -454,6 +472,15 @@ func (e *Enricher) enumUses(ctx context.Context, pkg string, ws []Work) error {
 		}
 	}
 	re := regexp.MustCompile(pattern)
+	real := map[string]map[int]map[string]bool{} // file -> line -> enum names used there
+	confirmed := func(path string, line int, enum string) bool {
+		lines, ok := real[path]
+		if !ok {
+			lines = typeRefs(path, module+"/types", enums)
+			real[path] = lines
+		}
+		return lines[line][enum]
+	}
 	uses := map[string][]EnumUse{}
 	for line := range strings.Lines(string(out)) {
 		// "<path>:<line>:<code>"
@@ -475,6 +502,9 @@ func (e *Enricher) enumUses(ctx context.Context, pkg string, ws []Work) error {
 		}
 		code = strings.TrimSpace(code)
 		for _, sm := range re.FindAllStringSubmatch(code, -1) {
+			if !confirmed(path, n, sm[1]) {
+				continue
+			}
 			u := EnumUse{File: rel, Line: n, Validated: validatedRE.MatchString(code), Code: code}
 			if l := uses[sm[1]]; len(l) == 0 || l[len(l)-1].File != u.File || l[len(l)-1].Line != u.Line {
 				uses[sm[1]] = append(l, u)
@@ -494,6 +524,45 @@ func (e *Enricher) enumUses(ctx context.Context, pkg string, ws []Work) error {
 		}
 	}
 	return nil
+}
+
+// typeRefs returns, for each line of a Go file, the names in enums it refers to as selectors on an import of
+// typesPath (awstypes.RoutingStrategy), from the syntax tree.
+func typeRefs(path, typesPath string, enums []string) map[int]map[string]bool {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		return nil
+	}
+	aliases := map[string]bool{}
+	for _, imp := range f.Imports {
+		if p, _ := strconv.Unquote(imp.Path.Value); p == typesPath {
+			name := "types"
+			if imp.Name != nil {
+				name = imp.Name.Name
+			}
+			aliases[name] = true
+		}
+	}
+	if len(aliases) == 0 {
+		return nil
+	}
+	out := map[int]map[string]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		s, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if x, ok := s.X.(*ast.Ident); ok && aliases[x.Name] && slices.Contains(enums, s.Sel.Name) {
+			line := fset.Position(s.Pos()).Line
+			if out[line] == nil {
+				out[line] = map[string]bool{}
+			}
+			out[line][s.Sel.Name] = true
+		}
+		return true
+	})
+	return out
 }
 
 // goName is the SDK for Go's exported name for a shape: its first letter upper-cased.

@@ -27,6 +27,10 @@ func (r *resource) Schema() {
 					},
 				},
 			},
+			"conditional": schema.ListNestedBlock{
+				PlanModifiers: []planmodifier.List{listplanmodifier.RequiresReplaceIf(f, "", "")},
+				NestedObject:  schema.NestedBlockObject{},
+			},
 			"metadata_configuration": schema.ListNestedBlock{
 				PlanModifiers: []planmodifier.List{listplanmodifier.RequiresReplace()},
 				NestedObject: schema.NestedBlockObject{
@@ -85,6 +89,9 @@ func TestPlacesOf(t *testing.T) {
 	if len(ps) != 1 || ps[0].Path != "configuration.vpc_egress_configuration" || ps[0].Kind != "ListNestedBlock" || ps[0].ForceNew != "" {
 		t.Errorf("vpc_egress_configuration places = %+v", ps)
 	}
+	if ps := placesOf(fw, fset, []string{"conditional"}, nil); len(ps) != 1 || ps[0].ForceNew != "" || ps[0].ForceNewIf != "conditional" {
+		t.Errorf("conditional places = %+v; RequiresReplaceIf is conditional", ps)
+	}
 	ps = placesOf(fw, fset, []string{"text"}, nil)
 	if len(ps) != 1 || ps[0].Path != "metadata_configuration.text" || ps[0].ForceNew != "metadata_configuration" {
 		t.Errorf("text places = %+v; metadata_configuration forces replacement", ps)
@@ -124,17 +131,25 @@ func TestEnumUses(t *testing.T) {
 	}
 	src := `package x
 
+import (
+	awstypes "github.com/aws/aws-sdk-go-v2/service/x/types"
+	othertypes "github.com/aws/aws-sdk-go-v2/service/other/types"
+)
+
 var _ = enum.Validate[awstypes.RoutingStrategy]()
 var _ fwtypes.StringEnum[awstypes.Mode]
 var _ = awstypes.RoutingStrategy(v)
 var _ = output.Mode
+// var _ = enum.Validate[awstypes.Mode]()
+var _ = "awstypes.Mode"
+var _ = enum.Validate[othertypes.Mode]()
 `
 	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	e := &Enricher{Checkout: checkout}
 	ws := []Work{{Kind: WorkNewEnumValue, Subject: "RoutingStrategy"}, {Kind: WorkNewEnumValue, Subject: "Mode"}, {Kind: WorkNewEnumValue, Subject: "Unused"}}
-	if err := e.enumUses(context.Background(), "x", ws); err != nil {
+	if err := e.enumUses(context.Background(), "x", "github.com/aws/aws-sdk-go-v2/service/x", ws); err != nil {
 		t.Fatal(err)
 	}
 	lines := func(us []EnumUse) (validated, other []int) {
@@ -147,11 +162,11 @@ var _ = output.Mode
 		}
 		return
 	}
-	if v, o := lines(ws[0].EnumUses); !slices.Equal(v, []int{3}) || !slices.Equal(o, []int{5}) {
+	if v, o := lines(ws[0].EnumUses); !slices.Equal(v, []int{8}) || !slices.Equal(o, []int{10}) {
 		t.Errorf("RoutingStrategy validated %v, other %v", v, o)
 	}
-	if v, o := lines(ws[1].EnumUses); !slices.Equal(v, []int{4}) || o != nil {
-		t.Errorf("Mode validated %v, other %v; output.Mode is a field, not the type", v, o)
+	if v, o := lines(ws[1].EnumUses); !slices.Equal(v, []int{9}) || o != nil {
+		t.Errorf("Mode validated %v, other %v; a field, a comment, a string, and another service's Mode don't count", v, o)
 	}
 	if !ws[2].EnumSearched || ws[2].EnumUses != nil {
 		t.Errorf("Unused = %+v, want searched with no uses", ws[2])
