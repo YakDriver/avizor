@@ -76,6 +76,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("creating items schema: %w", err)
 	}
+	if err := migrateDispositions(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	s := &Store{db: db}
 	v, err := s.Meta(context.Background(), "schema_version")
 	if err != nil {

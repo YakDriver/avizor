@@ -17,7 +17,7 @@ type IssueLookup func(number int) *index.Issue
 // Resurface attaches a decision to an entry and says whether the item needs another look:
 //
 //   - any decision whose revisit date has passed;
-//   - duplicate, when the covering issue was closed without being completed, or the covering PR was closed unmerged;
+//   - duplicate, when a covering issue was closed without being completed, or a covering PR was closed unmerged;
 //   - skipped and deferred, when the evidence differs from what the decision recorded.
 //
 // A created decision otherwise stands: the item's work is filed.
@@ -29,12 +29,17 @@ func Resurface(e *Entry, d items.Disposition, lookup IssueLookup, now time.Time)
 	}
 	switch d.Decision {
 	case items.DecisionDuplicate:
-		if is := lookup(d.Number); is != nil && is.State == "closed" {
+		// Each number covers part of the item's work (one per resource), so losing any one re-surfaces it.
+		for _, n := range d.Numbers() {
+			is := lookup(n)
+			if is == nil || is.State != "closed" {
+				continue
+			}
 			switch {
 			case is.Kind == index.KindPR && !is.Merged:
-				why = append(why, fmt.Sprintf("#%d was closed unmerged", d.Number))
+				why = append(why, fmt.Sprintf("#%d was closed unmerged", n))
 			case is.Kind == index.KindIssue && is.StateReason != "completed":
-				why = append(why, fmt.Sprintf("#%d was closed as %s", d.Number, cmp(is.StateReason, "not completed")))
+				why = append(why, fmt.Sprintf("#%d was closed as %s", n, cmp(is.StateReason, "not completed")))
 			}
 		}
 	case items.DecisionSkipped, items.DecisionDeferred:

@@ -40,6 +40,8 @@ func TestResurface(t *testing.T) {
 		"duplicate of closed PR":       {d: items.Disposition{Decision: items.DecisionDuplicate, Number: 4}, want: "#4 was closed unmerged"},
 		"duplicate of merged PR":       {d: items.Disposition{Decision: items.DecisionDuplicate, Number: 5}},
 		"duplicate not in index":       {d: items.Disposition{Decision: items.DecisionDuplicate, Number: 6}},
+		"duplicate, all covering":      {d: items.Disposition{Decision: items.DecisionDuplicate, Number: 1, Also: []int{3, 5}}},
+		"duplicate, one lost":          {d: items.Disposition{Decision: items.DecisionDuplicate, Number: 1, Also: []int{3, 4}}, want: "#4 was closed unmerged"},
 		"skipped, same evidence":       {d: items.Disposition{Decision: items.DecisionSkipped, Evidence: ev(gap)}, now: gap},
 		"skipped, availability change": {d: items.Disposition{Decision: items.DecisionSkipped, Evidence: ev(gap)}, now: Evidence{CodeSearched: true, CodeCandidates: true, State: Gap, Availability: "available"}, want: "availability pending → available"},
 	} {

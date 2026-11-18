@@ -2,8 +2,10 @@ package items
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -47,5 +49,73 @@ func TestDispositions(t *testing.T) {
 	}
 	if all, _ := s.History(ctx, "tf", ""); len(all) != 4 {
 		t.Errorf("history for tf has %d decisions, want 4", len(all))
+	}
+}
+
+func TestDispositionsAlsoAndComments(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "items.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	at := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+	comments := []string{"https://github.com/o/r/issues/2#issuecomment-10"}
+	if err := s.Decide(ctx, Disposition{Target: "tf", Item: "a", Decision: DecisionCreated, Number: 7, Also: []int{8, 9},
+		Comments: comments, DecidedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := s.Current(ctx, "tf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := cur["a"]
+	if !slices.Equal(d.Numbers(), []int{7, 8, 9}) || !slices.Equal(d.Comments, comments) {
+		t.Errorf("decision = %+v, want numbers 7, 8, 9 and the comment", d)
+	}
+}
+
+// TestDispositionsMigration opens a database whose dispositions table predates the also and comments columns.
+func TestDispositionsMigration(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "items.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Decide(ctx, Disposition{Target: "tf", Item: "old", Decision: DecisionCreated, Number: 5, DecidedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range dispositionColumns {
+		if _, err := db.Exec(`ALTER TABLE dispositions DROP COLUMN ` + c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Decide(ctx, Disposition{Target: "tf", Item: "new", Decision: DecisionCreated, Number: 6, Also: []int{7}, DecidedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := s.Current(ctx, "tf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur["old"].Number != 5 || cur["old"].Also != nil || !slices.Equal(cur["new"].Numbers(), []int{6, 7}) {
+		t.Errorf("after migration: old = %+v, new = %+v", cur["old"], cur["new"])
 	}
 }
