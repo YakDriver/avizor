@@ -131,6 +131,10 @@ type Work struct {
 	SharedName bool `json:"shared_name,omitempty"`
 	// Spec is what the model says about a new resource or data source.
 	Spec *Spec `json:"spec,omitempty"`
+	// Field is what the model says about a new argument's or attribute's member: its type and constraints.
+	Field *Field `json:"field,omitempty"`
+	// Values are a new enum value work's new values.
+	Values []string `json:"values,omitempty"`
 	// Schema is where a new nested member's parent block is defined in the files that call its operations.
 	Schema []SchemaPlace `json:"schema,omitempty"`
 	// EnumUses are the provider package's uses of a new enum value's SDK type.
@@ -195,6 +199,7 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 	res.Work = work(it.Diff, usages)
 	buildSpecs(res.Work, model, it.Diff)
 	markNotSettable(res.Work, model)
+	memberFields(res.Work, model)
 	markSharedNames(res.Work, it.Diff, model)
 	res.NewMembers = newMembers(res.Work, it.Diff, model)
 	if e.Announcements != nil {

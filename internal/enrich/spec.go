@@ -61,6 +61,8 @@ type Field struct {
 	Constraints smithy.Constraints `json:"constraints,omitzero"`
 	// Values are an enum's values.
 	Values []string `json:"values,omitempty"`
+	// Returned is set for a resource argument that the read result also has.
+	Returned bool `json:"returned,omitempty"`
 	// Fields are a structure's, union's, or list or map element structure's members.
 	Fields []Field `json:"fields,omitempty"`
 }
@@ -199,9 +201,16 @@ func buildSpec(m *smithy.Model, w Work, resourceTypes []string) *Spec {
 		if create != "" && (args["tagspecifications"] || args["tags"]) {
 			args["tags"] = true
 		}
+		returned := map[string]bool{}
 		for _, f := range fields(m, result, 2) {
+			returned[strings.ToLower(f.Member)] = true
 			if !args[strings.ToLower(f.Member)] {
 				s.Attributes = append(s.Attributes, f)
+			}
+		}
+		if create != "" {
+			for i := range s.Arguments {
+				s.Arguments[i].Returned = returned[strings.ToLower(s.Arguments[i].Member)]
 			}
 		}
 		s.Status = status(m, result)
@@ -280,35 +289,61 @@ func fields(m *smithy.Model, shape string, depth int) []Field {
 		if info.IdempotencyToken || slices.Contains(pagingMembers, name) {
 			continue
 		}
-		target := sh.Members[name]
-		f := Field{Name: Snake(name), Member: name, Type: m.TypeOf(target), Required: info.Required, Default: info.Default,
-			Deprecated: info.Deprecated, Constraints: m.Shapes[target].Constraints.Merge(info.Constraints)}
-		if doc := text(sh.Docs[name]); notSettableRE.MatchString(doc) || ignoresRE.MatchString(doc) {
-			f.Ignored = true
-		}
-		ts := m.Shapes[target]
-		switch f.Type {
-		case smithy.TypeEnum, smithy.TypeIntEnum:
-			f.Values = enumValues(ts)
-		case smithy.TypeStructure, smithy.TypeUnion:
-			if depth < specDepth {
-				f.Fields = fields(m, target, depth+1)
-			}
-		case "list", "set", "map":
-			elem := ts.Elems[len(ts.Elems)-1]
-			f.Elem = m.TypeOf(elem)
-			switch f.Elem {
-			case smithy.TypeEnum, smithy.TypeIntEnum:
-				f.Values = enumValues(m.Shapes[elem])
-			case smithy.TypeStructure, smithy.TypeUnion:
-				if depth < specDepth {
-					f.Fields = fields(m, elem, depth+1)
-				}
-			}
-		}
-		out = append(out, f)
+		out = append(out, fieldOf(m, sh, name, depth))
 	}
 	return out
+}
+
+// memberFields adds the model's field to each new argument and attribute.
+func memberFields(ws []Work, m *smithy.Model) {
+	if m == nil {
+		return
+	}
+	for i := range ws {
+		w := &ws[i]
+		if w.Kind != WorkNewArgument && w.Kind != WorkNewAttribute {
+			continue
+		}
+		shape, member, _ := strings.Cut(w.Subject, ".")
+		if sh, ok := m.Shapes[shape]; ok {
+			if _, ok := sh.Members[member]; ok {
+				f := fieldOf(m, sh, member, 1)
+				w.Field = &f
+			}
+		}
+	}
+}
+
+// fieldOf returns a structure's member as a field, with nested fields down to specDepth levels.
+func fieldOf(m *smithy.Model, sh smithy.Shape, name string, depth int) Field {
+	info := sh.Info[name]
+	target := sh.Members[name]
+	f := Field{Name: Snake(name), Member: name, Type: m.TypeOf(target), Required: info.Required, Default: info.Default,
+		Deprecated: info.Deprecated, Constraints: m.Shapes[target].Constraints.Merge(info.Constraints)}
+	if doc := text(sh.Docs[name]); notSettableRE.MatchString(doc) || ignoresRE.MatchString(doc) {
+		f.Ignored = true
+	}
+	ts := m.Shapes[target]
+	switch f.Type {
+	case smithy.TypeEnum, smithy.TypeIntEnum:
+		f.Values = enumValues(ts)
+	case smithy.TypeStructure, smithy.TypeUnion:
+		if depth < specDepth {
+			f.Fields = fields(m, target, depth+1)
+		}
+	case "list", "set", "map":
+		elem := ts.Elems[len(ts.Elems)-1]
+		f.Elem = m.TypeOf(elem)
+		switch f.Elem {
+		case smithy.TypeEnum, smithy.TypeIntEnum:
+			f.Values = enumValues(m.Shapes[elem])
+		case smithy.TypeStructure, smithy.TypeUnion:
+			if depth < specDepth {
+				f.Fields = fields(m, elem, depth+1)
+			}
+		}
+	}
+	return f
 }
 
 func enumValues(sh smithy.Shape) []string {

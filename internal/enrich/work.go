@@ -81,7 +81,7 @@ func work(d *smithy.Diff, usages map[string]*smithy.Usage) []Work {
 		byEnum[m.Shape] = append(byEnum[m.Shape], m.Value)
 	}
 	for _, e := range enums {
-		w := Work{Kind: WorkNewEnumValue, Subject: e,
+		w := Work{Kind: WorkNewEnumValue, Subject: e, Values: byEnum[e],
 			Basis: fmt.Sprintf("new values %s; usually no change if the provider validates with the SDK's enum type", list(byEnum[e]))}
 		u := existing(e)
 		if u == nil && usages != nil {
