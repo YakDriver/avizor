@@ -172,7 +172,7 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 	switch {
 	case len(e.Covered) > 0:
 		e.State, e.Reason = Covered, strings.Join(e.Covered, ", ")
-		if rest := uncovered(en, rec, texts); en.CodeSearched && len(rest) > 0 && !releaseTracked(it, rec) {
+		if _, rest := Uncovered(it, en, rec, texts); len(rest) > 0 {
 			e.State, e.Reason = Partial, "no code or candidate found for "+strings.Join(rest, ", ")+"; covered: "+e.Reason
 		}
 	case len(en.Work) == 0:
@@ -208,7 +208,14 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 //     no confident candidate matched, and no candidate's text names;
 //   - new arguments of write operations whose likely Terraform name isn't in the files calling them or in a
 //     candidate's text.
-func uncovered(en *enrich.Result, rec *reconcile.Result, texts map[int]string) []string {
+//
+// It returns the work and a label for each piece, such as "resource ContextGraph" or "argument payload_filter"; several
+// work entries can share an argument's label. It returns nothing unless the code was searched and the release isn't
+// tracked as a whole, since then nothing is known to be uncovered.
+func Uncovered(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, texts map[int]string) ([]enrich.Work, []string) {
+	if !en.CodeSearched || releaseTracked(it, rec) {
+		return nil, nil
+	}
 	matched := map[string]bool{}
 	var docs []string
 	if rec != nil {
@@ -239,21 +246,26 @@ func uncovered(en *enrich.Result, rec *reconcile.Result, texts map[int]string) [
 		return named(append(slices.Clone(w.Operations), w.Subject, enrich.Snake(w.Subject))...) ||
 			slices.ContainsFunc(docs, func(d string) bool { return hasWordEnd(d, suffix) })
 	}
+	var ws []enrich.Work
 	var out []string
 	for _, w := range en.Work {
 		switch {
 		case w.Kind == enrich.WorkNewResource && len(w.UsedBy) == 0 && slices.ContainsFunc(w.Operations, deletes) &&
 			!slices.ContainsFunc(w.Operations, func(op string) bool { return matched[op] }) &&
 			!namedResource(w):
-			out = append(out, "resource "+w.Subject)
+			ws, out = append(ws, w), append(out, "resource "+w.Subject)
 		case w.Member != "" && len(w.FoundIn) == 0:
 			_, member, _ := strings.Cut(w.Subject, ".")
-			if a := "argument " + w.Member; !slices.Contains(out, a) && !named(append(enrich.MemberNames(member), member)...) {
-				out = append(out, a)
+			a := "argument " + w.Member
+			switch {
+			case slices.Contains(out, a):
+				ws = append(ws, w)
+			case !named(append(enrich.MemberNames(member), member)...):
+				ws, out = append(ws, w), append(out, a)
 			}
 		}
 	}
-	return out
+	return ws, out
 }
 
 // deleteVerbs start operations that end a resource's life.
@@ -308,4 +320,23 @@ func releaseTracked(it *awssdk.Item, rec *reconcile.Result) bool {
 			return m.Strength == reconcile.StrengthStrong && m.Value == it.Release.CommitURL
 		})
 	})
+}
+
+// Draft drafts an item's issue as the queue sees it. For a partial item, the draft covers only the uncovered work,
+// the same work Classify reports, and relates the candidates that cover the rest.
+func Draft(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, texts map[int]string, opts draft.Options) (*draft.Draft, error) {
+	if rec != nil && slices.ContainsFunc(rec.Candidates, func(c reconcile.Candidate) bool { return c.Category != reconcile.CategoryRelated }) {
+		if ws, labels := Uncovered(it, en, rec, texts); len(labels) > 0 {
+			part := *en
+			part.Work = ws
+			opts.Partial = &draft.Partial{Uncovered: labels}
+			for _, c := range rec.Candidates {
+				if c.Category != reconcile.CategoryRelated {
+					opts.Partial.Covering = append(opts.Partial.Covering, c)
+				}
+			}
+			return draft.New(it, &part, rec, opts)
+		}
+	}
+	return draft.New(it, en, rec, opts)
 }

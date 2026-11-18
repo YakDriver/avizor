@@ -1,0 +1,514 @@
+package draft
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/YakDriver/avizor/internal/enrich"
+)
+
+// Resource is a new resource or data source in a draft's scope.
+type Resource struct {
+	// Kind is "resource" or "data source".
+	Kind string
+	Name string
+	// Operations are the operations in lifecycle order, in backticks: "`CreateX`, `GetX`".
+	Operations string
+	// Decide is a judgment call about the whole resource, as a marker, or "".
+	Decide string
+	// Lines are the arguments and attributes, as Markdown list items.
+	Lines []string
+	Notes []string
+}
+
+// decider records a judgment call and returns its marker for the body.
+type decider func(where, choice string) string
+
+func (d *Draft) decider() decider {
+	return func(where, choice string) string {
+		d.Decide = append(d.Decide, where+": "+choice)
+		return " <!-- decide: " + choice + " -->"
+	}
+}
+
+// Markers for judgment calls.
+const (
+	decideSetOrBlock = "set of %ss or nested block"
+	decideComputed   = "optional, or optional and computed"
+)
+
+// resources renders the new resources and data sources.
+func resources(en *enrich.Result, pkg, prefix string, decide decider) []Resource {
+	var out []Resource
+	for _, w := range en.Work {
+		if w.Kind != enrich.WorkNewResource && w.Kind != enrich.WorkNewDataSource {
+			continue
+		}
+		s := w.Spec
+		if s == nil {
+			// Without the model, only the operations are known.
+			s = &enrich.Spec{Operations: enrich.SpecOperations{Other: w.Operations}}
+		}
+		r := Resource{Kind: "resource", Name: prefix + pkg + "_" + enrich.Snake(w.Subject)}
+		if w.Kind == enrich.WorkNewDataSource {
+			r.Kind = "data source"
+			r.Decide = decide(r.Name, "data source, part of another resource, or none")
+		}
+		var ops []string
+		for _, op := range slices.Concat(s.Operations.Create, s.Operations.Read, s.Operations.Update, s.Operations.Delete, s.Operations.List) {
+			ops = append(ops, "`"+op+"`")
+		}
+		r.Operations = strings.Join(ops, ", ")
+
+		// A data source's arguments are its read input, required or optional too.
+		argument := true
+		var args []enrich.Field
+		tags := false
+		for _, f := range s.Arguments {
+			if s.Tagging != nil && s.Tagging.Member != "" && f.Member == s.Tagging.Member {
+				tags = true
+				continue
+			}
+			args = append(args, f)
+		}
+		if argument && s.Tagging != nil && s.Tagging.Kind == "tag_resource" {
+			tags = true
+		}
+		if len(args) > 0 || tags {
+			r.Lines = append(r.Lines, "- Arguments:")
+			r.Lines = append(r.Lines, fieldLines(args, 1, argument, r.Name, w.Subject, decide)...)
+			if tags {
+				r.Lines = append(r.Lines, "  - `tags`")
+			}
+		}
+		if len(s.Attributes) > 0 {
+			var names, abbrev []string
+			for _, f := range s.Attributes {
+				names = append(names, "`"+f.Name+"`")
+				if abbreviates(f.Name, w.Subject) {
+					abbrev = append(abbrev, "`"+f.Member+"`")
+				}
+			}
+			line := "- Attributes: " + strings.Join(names, ", ") + "."
+			if len(abbrev) > 0 {
+				line += decide(r.Name, "Terraform names for "+strings.Join(abbrev, ", ")+", which abbreviate the resource's name")
+			}
+			r.Lines = append(r.Lines, line)
+		}
+		r.Notes = resourceNotes(s, r.Name, decide)
+		out = append(out, r)
+	}
+	return out
+}
+
+// fieldLines renders fields as Markdown list items at a depth, with their nested fields below them.
+func fieldLines(fs []enrich.Field, depth int, argument bool, where, subject string, decide decider) []string {
+	var out []string
+	indent := strings.Repeat("  ", depth)
+	for _, f := range fs {
+		line := fmt.Sprintf("%s- `%s` (%s)", indent, f.Name, fieldText(f, argument))
+		line += fieldDecisions(f, argument, where, subject, decide)
+		out = append(out, line)
+		out = append(out, fieldLines(f.Fields, depth+1, argument, where, subject, decide)...)
+	}
+	return out
+}
+
+func fieldText(f enrich.Field, argument bool) string {
+	return strings.Replace(enrich.FieldText(f, argument), "create-only", "forces replacement", 1)
+}
+
+// fieldDecisions returns the markers for a field's judgment calls.
+func fieldDecisions(f enrich.Field, argument bool, where, subject string, decide decider) string {
+	var out string
+	if single := singleScalar(f); single != "" {
+		out += decide(where+" "+f.Name, fmt.Sprintf(decideSetOrBlock, single))
+	}
+	if argument && !f.Required && f.Returned && (f.Default != "" || collection(f)) {
+		out += decide(where+" "+f.Name, decideComputed)
+	}
+	if subject != "" && abbreviates(f.Name, subject) {
+		out += decide(where+" "+f.Name, "Terraform name for `"+f.Member+"`, which abbreviates the resource's name")
+	}
+	return out
+}
+
+// singleScalar returns the type of the one field of a list or set of structures whose element has only that field, a
+// scalar: such a list is simpler as a set of the scalar.
+func singleScalar(f enrich.Field) string {
+	if (f.Type != "list" && f.Type != "set") || f.Elem != "structure" || len(f.Fields) != 1 {
+		return ""
+	}
+	switch t := f.Fields[0].Type; t {
+	case "string", "enum", "integer", "long", "boolean":
+		if t == "enum" {
+			return "string"
+		}
+		return t
+	}
+	return ""
+}
+
+func collection(f enrich.Field) bool {
+	return f.Type == "list" || f.Type == "set" || f.Type == "map"
+}
+
+// abbreviates reports whether a field's name, without a trailing "_id" or "_arn", is made of the subject's words and at
+// least one abbreviation of consecutive subject words: "fca_policy_id" for NetworkingFlexCostAllocationPolicy.
+func abbreviates(name, subject string) bool {
+	words := strings.Split(enrich.Snake(subject), "_")
+	toks := strings.Split(name, "_")
+	if len(toks) > 1 && slices.Contains([]string{"id", "ids", "arn", "arns"}, toks[len(toks)-1]) {
+		toks = toks[:len(toks)-1]
+	}
+	abbrev := false
+	for _, t := range toks {
+		switch {
+		case slices.Contains(words, t):
+		case len(t) >= 2 && initials(words, t):
+			abbrev = true
+		default:
+			return false
+		}
+	}
+	return abbrev
+}
+
+// initials reports whether t is the initials of consecutive words.
+func initials(words []string, t string) bool {
+	for i := 0; i+len(t) <= len(words); i++ {
+		ok := true
+		for j := range len(t) {
+			if words[i+j] == "" || words[i+j][0] != t[j] {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
+// resourceNotes states the model's lifecycle facts: waiting, update, delete, tagging, quoted documentation, and other
+// operations.
+func resourceNotes(s *enrich.Spec, name string, decide decider) []string {
+	var out []string
+	q := func(vs []string) string {
+		var qs []string
+		for _, v := range vs {
+			qs = append(qs, "`"+v+"`")
+		}
+		return strings.Join(qs, ", ")
+	}
+	if st := s.Status; st != nil && len(st.Pending) > 0 {
+		n := fmt.Sprintf("`%s` has pending values %s", st.Member, q(st.Pending))
+		if len(st.Target) > 0 {
+			n += " and target " + q(st.Target)
+		}
+		if len(st.Failed) > 0 {
+			n += "; failed " + q(st.Failed)
+		}
+		if st.Reason != "" {
+			n += ", with the reason in `" + st.Reason + "`"
+		}
+		out = append(out, n+". Wait for the target value.")
+	}
+	if u := s.Update; u != nil {
+		switch {
+		case u.Kind == "none":
+			out = append(out, "No update operation, so every argument forces replacement.")
+		case u.Kind == "put":
+			out = append(out, "The create operation is a Put, which also updates.")
+		case u.Kind == "add_remove":
+			out = append(out, "Updates add and remove "+q(u.Members)+".")
+		case len(u.Replaces) > 0:
+			out = append(out, "Updates replace the current values, as documented for "+q(u.Replaces)+".")
+		}
+	}
+	if d := s.Delete; d != nil {
+		switch {
+		case d.Kind == "none":
+			out = append(out, "No delete operation."+decide(name, "resource without a delete, or none"))
+		case d.Plural && d.Max > 0:
+			out = append(out, fmt.Sprintf("Delete is `%s`, which takes up to %d IDs in `%s`.", d.Operation, d.Max, d.Member))
+		case d.Plural:
+			out = append(out, fmt.Sprintf("Delete is `%s`, which takes a list in `%s`.", d.Operation, d.Member))
+		}
+	}
+	if t := s.Tagging; t != nil {
+		switch {
+		case t.Kind == "tag_specifications" && len(t.ResourceTypes) > 0:
+			out = append(out, "Tags are set with `TagSpecifications` (new resource type "+q(t.ResourceTypes)+").")
+		case t.Member != "":
+			out = append(out, "Tags are set on create with `"+t.Member+"`.")
+		case t.Kind == "tag_resource":
+			out = append(out, "Tags are set with `TagResource`.")
+		}
+	}
+	for _, n := range s.Notes {
+		out = append(out, fmt.Sprintf("`%s`: %q", n.Source, n.Text))
+	}
+	if len(s.Operations.Other) > 0 && s.Operations.Create == nil && s.Operations.Read == nil && s.Operations.List == nil {
+		// No spec: the operations weren't sorted by role.
+		return []string{"Operations: " + q(s.Operations.Other) + "."}
+	}
+	if len(s.Operations.Other) > 0 {
+		choice := "resources, arguments, or none"
+		if slices.ContainsFunc(s.Operations.Other, func(op string) bool {
+			return slices.ContainsFunc([]string{"Associate", "Attach", "Register", "Enable"}, func(v string) bool { return strings.HasPrefix(op, v) })
+		}) {
+			choice = "one resource per association, an argument, or none"
+		}
+		out = append(out, "Other operations: "+q(s.Operations.Other)+"."+decide(name, choice))
+	}
+	return out
+}
+
+// change is a new member of existing resources: arguments and attributes of one name, grouped.
+type change struct {
+	name     string
+	path     string
+	subjects []string
+	// returned are the attribute subjects of an argument: output members of the same name.
+	returned  []string
+	works     []enrich.Work
+	field     *enrich.Field
+	argument  bool
+	attribute bool
+}
+
+// changes renders new arguments, attributes, enum values, and other work on existing resources, with notes. It also
+// returns the resources the arguments and attributes are in, and the names for a title: the arguments' in a known
+// resource, or with none, the attributes'.
+func changes(en *enrich.Result, checkout string, decide decider) (lines, notes, targets []string, names []string) {
+	var attrNames []string
+	defer func() {
+		if len(names) == 0 {
+			names = attrNames
+		}
+	}()
+	var cs []*change
+	byKey := map[string]*change{}
+	for _, w := range en.Work {
+		if w.Kind != enrich.WorkNewArgument && w.Kind != enrich.WorkNewAttribute {
+			continue
+		}
+		_, member, _ := strings.Cut(w.Subject, ".")
+		name := cmp(w.Member, enrich.Snake(member))
+		path := ""
+		if len(w.Schema) > 0 {
+			path = w.Schema[0].Path
+		}
+		key := path + "." + name
+		c := byKey[key]
+		if c == nil {
+			c = &change{name: name, path: path}
+			byKey[key] = c
+			cs = append(cs, c)
+		}
+		c.works = append(c.works, w)
+		if w.Kind == enrich.WorkNewArgument {
+			c.argument = true
+			if c.field == nil || !c.field.Required && w.Field != nil {
+				c.field = w.Field
+			}
+		} else {
+			c.attribute = true
+			if c.field == nil {
+				c.field = w.Field
+			}
+		}
+	}
+
+	for _, c := range cs {
+		for _, w := range c.works {
+			if !c.argument || w.Kind == enrich.WorkNewArgument {
+				c.subjects = append(c.subjects, "`"+w.Subject+"`")
+			} else {
+				c.returned = append(c.returned, "`"+w.Subject+"`")
+			}
+		}
+	}
+
+	seenPlace := map[string]bool{}
+	for _, c := range cs {
+		where := c.name
+		if c.path != "" {
+			where = c.path + "." + c.name
+		}
+		// An argument is in the resources that write it; the outputs that return it may be other resources'.
+		rs := changeResources(slices.DeleteFunc(slices.Clone(c.works), func(w enrich.Work) bool {
+			return c.argument && w.Kind != enrich.WorkNewArgument
+		}), checkout)
+		var head string
+		switch len(rs) {
+		case 0:
+			head = "`" + where + "`"
+		default:
+			head = "`" + strings.Join(rs, "`, `") + "`"
+		}
+		kind := "attribute"
+		if c.argument {
+			kind = "argument"
+		}
+		line := fmt.Sprintf("- %s: new %s `%s`", head, kind, where)
+		if c.field != nil {
+			line += " (" + fieldText(*c.field, c.argument) + ")"
+		}
+		line += ", from " + joinAnd(c.subjects)
+		if len(c.returned) > 0 {
+			line += "; returned by " + joinAnd(c.returned)
+		}
+		line += "."
+		switch {
+		case len(rs) == 0:
+			line += decide(where, "which resource")
+		case len(rs) > 1:
+			line += decide(where, "which of these resources")
+		}
+		if c.field != nil {
+			if single := singleScalar(*c.field); single != "" {
+				line += decide(where, fmt.Sprintf(decideSetOrBlock, single))
+			}
+			if c.argument && c.attribute && !c.field.Required && (c.field.Default != "" || collection(*c.field)) {
+				line += decide(where, decideComputed)
+			}
+		}
+		lines = append(lines, line)
+		if c.field != nil {
+			lines = append(lines, fieldLines(c.field.Fields, 1, c.argument, where, "", decide)...)
+		}
+		for _, r := range rs {
+			if !slices.Contains(targets, r) {
+				targets = append(targets, r)
+			}
+		}
+		switch {
+		case len(rs) == 0:
+		case c.argument:
+			names = append(names, c.name)
+		default:
+			attrNames = append(attrNames, c.name)
+		}
+
+		for _, w := range c.works {
+			for _, p := range w.Schema {
+				k := fmt.Sprintf("%s:%d", p.File, p.Line)
+				if seenPlace[k] {
+					continue
+				}
+				seenPlace[k] = true
+				n := fmt.Sprintf("`%s` is a %s in `%s:%d` (%s)", p.Path, p.Kind, p.File, p.Line, p.Framework)
+				switch {
+				case p.ForceNew != "":
+					n += "; `" + p.ForceNew + "` forces replacement"
+				case p.ForceNewIf != "":
+					n += "; `" + p.ForceNewIf + "` forces replacement on a condition"
+				}
+				notes = append(notes, n+".")
+			}
+			if w.SharedName && w.Kind == enrich.WorkNewArgument {
+				notes = append(notes, fmt.Sprintf("Another shape already had `%s`, as when an update operation gains a member create has, so the argument may exist.", w.Subject[strings.Index(w.Subject, ".")+1:]))
+			}
+		}
+	}
+
+	for _, w := range en.Work {
+		switch w.Kind {
+		case enrich.WorkNewEnumValue:
+			values := "values"
+			if len(w.Values) == 1 {
+				values = "value"
+			}
+			line := fmt.Sprintf("- `%s`: new %s %s.", w.Subject, values, joinAnd(quoted(w.Values)))
+			if w.EnumSearched {
+				line += " " + enumFacts(w.EnumUses)
+			}
+			lines = append(lines, line)
+		case enrich.WorkNewOperation:
+			lines = append(lines, "- New operation `"+w.Subject+"`."+decide(w.Subject, "resource, argument, or none"))
+		case enrich.WorkTagging:
+			if !slices.ContainsFunc(en.Work, func(w enrich.Work) bool { return w.Kind == enrich.WorkNewResource }) {
+				lines = append(lines, "- New tagging operations "+joinAnd(quoted(w.Operations))+".")
+			}
+		case enrich.WorkTypeChange, enrich.WorkRemoval:
+			lines = append(lines, "- `"+w.Subject+"`: "+w.Basis+".")
+		}
+	}
+	return lines, notes, targets, names
+}
+
+// changeResources returns the Terraform resources in the files that call all of the works' operations, or, if no file
+// calls them all, in any of the files.
+func changeResources(ws []enrich.Work, checkout string) []string {
+	var common, all []string
+	first := true
+	for _, w := range ws {
+		if len(w.UsedBy) == 0 {
+			continue
+		}
+		rs := resourceNames(checkout, w.UsedBy)
+		for _, r := range rs {
+			if !slices.Contains(all, r) {
+				all = append(all, r)
+			}
+		}
+		if first {
+			common, first = rs, false
+			continue
+		}
+		common = slices.DeleteFunc(common, func(r string) bool { return !slices.Contains(rs, r) })
+	}
+	if len(common) > 0 {
+		return common
+	}
+	slices.Sort(all)
+	return all
+}
+
+func enumFacts(uses []enrich.EnumUse) string {
+	if len(uses) == 0 {
+		return "The provider package doesn't use the type."
+	}
+	var validated, used []string
+	for _, u := range uses {
+		ref := fmt.Sprintf("`%s:%d`", u.File, u.Line)
+		if u.Validated {
+			validated = append(validated, ref)
+		} else {
+			used = append(used, ref)
+		}
+	}
+	var parts []string
+	if len(validated) > 0 {
+		parts = append(parts, "validated with the SDK type in "+joinAnd(validated))
+	}
+	if len(used) > 0 {
+		parts = append(parts, "used in "+joinAnd(used))
+	}
+	return "The type is " + strings.Join(parts, " and ") + "."
+}
+
+func quoted(vs []string) []string {
+	out := make([]string, len(vs))
+	for i, v := range vs {
+		out[i] = "`" + v + "`"
+	}
+	return out
+}
+
+// joinAnd joins "a", "b", and "c".
+func joinAnd(ss []string) string {
+	switch len(ss) {
+	case 0:
+		return ""
+	case 1:
+		return ss[0]
+	case 2:
+		return ss[0] + " and " + ss[1]
+	}
+	return strings.Join(ss[:len(ss)-1], ", ") + ", and " + ss[len(ss)-1]
+}

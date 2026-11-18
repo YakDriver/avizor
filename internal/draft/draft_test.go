@@ -37,6 +37,9 @@ func implemented(pkg string, work ...enrich.Work) *enrich.Result {
 
 var opts = Options{Repo: "o/r", Prefix: "aws_"}
 
+const requires = "Requires AWS SDK for Go v2 [Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/releases/tag/release-2026-01-02) " +
+	"(`github.com/aws/aws-sdk-go-v2/service/widget` v1.2.0). The target has it since https://github.com/o/r/pull/10."
+
 func inferred(d *Draft, field string) []string {
 	var out []string
 	for _, in := range d.Inferred {
@@ -61,7 +64,7 @@ func TestNewResource(t *testing.T) {
 	if !slices.Equal(d.Labels, []string{"enhancement", "service/widget", "new-resource"}) {
 		t.Errorf("labels = %q", d.Labels)
 	}
-	want := "> Adds S3 access points. More detail here.\n\n> Second note.\n\nRequires AWS SDK for Go v2 [Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc): https://github.com/o/r/pull/10.\n"
+	want := "> Adds S3 access points. More detail here.\n\n> Second note.\n\n" + requires + "\n\n## Scope\n\nNew resource `aws_widget_s3_access_point`.\n"
 	if d.Body != want {
 		t.Errorf("body =\n%s\nwant\n%s", d.Body, want)
 	}
@@ -92,7 +95,7 @@ func TestNewArgument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Title != "r/aws_widget_thing: Adds a size setting" {
+	if d.Title != "r/aws_widget_thing: Add `size`" {
 		t.Errorf("title = %q", d.Title)
 	}
 }
@@ -217,7 +220,7 @@ func TestAnnouncement(t *testing.T) {
 	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
 		t.Fatal(err)
 	}
-	want := "> Amazon Widget now supports sizes\n\n* [Announcement](https://aws.amazon.com/wn/sizes/)\n\nRequires AWS SDK for Go v2 [Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc): https://github.com/o/r/pull/10.\n"
+	want := "> Adds sizes. More.\n\n[Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/)\n\n" + requires + "\n"
 	if d.Body != want {
 		t.Errorf("body =\n%s\nwant\n%s", d.Body, want)
 	}

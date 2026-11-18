@@ -214,24 +214,33 @@ func queueEntry(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *rec
 	if err != nil {
 		return queue.Entry{}, err
 	}
-	d, err := draft.New(it, en, rec, opts)
+	texts, err := candidateTexts(ctx, r.Store, rec)
 	if err != nil {
 		return queue.Entry{}, err
 	}
+	d, err := queue.Draft(it, en, rec, texts, opts)
+	if err != nil {
+		return queue.Entry{}, err
+	}
+	return queue.Classify(it, en, rec, d, texts), nil
+}
+
+// candidateTexts returns the titles and bodies of a result's issue and PR candidates, by number.
+func candidateTexts(ctx context.Context, st *index.Store, rec *reconcile.Result) (map[int]string, error) {
 	texts := map[int]string{}
 	for _, c := range rec.Candidates {
 		if c.Number == 0 {
 			continue
 		}
-		is, err := r.Store.Issue(ctx, c.Number)
+		is, err := st.Issue(ctx, c.Number)
 		if err != nil {
-			return queue.Entry{}, err
+			return nil, err
 		}
 		if is != nil {
 			texts[c.Number] = is.Title + "\n" + is.Body
 		}
 	}
-	return queue.Classify(it, en, rec, d, texts), nil
+	return texts, nil
 }
 
 func writeQueueText(w io.Writer, shown []queue.Entry, counts map[string]int, total int, all bool) error {

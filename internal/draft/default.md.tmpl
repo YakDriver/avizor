@@ -1,9 +1,26 @@
 {{- /* Body of a new issue for an SDK item. Data: see draft.Data. */ -}}
-{{- if .Announcement}}> {{.Announcement.Headline}}
+{{range .Notes}}> {{.}}
 
-* [Announcement]({{.Announcement.URL}})
+{{end}}{{if .Announcement}}[{{.Announcement.Headline}}]({{.Announcement.URL}})
 
-{{else}}{{range .Notes}}> {{.}}
+{{end -}}
+Requires AWS SDK for Go v2 [{{.Release}}]({{.ReleaseURL}}){{if .Module}} (`{{.Module}}` {{.Version}}){{end}}.{{if .BumpPRURL}} The target has it since {{.BumpPRURL}}.{{end}}
+{{if or .Resources .Changes}}
+## Scope
+{{range .Resources}}
+New {{.Kind}} `{{.Name}}`{{if .Operations}}: {{.Operations}}{{end}}.{{.Decide}}
+{{if .Lines}}
+{{range .Lines}}{{.}}
+{{end}}{{end}}{{if .Notes}}
+Notes:
 
-{{end}}{{end -}}
-Requires AWS SDK for Go v2 [{{.Release}}]({{.ReleaseURL}}){{if .BumpPRURL}}: {{.BumpPRURL}}{{end}}.
+{{range .Notes}}- {{.}}
+{{end}}{{end}}{{end}}{{if .Changes}}
+{{range .Changes}}{{.}}
+{{end}}{{if .ChangeNotes}}
+Notes:
+
+{{range .ChangeNotes}}- {{.}}
+{{end}}{{end}}{{end}}{{end}}{{if .Relates}}
+{{range .Relates}}Relates #{{.}}
+{{end}}{{end}}
