@@ -175,6 +175,7 @@ Small commands, JSON by default, `--format text` for people. People and agents u
 ### Milestone 3: SDK items and drafts
 
 - **Models from `aws/api-models-aws`, not the SDK repo.** The SDK repo is 1.6 GB, and a year of model files would take tens of thousands of downloads. The models repo is 180 MB and gets a commit an hour before each release. A release's change is the diff between the last models commit before the previous release and the last one before this release.
+- **A year of releases** (230, from 2025-11-30) pulls in 2.5 minutes: 1,487 items with API changes and 2,215 skipped.
 - **Skipping uses the model diff, not note text.** Trait-only changes, like CBOR or length limits, are skipped without a phrase list.
 - **Operation names come from the models.** 15,364 names, cached next to the clone. This removed the 6 wrong labels caused by `StartTime` and lost nothing.
 - **Service mapping is by Go module.** `sdk.id` doesn't always match the model's, for example `ODB` vs `odb`.
@@ -210,6 +211,7 @@ The 30 items are now eval cases.
 - **Related lists include PRs**, because the sample's Cognito PR was missed when only issues were listed. The bump PR is left out.
 - **Unimplemented services are hidden unless the item is a new SDK module.** Most are services the provider chose not to implement.
 - **Over all 1,487 items:** 638 gap, 59 pending, 19 new service, 99 covered, 374 no code, 272 unimplemented, 26 no work.
+- **Gap sample.** Of 20 hand-checked `gap` items, 8 were real gaps, 8 needed no provider work, and 4 were already covered. 2 of the 4 had the covering issue or PR in the related list.
 
 #### Step 3: decisions
 
