@@ -69,6 +69,8 @@ type Data struct {
 	Headline string
 	// Announcement is the matched What's New post, set only when Options.Announcement accepts the match.
 	Announcement *whatsnew.Announcement
+	// BlogPost is the blog post the reviewer chose to link, or nil.
+	BlogPost *whatsnew.Post
 	// Release is the release name, such as "Release 2025-12-02".
 	Release    string
 	ReleaseURL string
@@ -106,6 +108,8 @@ type Options struct {
 	RelatesLimit int
 	// Announcement puts the matched announcement in the body. The match is an inference, so the reviewer opts in.
 	Announcement bool
+	// BlogPost is a blog post to link in the body, chosen by the reviewer.
+	BlogPost *whatsnew.Post
 	// Partial is set for a partial item: the work passed to New is only the uncovered work, and Covered are the labels
 	// of that work, as queue reports them.
 	Partial *Partial
@@ -141,7 +145,7 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 
 	// The commit URL is the release's citation: reconciliation takes an issue citing it as tracking the whole release.
 	// A partial draft cites the tag, since it tracks only part of the release.
-	data := Data{Item: it, Release: releaseName(it.Release.Tag), ReleaseURL: cmp(it.Release.CommitURL, it.Release.URL),
+	data := Data{Item: it, BlogPost: opts.BlogPost, Release: releaseName(it.Release.Tag), ReleaseURL: cmp(it.Release.CommitURL, it.Release.URL),
 		Module: it.Service.ModulePath, Version: it.Service.ModuleVersion, Service: en.Service, Work: en.Work}
 	if opts.Partial != nil {
 		data.ReleaseURL = cmp(it.Release.URL, it.Release.CommitURL)

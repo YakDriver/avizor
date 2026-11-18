@@ -49,6 +49,19 @@ type Post struct {
 	Tags []string `json:"tags,omitempty"`
 }
 
+// PostsAsAnnouncements returns blog posts as announcements, the title as the headline and the excerpt as the body, so
+// a Matcher can rank them.
+func PostsAsAnnouncements(ps []Post) []Announcement {
+	out := make([]Announcement, len(ps))
+	for i, p := range ps {
+		out[i] = Announcement{ID: p.ID, URL: p.URL, Headline: p.Title, PostedAt: p.PostedAt, Body: p.Excerpt, Tags: p.Tags}
+	}
+	return out
+}
+
+// LaunchTag is the content type tag of a blog post that announces a launch.
+const LaunchTag = "GLOBAL#content-type#launch-announcement"
+
 // Client pages through a directory, newest first.
 type Client struct {
 	// URL is the directory search URL without size and page. Empty uses DefaultURL for announcements and BlogsURL

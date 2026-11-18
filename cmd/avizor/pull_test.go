@@ -11,6 +11,7 @@ import (
 
 	"github.com/YakDriver/avizor/internal/config"
 	"github.com/YakDriver/avizor/internal/items"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 func TestPullWhatsNewCheckpoint(t *testing.T) {
@@ -101,5 +102,27 @@ func TestPullBlogs(t *testing.T) {
 	// Blog posts aren't announcements.
 	if as, err := st.Announcements(ctx); err != nil || len(as) != 0 {
 		t.Errorf("announcements = %v, %v", as, err)
+	}
+}
+
+func TestBlogPostLookup(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := items.Open(config.ItemsPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (items.PostStore{Store: st, Source: "b"}).PutPosts(ctx, []whatsnew.Post{{ID: "p", URL: "https://aws.amazon.com/blogs/x/p/", Title: "P", PostedAt: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	// Stored posts are found with or without the trailing slash; others are linked by URL.
+	if p, err := blogPost(ctx, dir, "https://aws.amazon.com/blogs/x/p"); err != nil || p.Title != "P" {
+		t.Errorf("stored post = %+v, %v", p, err)
+	}
+	if p, err := blogPost(ctx, dir, "https://example.com/q"); err != nil || p.Title != "https://example.com/q" {
+		t.Errorf("unknown post = %+v, %v", p, err)
 	}
 }

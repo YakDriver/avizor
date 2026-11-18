@@ -377,6 +377,35 @@ func announcements(dir string, stderr io.Writer) *whatsnew.Matcher {
 	return m
 }
 
+var (
+	postsMu      sync.Mutex
+	postMatchers = map[string]*whatsnew.Matcher{}
+)
+
+// blogPosts returns a matcher over the blog posts stored in the state directory, built once per process, or nil if
+// there are none.
+func blogPosts(dir string, stderr io.Writer) *whatsnew.Matcher {
+	postsMu.Lock()
+	defer postsMu.Unlock()
+	if m, ok := postMatchers[dir]; ok {
+		return m
+	}
+	var m *whatsnew.Matcher
+	st, err := openItems(dir)
+	if err == nil {
+		var ps []whatsnew.Post
+		if ps, err = st.Posts(context.Background()); err == nil && len(ps) > 0 {
+			m = whatsnew.NewMatcher(whatsnew.PostsAsAnnouncements(ps))
+		}
+		st.Close()
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "avizor: warning: blog posts unavailable: %v\n", err)
+	}
+	postMatchers[dir] = m
+	return m
+}
+
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()

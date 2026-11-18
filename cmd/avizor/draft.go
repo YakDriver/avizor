@@ -5,12 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/YakDriver/avizor/internal/draft"
 	"github.com/YakDriver/avizor/internal/enrich"
 	"github.com/YakDriver/avizor/internal/queue"
 	"github.com/YakDriver/avizor/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -21,6 +23,7 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	noCode := fs.Bool("no-code", false, "don't search the target checkout")
 	relates := fs.Int("relates", 3, "maximum related issues and PRs to suggest")
 	useAnn := fs.Bool("announcement", false, "link the matched What's New announcement in the body, below the release notes")
+	blog := fs.String("blog", "", "link this blog post in the body, by URL; `avizor brief` lists the posts near the release")
 	bodyOnly := fs.Bool("body", false, "print only the issue body, for piping to `gh issue create --body-file -`")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -52,13 +55,19 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if err != nil {
 		return err
 	}
+	var post *whatsnew.Post
+	if *blog != "" {
+		if post, err = blogPost(ctx, c.dir, *blog); err != nil {
+			return err
+		}
+	}
 	texts, err := candidateTexts(ctx, st, rec)
 	if err != nil {
 		return err
 	}
 	d, err := queue.Draft(it, en, rec, texts, draft.Options{
 		Repo: t.Repo, Checkout: t.Checkout, Prefix: t.TypePrefix, LabelPrefix: t.ServiceLabelPrefix, Template: t.DraftTemplate,
-		RelatesLimit: *relates, Announcement: *useAnn,
+		RelatesLimit: *relates, Announcement: *useAnn, BlogPost: post,
 	})
 	if err != nil {
 		return err
@@ -76,6 +85,24 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		return writeDraftText(stdout, d, regenArgs(fs, d.Item, t.Name))
 	}
 	return writeJSON(stdout, d)
+}
+
+// blogPost returns the stored blog post with a URL, or, for a URL that isn't stored, a post titled with the URL.
+func blogPost(ctx context.Context, dir, u string) (*whatsnew.Post, error) {
+	st, err := openItems(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer st.Close()
+	ps, err := st.Posts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	norm := func(s string) string { return strings.TrimSuffix(s, "/") }
+	if i := slices.IndexFunc(ps, func(p whatsnew.Post) bool { return norm(p.URL) == norm(u) }); i >= 0 {
+		return &ps[i], nil
+	}
+	return &whatsnew.Post{URL: u, Title: u}, nil
 }
 
 // regenArgs is the command that prints this draft's body again: the same item, with the flags that were set (config,

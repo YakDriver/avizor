@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/YakDriver/avizor/internal/awssdk"
 	"github.com/YakDriver/avizor/internal/enrich"
 	"github.com/YakDriver/avizor/internal/index"
 	"github.com/YakDriver/avizor/internal/items"
@@ -99,5 +100,53 @@ func TestWriteBriefText(t *testing.T) {
 	}
 	if strings.Contains(out, "related 5") {
 		t.Errorf("text shows more than 5 related candidates:\n%s", out)
+	}
+}
+
+func TestRankPosts(t *testing.T) {
+	t.Parallel()
+
+	rel := time.Date(2026, 11, 16, 20, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+	posts := whatsnew.NewMatcher(whatsnew.PostsAsAnnouncements([]whatsnew.Post{
+		{URL: "u-stats", Title: "Use query statistics to find slow queries in Aurora DSQL", PostedAt: rel.Add(day),
+			Tags: []string{whatsnew.LaunchTag, "blog-posts#category-database-amazon-aurora#dsql"}},
+		{URL: "u-late", Title: "Aurora DSQL query statistics, a month on", PostedAt: rel.Add(22 * day)},
+		{URL: "u-early", Title: "Aurora DSQL statistics preview", PostedAt: rel.Add(-4 * day)},
+		{URL: "u-other", Title: "Amazon S3 adds annotations", PostedAt: rel.Add(2 * day), Tags: []string{"blog-posts#category-storage#amazon-s3"}},
+	}))
+	it := &awssdk.Item{Service: awssdk.Service{SDKID: "DSQL", Module: "dsql"}, Release: awssdk.Release{PublishedAt: rel},
+		Notes: []awssdk.Note{{Text: "Adds metric groups for SQL statement statistics."}}}
+	var b Brief
+	b.rankPosts(it, posts, 0)
+	if len(b.BlogPosts) != 2 || b.BlogPosts[0].URL != "u-stats" || !b.BlogPosts[0].Launch || !b.BlogPosts[0].TaggedService ||
+		b.BlogPosts[1].TaggedService || b.BlogPosts[0].Days != 1 {
+		t.Errorf("blog posts = %+v; want the stats post first, and posts outside 3 days before to 21 after left out", b.BlogPosts)
+	}
+
+	var none Brief
+	none.rankPosts(it, nil, 5)
+	if len(none.BlogPosts) != 0 || len(none.Warnings) != 1 || !strings.Contains(none.Warnings[0], "avizor pull aws-blogs") {
+		t.Errorf("without posts: %+v", none)
+	}
+}
+
+func TestTaggedService(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		tag, service string
+		want         bool
+	}{
+		{"blog-posts#category-database-amazon-aurora#dsql", "DSQL", true},
+		{"blog-posts#category-artificial-intelligence#amazon-sagemaker-ai", "SageMaker", true},
+		{"blog-posts#category-compute#aws-lambda", "Lambda", true},
+		{"blog-posts#category-compute#aws-lambda", "Lambda Core", false},
+		{"GLOBAL#content-type#launch-announcement", "Launch", false},
+		{"blog-posts#category-storage#amazon-s3", "DSQL", false},
+	} {
+		if got := taggedService([]string{tc.tag}, strings.Join(serviceWords(tc.service), "")); got != tc.want {
+			t.Errorf("taggedService(%s, %s) = %t", tc.tag, tc.service, got)
+		}
 	}
 }

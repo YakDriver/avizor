@@ -53,6 +53,9 @@ type Brief struct {
 	// Announcement is the matcher's pick, if it made one. Announcements are every post within the window, best first.
 	Announcement  *whatsnew.Match     `json:"announcement,omitempty"`
 	Announcements []BriefAnnouncement `json:"announcements"`
+	// BlogPosts are the blog posts created from 3 days before the release to 21 days after, best first. An issue
+	// with a related post should link it; the reader picks.
+	BlogPosts []BriefPost `json:"blog_posts"`
 	// Warnings are the enrichment's and reconciliation's, such as a failed model load, an unsynced index, or a
 	// limited search, and a note when no announcements were loaded.
 	Warnings []string `json:"warnings,omitempty"`
@@ -78,6 +81,24 @@ type BriefAnnouncement struct {
 // maxRelatedText is how many related candidates text output shows; JSON has all.
 const maxRelatedText = 5
 
+// BriefPost is a blog post near the release, scored against the item and the matched announcement's headline. Launch
+// is set for a post tagged as a launch announcement, and TaggedService for one whose product tags name the service.
+type BriefPost struct {
+	Title         string  `json:"title"`
+	URL           string  `json:"url"`
+	Posted        string  `json:"posted"`
+	Days          float64 `json:"days"`
+	Score         float64 `json:"score"`
+	Launch        bool    `json:"launch,omitempty"`
+	TaggedService bool    `json:"tagged_service,omitempty"`
+}
+
+// Blog posts often come days after the release, so brief looks further after it than for announcements.
+const (
+	blogBefore = 3 * 24 * time.Hour
+	blogAfter  = 21 * 24 * time.Hour
+)
+
 // briefWindow is how far before and after a release brief looks for announcements.
 const briefWindow = 7 * 24 * time.Hour
 
@@ -88,6 +109,7 @@ func cmdBrief(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	c.register(fs)
 	noCode := fs.Bool("no-code", false, "don't search the target checkout")
 	maxAnns := fs.Int("announcements", 10, "maximum announcements per item, best first; 0 for all in the window")
+	maxPosts := fs.Int("blog-posts", 5, "maximum blog posts per item, best first; 0 for all in the window")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errUsage, err)
@@ -95,8 +117,8 @@ func cmdBrief(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if len(pos) == 0 {
 		return fmt.Errorf("%w: brief takes one or more item IDs", errUsage)
 	}
-	if *maxAnns < 0 {
-		return fmt.Errorf("%w: --announcements must be 0 or more", errUsage)
+	if *maxAnns < 0 || *maxPosts < 0 {
+		return fmt.Errorf("%w: --announcements and --blog-posts must be 0 or more", errUsage)
 	}
 
 	t, st, err := c.open()
@@ -159,6 +181,9 @@ func cmdBrief(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 			enrichers[it.Source] = e
 		}
 		b, err := brief(ctx, it, e, r, opts, *maxAnns)
+		if err == nil {
+			b.rankPosts(it, blogPosts(c.dir, stderr), *maxPosts)
+		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", it.ID, err)
 		}
@@ -199,7 +224,7 @@ func brief(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *reconcil
 		Item: it.ID, Service: q.Service, SDKID: it.Service.SDKID, Release: it.Release, Module: it.Service.ModulePath,
 		Version: it.Service.ModuleVersion, Published: q.Published, Availability: en.Availability, State: q.State, Reason: q.Reason,
 		StateIfAvailable: q.State, Queue: q.State, Title: q.Title, Labels: q.Labels, ServiceMatch: en.Service, Work: en.Work,
-		Candidates: rec.Candidates, Announcement: en.Announcement, Announcements: []BriefAnnouncement{}, entry: q,
+		Candidates: rec.Candidates, Announcement: en.Announcement, Announcements: []BriefAnnouncement{}, BlogPosts: []BriefPost{}, entry: q,
 		Warnings: slices.Concat(en.Warnings, rec.Warnings),
 	}
 	if b.State == queue.Pending {
@@ -226,6 +251,41 @@ func brief(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *reconcil
 		}
 	}
 	return b, nil
+}
+
+// rankPosts lists the blog posts near the release, scored against the item's text and the matched announcement's
+// headline.
+func (b *Brief) rankPosts(it *awssdk.Item, posts *whatsnew.Matcher, n int) {
+	if posts == nil {
+		b.Warnings = append(b.Warnings, "no blog posts loaded, so none are listed; run `avizor pull aws-blogs`")
+		return
+	}
+	text, service := enrich.AnnouncementQuery(it)
+	if b.Announcement != nil {
+		text += "\n" + b.Announcement.Announcement.Headline
+	}
+	key := strings.Join(serviceWords(service), "")
+	for _, r := range posts.Rank(text, service, it.Release.PublishedAt, blogBefore, blogAfter, n) {
+		p := BriefPost{Title: r.Announcement.Headline, URL: r.Announcement.URL, Posted: r.Announcement.PostedAt.Format(time.DateOnly),
+			Days: r.Days, Score: r.Score, Launch: slices.Contains(r.Announcement.Tags, whatsnew.LaunchTag),
+			TaggedService: taggedService(r.Announcement.Tags, key)}
+		b.BlogPosts = append(b.BlogPosts, p)
+	}
+}
+
+// taggedService reports whether a blog post's product category tags name a service, by its identifying words run
+// together: "dsql" in blog-posts#category-database-amazon-aurora#dsql, "sagemaker" in ...#amazon-sagemaker-ai.
+func taggedService(tags []string, key string) bool {
+	if key == "" {
+		return false
+	}
+	return slices.ContainsFunc(tags, func(t string) bool {
+		if !strings.HasPrefix(t, "blog-posts#category") {
+			return false
+		}
+		leaf := t[strings.LastIndex(t, "#")+1:]
+		return strings.Contains(strings.ReplaceAll(leaf, "-", ""), key)
+	})
 }
 
 // decide attaches a decision as the queue does, comparing it with the entry's evidence, which can put the item in
@@ -337,6 +397,25 @@ func writeBriefText(w io.Writer, b Brief) {
 		}
 		p("  %.2f  %+5.1fd  %s%s", a.Score, a.Days, a.Headline, tail)
 		p("               %s", a.URL)
+	}
+	p("\nblog posts (created 3 days before to 21 days after the release, best first)")
+	if len(b.BlogPosts) == 0 {
+		p("  none")
+	}
+	for _, bp := range b.BlogPosts {
+		var flags []string
+		if bp.Launch {
+			flags = append(flags, "launch")
+		}
+		if bp.TaggedService {
+			flags = append(flags, "tagged with the service")
+		}
+		tail := ""
+		if len(flags) > 0 {
+			tail = " [" + strings.Join(flags, ", ") + "]"
+		}
+		p("  %.2f  %+5.1fd  %s%s", bp.Score, bp.Days, bp.Title, tail)
+		p("               %s", bp.URL)
 	}
 	if len(b.Work) > 0 {
 		p("\nwork (inferred)")
