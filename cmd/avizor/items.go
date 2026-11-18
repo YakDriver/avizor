@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -399,6 +400,17 @@ func writeEnrichmentText(w io.Writer, e *enrich.Result) error {
 			if wk.Spec != nil {
 				writeSpecText(w, wk.Spec)
 			}
+			for _, sp := range wk.Schema {
+				fn := ""
+				if sp.ForceNew != "" {
+					fn = "; " + sp.ForceNew + " forces replacement"
+				}
+				if sp.ForceNewIf != "" {
+					fn += "; " + sp.ForceNewIf + " forces replacement conditionally"
+				}
+				fmt.Fprintf(w, "      parent block %s in %s:%d (%s, %s%s)\n", sp.Path, sp.File, sp.Line, sp.Kind, sp.Framework, fn)
+			}
+			writeEnumUses(w, wk)
 			if len(wk.UsedBy) > 0 {
 				fmt.Fprintf(w, "      provider calls these operations in: %s\n", strings.Join(wk.UsedBy, ", "))
 			}
@@ -623,4 +635,54 @@ func writeSpecText(w io.Writer, s *enrich.Spec) {
 			fmt.Fprintf(w, "%s  %s: %q\n", in, n.Source, n.Text)
 		}
 	}
+}
+
+// writeEnumUses prints where the provider package uses a new enum value's SDK type, grouping validated uses by file.
+func writeEnumUses(w io.Writer, wk enrich.Work) {
+	if !wk.EnumSearched {
+		return
+	}
+	if len(wk.EnumUses) == 0 {
+		fmt.Fprintf(w, "      the provider package doesn't use the SDK type %s\n", wk.Subject)
+		return
+	}
+	var validated []string
+	byFile := map[string][]string{}
+	for _, u := range wk.EnumUses {
+		if !u.Validated {
+			continue
+		}
+		if _, ok := byFile[u.File]; !ok {
+			validated = append(validated, u.File)
+		}
+		byFile[u.File] = append(byFile[u.File], strconv.Itoa(u.Line))
+	}
+	if len(validated) > 0 {
+		var parts []string
+		for _, f := range validated {
+			parts = append(parts, f+":"+strings.Join(byFile[f], ","))
+		}
+		fmt.Fprintf(w, "      validated with the SDK type in %s\n", strings.Join(parts, "; "))
+	}
+	other := 0
+	for _, u := range wk.EnumUses {
+		if u.Validated {
+			continue
+		}
+		const max = 5
+		if other == max {
+			fmt.Fprintf(w, "      ... and %d more uses\n", len(wk.EnumUses)-len(byFileLines(byFile))-max)
+			break
+		}
+		fmt.Fprintf(w, "      other use: %s:%d: %s\n", u.File, u.Line, u.Code)
+		other++
+	}
+}
+
+func byFileLines(m map[string][]string) []string {
+	var out []string
+	for _, ls := range m {
+		out = append(out, ls...)
+	}
+	return out
 }
