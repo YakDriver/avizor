@@ -287,13 +287,9 @@ func taggedService(tags []string, key string) bool {
 		// A run of whole words: "secrets-manager" for Secrets Manager, but not "ecr" inside "secrets".
 		words := strings.Split(t[strings.LastIndex(t, "#")+1:], "-")
 		for i := range words {
-			run := ""
-			for _, w := range words[i:] {
-				if run += w; run == key {
+			for j := i + 1; j <= len(words); j++ {
+				if strings.Join(words[i:j], "") == key {
 					return true
-				}
-				if len(run) >= len(key) {
-					break
 				}
 			}
 		}
