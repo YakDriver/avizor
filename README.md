@@ -1,10 +1,10 @@
 # Avizor
 
-Avizor turns upstream changes into evidence for a decision. For each new AWS SDK change, it finds existing issues, PRs, and code that cover the change, then queues the ones that need a decision and drafts the issues for real gaps. It doesn't decide or write to GitHub. A person or an AI agent does.
+Avizor (ah-bee-THOR, as in Spain: /aβiˈθoɾ/) turns upstream changes into evidence for a decision. For each new AWS SDK change, it finds existing issues, PRs, and code that cover the change, then queues the ones that need a decision and drafts the issues for real gaps. It doesn't decide or write to GitHub. A person or an AI agent does.
 
 The first target is the [Terraform AWS Provider](https://github.com/hashicorp/terraform-provider-aws). The design, decisions, and measurements are in [docs/design/avizor.md](docs/design/avizor.md).
 
-Status: pre-alpha. Milestones 1–4 are done: index and reconcile, evaluation, SDK items and drafts, and the queue, decisions, and announcements.
+Status: pre-alpha.
 
 ## Install
 
@@ -95,7 +95,7 @@ Strong signals rarely match by chance:
 
 Weak signals are title keywords, `service/*` labels, cross-references, GitHub URLs, and Terraform names in bodies. Text output marks strong signals with `*`. Signals found in more than 40 records, like contributing-guide links, are skipped and listed under `warnings`.
 
-Categories are often wrong, so check the signals. On the [eval](eval/README.md) corpus, 89% of confident categories are right, most of them on SDK items. That drops to 30% on duplicate reports, where Avizor finds the duplicate but often marks other work as tracked. In an [experiment](docs/design/avizor.md#step-5-agent-experiment), an agent reading the top 10 candidates found the duplicate in 19 of 20 cases and rejected every wrong confident category.
+Check the signals, not just the category. On the [eval](eval/README.md) corpus, 94% of confident categories are right, but 41% on duplicate reports, where Avizor finds the duplicate and also marks other work as tracked. An agent reading the top 10 candidates catches most of these ([experiment](docs/design/avizor.md#step-5-agent-experiment)).
 
 For an item, the signals are different. A new operation name and the SDK release commit are strong only with the item's service label. The SDK bump PR is always `related`, because it makes the change available but doesn't implement it. Code search covers only new operations in the item's package. An issue or PR that matches only operations the code already calls is `related` too (`existing_code`), since it's usually a bug or enhancement for that code. Titles that ask for or add a new resource or service keep their category.
 
@@ -119,15 +119,15 @@ An item without an API change is `skipped`, with one of these reasons: only docs
 
 With `--no-fetch`, the pull stops at the first release newer than the clone, since its change would look empty.
 
-Pulling a year of releases (230, from 2025-11-30) took 2.5 minutes. It produced 1,487 items and 2,215 skipped.
+A year of releases takes about 2.5 minutes to pull.
 
 ### Announcements
 
 The `aws-whats-new` source pulls [What's New](https://aws.amazon.com/about-aws/whats-new/) posts. Each pull starts a week before the previous one, to catch late posts. The posts aren't items. Avizor matches each item to the post that most likely announced it, by text similarity, within 3 days before and 7 days after the release. Region-expansion posts are left out, and the best post has to clearly beat the runner-up.
 
-A match is a guess. Of 36 items whose trackers link a post, Avizor matched 26 right, 2 wrong, and 8 not at all. Of 79 matches in a random sample of 300 items, 3 were wrong.
+A match is a guess ([measurements](docs/design/avizor.md#step-4-announcements)).
 
-The source reads the JSON endpoint behind the What's New pages. That endpoint isn't documented. The documented RSS feed holds only the latest 100 posts. To read a different endpoint, set `url` in the source config.
+The source reads the undocumented JSON endpoint behind the What's New pages, because the RSS feed holds only the latest 100 posts. Set `url` in the source config to read another endpoint.
 
 ## Inspect
 
@@ -162,9 +162,9 @@ avizor queue --since 90d --service s3 --all --format text
 
 `--all` shows every state, and `--state gap,covered` picks some. An item counts as `no_code` only if the code search ran. With `--no-code`, nothing is hidden as `no_code` or shown as `partial`.
 
-For `partial`, a new argument counts as present when the files calling its operations use its likely Terraform name. `avizor inspect` shows where. When a confident issue cites the item's release commit, the item stays `covered`, since that issue tracks the whole launch. Of the 13 `partial` items in a year of releases, 12 had real uncovered work.
+For `partial`, a new argument counts as present when the files calling its operations use its likely Terraform name. `avizor inspect` shows where. When a confident issue cites the item's release commit, the item stays `covered`, since that issue tracks the whole launch.
 
-A `gap` is a guess. In a hand-checked sample of 20 gaps, 8 were real gaps, 8 needed no provider work, and 4 were already covered. 2 of those 4 had the covering issue or PR in the related list, so check that list before drafting.
+A `gap` is a guess. Many need no provider work, and covering work can be in the related list, so check that list before drafting.
 
 ## Decide
 
@@ -205,18 +205,18 @@ Guesses go in a reviewer section (text) or under `inferred` (JSON), each with it
 
 The reviewer section also lists warnings and possibly related issues and PRs:
 
-- **Warnings**: confident existing work, an existing docs page for the Terraform name, an SDK version the target lacks, a skipped item, and `--announcement` without a match. A draft warned "already tracked" probably shouldn't be filed.
+- **Warnings**: confident existing work, an existing docs page for the Terraform name, an SDK version the target lacks, a skipped item, and `--announcement` without a match. Check the existing work before filing a draft warned "already tracked".
 - **Possibly related issues and PRs**: weak matches for a `Relates` line. Bug reports and the bump PR are left out.
 
 `draft_template` replaces the body template. See the example config.
 
 ## Evaluate
 
-`avizor eval` scores reconciliation and queue states against 203 cases labeled from provider history. See [eval/README.md](eval/README.md).
+`avizor eval` scores reconciliation and queue states against 207 cases labeled from provider history. See [eval/README.md](eval/README.md).
 
 ## Develop
 
-`make ci` runs what CI runs: build, gofmt, `go fix`, `go mod tidy`, vet, and tests. Tests need ripgrep. `make help` lists the targets.
+`make ci` runs what CI runs: build, gofmt, `go fix`, `go mod tidy`, vet, and tests. Tests need ripgrep and git. `make help` lists the targets.
 
 To also test parsing the real service map:
 
