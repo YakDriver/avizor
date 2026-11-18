@@ -34,7 +34,7 @@ Usage:
   avizor candidates [flags] <issue|url|item>  Reconcile an issue number, issue URL, other URL, or item.
   avizor candidates [flags] --text "..."      Reconcile a free-text description.
   avizor eval [flags] [case...]               Run the evaluation corpus.
-  avizor pull [flags] [source]                Pull new items and announcements (default: every source).
+  avizor pull [flags] [source]                Pull new items, announcements, and blog posts (default: every source).
   avizor items [flags]                        List pulled items.
   avizor inspect [flags] <item-id>            Show an item's evidence.
   avizor brief [flags] <item-id>...           Show what deciding an item needs: state, work, candidates, announcements.

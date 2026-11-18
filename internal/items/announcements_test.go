@@ -24,7 +24,8 @@ func TestAnnouncements(t *testing.T) {
 	as := AnnouncementStore{Store: s, Source: "wn"}
 	if err := as.PutAnnouncements(ctx, []whatsnew.Announcement{
 		{ID: "a", URL: "u-a", Headline: "A", PostedAt: at, Body: "<p>a</p>", Tags: []string{"t1"}},
-		{ID: "b", URL: "u-b", Headline: "B", PostedAt: at.Add(time.Hour)},
+		// Pulled before relative URLs without a leading slash were resolved.
+		{ID: "b", URL: "about-aws/whats-new/2026/11/b", Headline: "B", PostedAt: at.Add(time.Hour)},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -38,5 +39,8 @@ func TestAnnouncements(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].ID != "b" || got[1].Headline != "A, edited" || !got[1].PostedAt.Equal(at) || !slices.Equal(got[1].Tags, []string{"t1", "t2"}) {
 		t.Errorf("announcements = %+v", got)
+	}
+	if got[0].URL != "https://aws.amazon.com/about-aws/whats-new/2026/11/b" {
+		t.Errorf("relative URL read as %q", got[0].URL)
 	}
 }

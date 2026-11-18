@@ -41,8 +41,9 @@ target "tfaws" {
 # ~/.local/share/avizor). --state-dir overrides it.
 # state_dir = "~/.local/share/avizor"
 
-# Sources feed `avizor pull`. With no source blocks, Avizor uses one aws-sdk-go-v2 source and one aws-whats-new source
-# with these defaults, so these blocks are only needed to change them. Configuring any source replaces both defaults.
+# Sources feed `avizor pull`. With no source blocks, Avizor uses one aws-sdk-go-v2 source, one aws-whats-new source, and
+# one aws-blogs source with these defaults, so these blocks are only needed to change them. Configuring any source
+# replaces all three defaults.
 source "aws-sdk-go-v2" {
   type = "aws-sdk-go-v2"
 
@@ -73,5 +74,16 @@ source "aws-whats-new" {
   # url = "https://aws.amazon.com/api/dirs/items/search?item.directoryId=whats-new-v2&sort_by=item.additionalFields.postDateTime&sort_order=desc&item.locale=en_US"
 
   # Where the first pull starts. Later pulls start a week before the last one, for late and back-dated posts.
+  # start = "30d"
+}
+
+# AWS blog posts, for linking in issues. With no source blocks, Avizor adds this one too.
+source "aws-blogs" {
+  type = "aws-blogs"
+
+  # The same directory search endpoint, for blog posts.
+  # url = "https://aws.amazon.com/api/dirs/items/search?item.directoryId=blog-posts&sort_by=item.additionalFields.createdDate&sort_order=desc&item.locale=en_US"
+
+  # Where the first pull starts. Later pulls start a week before the last one.
   # start = "30d"
 }
