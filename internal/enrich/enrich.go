@@ -129,6 +129,8 @@ type Work struct {
 	// SharedName is set for a new member when another shape already had a member of that name, as when an update
 	// request gains a member its create request has. Text naming it is likely about the existing member.
 	SharedName bool `json:"shared_name,omitempty"`
+	// Spec is what the model says about a new resource or data source.
+	Spec *Spec `json:"spec,omitempty"`
 }
 
 // Enricher enriches items for one target.
@@ -185,6 +187,7 @@ func (e *Enricher) Enrich(ctx context.Context, it *awssdk.Item) *Result {
 		warnf("no model to find which operations changed members reach; run `avizor pull` to clone the models")
 	}
 	res.Work = work(it.Diff, usages)
+	buildSpecs(res.Work, model, it.Diff)
 	markNotSettable(res.Work, model)
 	markSharedNames(res.Work, it.Diff, model)
 	res.NewMembers = newMembers(res.Work, it.Diff, model)

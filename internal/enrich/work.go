@@ -142,12 +142,24 @@ func operationWork(ops []string) []Work {
 			singulars[noun] = true
 		}
 	}
+	// A plural noun of a non-plural verb (DeleteWidgets) isn't a singular when its singular is (CreateWidget).
+	for noun := range singulars {
+		if _, ok := pluralOf(noun, singulars); ok {
+			delete(singulars, noun)
+		}
+	}
 	groups := map[string][]string{}
 	var nouns []string
 	for _, op := range ops {
 		v, noun := splitVerb(op)
-		if slices.Contains(pluralVerbs, v) {
+		switch {
+		case slices.Contains(pluralVerbs, v):
 			noun = singularOf(noun, singulars)
+		default:
+			// A plural delete (DeleteWidgets with CreateWidget) belongs to the singular's group.
+			if s, ok := pluralOf(noun, singulars); ok {
+				noun = s
+			}
 		}
 		if _, ok := groups[noun]; !ok {
 			nouns = append(nouns, noun)
@@ -218,6 +230,17 @@ func singularOf(noun string, singulars map[string]bool) string {
 		}
 	}
 	return singular(noun)
+}
+
+// pluralOf returns the singular noun of another new operation that noun is the plural of: Widgets with Widget,
+// Policies with Policy.
+func pluralOf(noun string, singulars map[string]bool) (string, bool) {
+	for _, suffix := range []struct{ plural, singular string }{{"ies", "y"}, {"es", ""}, {"s", ""}} {
+		if base, ok := strings.CutSuffix(noun, suffix.plural); ok && singulars[base+suffix.singular] {
+			return base + suffix.singular, true
+		}
+	}
+	return "", false
 }
 
 // singular guesses the singular of a plural noun, for read operations with no singular counterpart. Names ending in

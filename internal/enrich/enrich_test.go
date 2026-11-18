@@ -22,7 +22,10 @@ func TestWork(t *testing.T) {
 
 	d := &smithy.Diff{
 		AddedOperations: []string{"CreateWidget", "DeleteWidget", "GetWidget", "ListWidgets", "DescribeGadget", "ListGadgets", "StartJob", "PutPolicy",
-			"ListContactFlowAliases", "RegisterCapability", "DeregisterCapability", "GetCapability"},
+			"ListContactFlowAliases", "RegisterCapability", "DeregisterCapability", "GetCapability",
+			// A plural delete and a plural Get join the singular's group, as EC2's DeleteNetworkingFlexCostAllocationPolicies
+			// and Lightsail's GetSubdomains do.
+			"CreateSubdomain", "DeleteSubdomains", "GetSubdomains"},
 		AddedMembers: []smithy.MemberChange{
 			{Shape: "UpdateThingRequest", Member: "Size"},
 			{Shape: "Thing", Member: "Status"},
@@ -55,6 +58,7 @@ func TestWork(t *testing.T) {
 		{WorkNewResource, "Policy"},
 		{WorkNewDataSource, "ContactFlowAlias"},
 		{WorkNewResource, "Capability"},
+		{WorkNewResource, "Subdomain"},
 		{WorkNewArgument, "UpdateThingRequest.Size"},
 		{WorkNewAttribute, "Thing.Status"},
 		{WorkNewEnumValue, "Color"},

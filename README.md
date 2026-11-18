@@ -136,6 +136,17 @@ The source reads the undocumented JSON endpoint behind the What's New pages, bec
 - **Service**: the provider package that uses the SDK module, or a service the provider doesn't implement.
 - **Availability**: whether the target's `go.mod` requires the item's SDK version, and the commit and PR that brought it in.
 - **Work** (inferred): new operations grouped into a likely resource, data source, or other operation; new members as arguments or attributes; enum values; type changes; removals. Each kind lists the provider files that call the operations involved, and for a new argument, whether those files use its likely Terraform name.
+- **Spec**, for each inferred resource and data source, from the model:
+  - operations by role (create, read, update, delete, list, other) and the identifier (the read's required input);
+  - arguments from the create input, with likely Terraform names, required or optional, create-only (no update operation takes them), constraints, enum values, and nested members three levels deep;
+  - attributes: read result members that aren't arguments;
+  - the status member, with its values grouped as pending, target, failed, and delete;
+  - the delete operation, and whether it takes a list of IDs (`DeleteNetworkingFlexCostAllocationPolicies`, up to 50);
+  - the update shape: fields, add and remove lists, or a documented full replacement;
+  - tagging: `Tags`, EC2 `TagSpecifications` with new resource types, or the service's `TagResource`;
+  - documentation sentences that state design facts ("can't change", "ignores this field", "If you omit"), quoted with their source.
+
+  Create-only and the names are inferred; the rest is what the model says.
 - **Announcement** (inferred): the matched post, with its score and the runner-up's.
 
 ## Queue
