@@ -10,3 +10,4 @@ Avizor gathers evidence for a decision; it never decides or writes to GitHub. Ke
 - **Concurrency.** Queue and eval run jobs in parallel. Shared state must be safe for that, so test with `-race`.
 - `make ci` before committing. Tests need ripgrep and git.
 - Docs and PRs: plain, short sentences with real numbers. PRs have Changes and Results sections and end with the AI-assistance note.
+- Public issues and comments, on any repo: terse, natural language. No meta-narration, prompt leakage, needless explanation, or hedging.
