@@ -55,6 +55,12 @@ func resourceX() *schema.Resource {
 						"routing_config": &schema.Schema{
 							Type:     schema.TypeList,
 							MaxItems: 1,
+							Elem:     &schema.Resource{},
+						},
+						// A set of strings with a block's name isn't a block.
+						"allowed_principals": {
+							Type: schema.TypeSet,
+							Elem: &schema.Schema{Type: schema.TypeString},
 						},
 					},
 				},
@@ -95,6 +101,9 @@ func TestPlacesOf(t *testing.T) {
 	ps = placesOf(sdk, fset, []string{"routing_config"}, nil)
 	if len(ps) != 1 || ps[0].Path != "production_variants.routing_config" || ps[0].Kind != "TypeList (MaxItems 1)" || ps[0].ForceNew != "production_variants" {
 		t.Errorf("routing_config places = %+v", ps)
+	}
+	if ps := placesOf(sdk, fset, []string{"allowed_principals"}, nil); len(ps) != 0 {
+		t.Errorf("allowed_principals places = %+v, want none", ps)
 	}
 	// production_variants is written without &schema.Schema, as SDKv2 map values usually are.
 	if ps := placesOf(sdk, fset, []string{"production_variants"}, nil); len(ps) != 1 || ps[0].Kind != "TypeList" || ps[0].ForceNew != "production_variants" {

@@ -21,7 +21,8 @@ import (
 )
 
 // SchemaPlace is where a new member's parent block is defined in a provider file: its Terraform path from the
-// resource's top level, its schema kind, and the nearest block on the path, the parent's own included, that forces
+// outermost schema definition in that file (the resource's top level, or a helper's when the schema is split across
+// files), its schema kind, and the nearest block on the path, the parent's own included, that forces
 // replacement. These are facts about the code; whether the new member should force replacement is the reader's call.
 type SchemaPlace struct {
 	File string `json:"file"`
@@ -48,7 +49,7 @@ type EnumUse struct {
 }
 
 // schemaPlaces finds the parent block of each new nested argument and attribute in the files that call its
-// operations.
+// operations, or, if none has it, in the package's other files.
 func (e *Enricher) schemaPlaces(ws []Work, m *smithy.Model) {
 	if m == nil {
 		return
@@ -86,18 +87,63 @@ func (e *Enricher) schemaPlaces(ws []Work, m *smithy.Model) {
 			// A top-level member: its parent is the resource.
 			continue
 		}
-		for _, f := range w.UsedBy {
-			x := read(f)
-			if x.ast == nil {
+		find := func(fs []string) {
+			for _, f := range fs {
+				x := read(f)
+				if x.ast == nil {
+					continue
+				}
+				names, up := parentBlockNames(x.ast, m, shape, inputs, attrs)
+				above := aboveNames(m, up)
+				for _, p := range placesOf(x.ast, x.fset, names, attrs) {
+					// The block above the parent must be one that holds the parent's shape: H265FilterSettings is in
+					// h265_settings.filter_settings, not h264_settings.filter_settings.
+					path := strings.Split(p.Path, ".")
+					if len(path) >= 2 && !slices.Contains(above, path[len(path)-2]) {
+						continue
+					}
+					p.File, p.Framework = f, x.framework
+					w.Schema = append(w.Schema, p)
+				}
+			}
+		}
+		find(w.UsedBy)
+		if len(w.Schema) == 0 {
+			// Large schemas are sometimes split into files of their own, as channel.go's channel_encoder_settings_schema.go.
+			find(schemaFiles(e.Checkout, w.UsedBy))
+		}
+	}
+}
+
+// schemaFiles returns the package's files that hold schemas split out of resource files: *_schema.go and schemas.go,
+// as MediaLive's channel_encoder_settings_schema.go and WAFv2's schemas.go. Other files with a matching prefix are
+// usually other resources (endpoint_configuration.go for endpoint.go), whose blocks can share a name.
+func schemaFiles(checkout string, files []string) []string {
+	var out []string
+	for _, dir := range slices.Compact(slices.Sorted(slices.Values(mapDirs(files)))) {
+		entries, err := os.ReadDir(filepath.Join(checkout, dir))
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			n := e.Name()
+			if n != "schemas.go" && !strings.HasSuffix(n, "_schema.go") {
 				continue
 			}
-			names := parentBlockNames(x.ast, m, shape, inputs, attrs)
-			for _, p := range placesOf(x.ast, x.fset, names, attrs) {
-				p.File, p.Framework = f, x.framework
-				w.Schema = append(w.Schema, p)
+			if p := filepath.Join(dir, n); !slices.Contains(files, p) {
+				out = append(out, p)
 			}
 		}
 	}
+	return out
+}
+
+func mapDirs(files []string) []string {
+	var out []string
+	for _, f := range files {
+		out = append(out, filepath.Dir(f))
+	}
+	return out
 }
 
 // operationOutputs returns the model's operation output shapes.
@@ -112,23 +158,34 @@ func operationOutputs(m *smithy.Model) map[string]bool {
 }
 
 // parentBlockNames returns the Terraform names of shape's parent blocks in f, moving up through flattened shapes as
-// inBlock does, or nil if f has none.
-func parentBlockNames(f *ast.File, m *smithy.Model, shape string, inputs map[string]bool, attrs map[string]string) []string {
+// inBlock does, and the shapes that hold those blocks, or nil if f has none.
+func parentBlockNames(f *ast.File, m *smithy.Model, shape string, inputs map[string]bool, attrs map[string]string) (names, up []string) {
 	level := []string{shape}
 	for range maxClimb {
 		up, names := parents(m, level)
 		if len(blocks(f, names, attrs)) > 0 {
-			return names
+			return names, up
 		}
 		if slices.ContainsFunc(up, func(s string) bool { return inputs[s] && wraps(m, s, level) }) {
-			return nil
+			return nil, nil
 		}
 		if len(up) == 0 || !slices.ContainsFunc(level, func(s string) bool { return m.Shapes[s].Type == smithy.TypeUnion }) {
-			return nil
+			return nil, nil
 		}
 		level = up
 	}
-	return nil
+	return nil, nil
+}
+
+// aboveNames returns the Terraform names of the blocks that can hold one of shapes: the members that target them,
+// and, for a union or an operation input's wrapped structure, the level above too, since those are flattened.
+func aboveNames(m *smithy.Model, shapes []string) []string {
+	up, names := parents(m, shapes)
+	if slices.ContainsFunc(shapes, func(s string) bool { return m.Shapes[s].Type == smithy.TypeUnion }) {
+		_, more := parents(m, up)
+		names = append(names, more...)
+	}
+	return names
 }
 
 // placesOf returns the schema definitions in f whose key is one of names, with their paths.
@@ -149,7 +206,7 @@ func placesOf(f *ast.File, fset *token.FileSet, names []string, attrs map[string
 			return true
 		}
 		kind, def := schemaKind(kv.Value)
-		if def == nil {
+		if def == nil || !nestedKind(kind, def) {
 			return true
 		}
 		// The path is the keys of the schema definitions that enclose this one, outermost first.
@@ -224,6 +281,49 @@ func schemaKind(v ast.Expr) (string, *ast.CompositeLit) {
 		kind += " (MaxItems 1)"
 	}
 	return kind, cl
+}
+
+// nestedKind reports whether a schema definition holds nested attributes: a Plugin Framework nested block or nested
+// attribute, or an SDKv2 list or set whose Elem is a resource. A set of strings with the parent's name isn't the parent.
+func nestedKind(kind string, cl *ast.CompositeLit) bool {
+	if strings.Contains(kind, "Nested") || strings.HasPrefix(kind, "Object") {
+		return true
+	}
+	if strings.HasSuffix(kind, "Attribute") {
+		// A framework ListAttribute or SetAttribute of nested objects: CustomType: fwtypes.NewListNestedObjectTypeOf[T](ctx).
+		found := false
+		for _, el := range cl.Elts {
+			if kv, ok := el.(*ast.KeyValueExpr); ok && keyIdent(kv.Key) == "CustomType" {
+				ast.Inspect(kv.Value, func(n ast.Node) bool {
+					if s, ok := n.(*ast.SelectorExpr); ok && strings.Contains(s.Sel.Name, "NestedObject") {
+						found = true
+					}
+					return !found
+				})
+			}
+		}
+		return found
+	}
+	if !strings.HasPrefix(kind, "TypeList") && !strings.HasPrefix(kind, "TypeSet") {
+		return false
+	}
+	for _, el := range cl.Elts {
+		if kv, ok := el.(*ast.KeyValueExpr); ok && keyIdent(kv.Key) == "Elem" {
+			v := kv.Value
+			if u, ok := v.(*ast.UnaryExpr); ok && u.Op == token.AND {
+				v = u.X
+			}
+			if c, ok := v.(*ast.CompositeLit); ok {
+				if sel, ok := c.Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "Resource" {
+					return true
+				}
+			}
+			// Elem from a function (resourceWidgetSchema()) is usually a resource.
+			_, call := v.(*ast.CallExpr)
+			return call
+		}
+	}
+	return false
 }
 
 // hasSchemaType reports whether a composite literal has a Type: schema.TypeX field.
