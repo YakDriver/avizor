@@ -9,6 +9,7 @@ import (
 
 	"github.com/YakDriver/avizor/internal/index"
 	"github.com/YakDriver/avizor/internal/items"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 // IssueLookup returns an issue or PR from the index, or nil if it isn't there.
@@ -60,7 +61,8 @@ func Changes(was, now Evidence) []string {
 	if sameCode && was.CodeSearched == now.CodeSearched && was.State != now.State {
 		out = append(out, fmt.Sprintf("state %s → %s", was.State, now.State))
 	}
-	if was.Announcements && now.Announcements && was.Announcement != now.Announcement {
+	// Evidence saved before relative announcement URLs were resolved compares as its absolute URL.
+	if was.Announcements && now.Announcements && whatsnew.Absolute(was.Announcement) != whatsnew.Absolute(now.Announcement) {
 		out = append(out, fmt.Sprintf("announcement %s → %s", cmp(was.Announcement, "none"), cmp(now.Announcement, "none")))
 	}
 	if was.Availability != now.Availability {
