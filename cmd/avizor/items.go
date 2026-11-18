@@ -396,6 +396,9 @@ func writeEnrichmentText(w io.Writer, e *enrich.Result) error {
 		fmt.Fprintf(w, "\n  work (inferred)\n")
 		for _, wk := range e.Work {
 			fmt.Fprintf(w, "    %s: %s (%s)\n", wk.Kind, wk.Subject, wk.Basis)
+			if wk.Spec != nil {
+				writeSpecText(w, wk.Spec)
+			}
 			if len(wk.UsedBy) > 0 {
 				fmt.Fprintf(w, "      provider calls these operations in: %s\n", strings.Join(wk.UsedBy, ", "))
 			}
@@ -525,4 +528,99 @@ func short(sha string) string {
 // parentList names a member's possible parent blocks: "contextual_grounding_policy_config", or "a or b".
 func parentList(ps []string) string {
 	return strings.Join(ps, " or ")
+}
+
+// writeSpecText prints a resource's spec under its work entry.
+func writeSpecText(w io.Writer, s *enrich.Spec) {
+	const in = "      "
+	ops := []struct {
+		role string
+		ops  []string
+	}{{"create", s.Operations.Create}, {"read", s.Operations.Read}, {"update", s.Operations.Update},
+		{"delete", s.Operations.Delete}, {"list", s.Operations.List}, {"other", s.Operations.Other}}
+	var parts []string
+	for _, o := range ops {
+		if len(o.ops) > 0 {
+			parts = append(parts, o.role+" "+strings.Join(o.ops, ", "))
+		}
+	}
+	fmt.Fprintf(w, "%soperations: %s\n", in, strings.Join(parts, "; "))
+	if len(s.Identifier) > 0 {
+		fmt.Fprintf(w, "%sidentifier: %s\n", in, strings.Join(s.Identifier, ", "))
+	}
+	var fieldLines func(label string, fs []enrich.Field, depth int, argument bool)
+	fieldLines = func(label string, fs []enrich.Field, depth int, argument bool) {
+		if len(fs) == 0 {
+			return
+		}
+		if label != "" {
+			fmt.Fprintf(w, "%s%s:\n", in, label)
+		}
+		for _, f := range fs {
+			fmt.Fprintf(w, "%s  %s%s (%s): %s\n", in, strings.Repeat("  ", depth), f.Name, f.Member, enrich.FieldText(f, argument))
+			fieldLines("", f.Fields, depth+1, argument)
+		}
+	}
+	fieldLines("arguments", s.Arguments, 0, true)
+	fieldLines("attributes", s.Attributes, 0, false)
+	if st := s.Status; st != nil {
+		var groups []string
+		for _, g := range []struct {
+			name string
+			vs   []string
+		}{{"pending", st.Pending}, {"target", st.Target}, {"failed", st.Failed}, {"delete", st.Delete}, {"other", st.Other}} {
+			if len(g.vs) > 0 {
+				groups = append(groups, g.name+" "+strings.Join(g.vs, ", "))
+			}
+		}
+		reason := ""
+		if st.Reason != "" {
+			reason = "; reason in " + st.Reason
+		}
+		fmt.Fprintf(w, "%sstatus: %s: %s%s\n", in, st.Member, strings.Join(groups, "; "), reason)
+	}
+	if d := s.Delete; d != nil {
+		switch {
+		case d.Kind == "none":
+			fmt.Fprintf(w, "%sdelete: no delete operation\n", in)
+		case d.Plural && d.Max > 0:
+			fmt.Fprintf(w, "%sdelete: %s, plural (%s, up to %d)\n", in, d.Operation, d.Member, d.Max)
+		case d.Plural:
+			fmt.Fprintf(w, "%sdelete: %s, plural (%s)\n", in, d.Operation, d.Member)
+		default:
+			fmt.Fprintf(w, "%sdelete: %s (%s)\n", in, d.Operation, d.Kind)
+		}
+	}
+	if u := s.Update; u != nil {
+		switch u.Kind {
+		case "none":
+			fmt.Fprintf(w, "%supdate: no update operation\n", in)
+		case "put":
+			fmt.Fprintf(w, "%supdate: the create operation is a Put, which also updates\n", in)
+		case "add_remove":
+			fmt.Fprintf(w, "%supdate: add and remove (%s)\n", in, strings.Join(u.Members, ", "))
+		default:
+			if len(u.Replaces) > 0 {
+				fmt.Fprintf(w, "%supdate: fields; the documentation says values replace the current ones (%s)\n", in, strings.Join(u.Replaces, ", "))
+			} else {
+				fmt.Fprintf(w, "%supdate: fields\n", in)
+			}
+		}
+	}
+	if t := s.Tagging; t != nil {
+		switch {
+		case t.Kind == "tag_specifications" && len(t.ResourceTypes) > 0:
+			fmt.Fprintf(w, "%stagging: TagSpecifications, new resource types %s\n", in, strings.Join(t.ResourceTypes, ", "))
+		case t.Member != "":
+			fmt.Fprintf(w, "%stagging: %s in the create input\n", in, t.Member)
+		default:
+			fmt.Fprintf(w, "%stagging: %s\n", in, t.Kind)
+		}
+	}
+	if len(s.Notes) > 0 {
+		fmt.Fprintf(w, "%snotes:\n", in)
+		for _, n := range s.Notes {
+			fmt.Fprintf(w, "%s  %s: %q\n", in, n.Source, n.Text)
+		}
+	}
 }
