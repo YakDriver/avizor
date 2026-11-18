@@ -273,8 +273,9 @@ func (b *Brief) rankPosts(it *awssdk.Item, posts *whatsnew.Matcher, n int) {
 	}
 }
 
-// taggedService reports whether a blog post's product category tags name a service, by its identifying words run
-// together: "dsql" in blog-posts#category-database-amazon-aurora#dsql, "sagemaker" in ...#amazon-sagemaker-ai.
+// taggedService reports whether a blog post's product category tag names a service: whole words of the tag's last
+// part, run together, equal the service's identifying words run together. "dsql" in
+// blog-posts#category-database-amazon-aurora#dsql, "sagemaker" in ...#amazon-sagemaker-ai.
 func taggedService(tags []string, key string) bool {
 	if key == "" {
 		return false
@@ -283,8 +284,20 @@ func taggedService(tags []string, key string) bool {
 		if !strings.HasPrefix(t, "blog-posts#category") {
 			return false
 		}
-		leaf := t[strings.LastIndex(t, "#")+1:]
-		return strings.Contains(strings.ReplaceAll(leaf, "-", ""), key)
+		// A run of whole words: "secrets-manager" for Secrets Manager, but not "ecr" inside "secrets".
+		words := strings.Split(t[strings.LastIndex(t, "#")+1:], "-")
+		for i := range words {
+			run := ""
+			for _, w := range words[i:] {
+				if run += w; run == key {
+					return true
+				}
+				if len(run) >= len(key) {
+					break
+				}
+			}
+		}
+		return false
 	})
 }
 

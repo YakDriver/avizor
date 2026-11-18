@@ -144,6 +144,8 @@ func TestTaggedService(t *testing.T) {
 		{"blog-posts#category-compute#aws-lambda", "Lambda Core", false},
 		{"GLOBAL#content-type#launch-announcement", "Launch", false},
 		{"blog-posts#category-storage#amazon-s3", "DSQL", false},
+		{"blog-posts#category-security-identity-compliance#aws-secrets-manager", "ECR", false},
+		{"blog-posts#category-security-identity-compliance#aws-secrets-manager", "Secrets Manager", true},
 	} {
 		if got := taggedService([]string{tc.tag}, strings.Join(serviceWords(tc.service), "")); got != tc.want {
 			t.Errorf("taggedService(%s, %s) = %t", tc.tag, tc.service, got)
