@@ -231,10 +231,10 @@ avizor draft aws-sdk-go-v2/kinesis/release-2026-08-31 --body | gh issue create -
 `avizor draft` renders an issue in the format of the provider's trackers. Avizor prints the `gh` command but doesn't run it. The body has:
 
 - the release notes, quoted, and with `--announcement`, a link to the matched What's New post;
-- `Requires AWS SDK for Go v2 [Release <date>](<release>) (<module> <version>).`, and the bump PR if the target has merged one;
+- `Requires AWS SDK for Go v2 [Release <date>](<commit>) (<module> <version>).`, and the bump PR if the target has merged one. Reconciliation takes an issue citing the release commit as tracking the whole release, so a `partial` item's draft cites the release tag instead;
 - a Scope section rendered from the model's spec and the provider's facts:
   - for a new resource or data source, its operations, its arguments (required or optional, forces replacement, type, constraints, and nested fields), and its attributes, then notes: status values to wait on, how update and delete work, how tags are set, documentation sentences that state design facts, and other operations;
-  - for an existing resource, each new argument or attribute with the resource it's in, its type and constraints, and the API members it comes from, then notes on the parent block from the schema (its kind, and whether it forces replacement);
+  - for an existing resource, each new argument or attribute with the resource it's in, its type and constraints, the API members it comes from, and the outputs that return it, then notes on the parent block from the schema (its kind, and whether it forces replacement). Members of one noun's create, update, and read shapes are one field; the create input's describes it;
   - new enum values and whether the provider validates with the SDK's type;
 - for a `partial` item, `Relates #N` lines for the issues and PRs that cover the rest.
 
@@ -245,7 +245,7 @@ The body says what the model shows. Where it can't settle a choice, the line is 
 - a name that abbreviates the resource's name (`FcaPolicyId` for `NetworkingFlexCostAllocationPolicy`);
 - other operations, such as an associate: one resource per association, an argument, or none;
 - a new read-only group: a data source, part of another resource, or none;
-- a new argument that's in no resource, or in several.
+- a new argument that's in no resource, or in several, or under several schema blocks.
 
 A `partial` item's draft covers only the work `queue` reports as uncovered, so it doesn't repeat the tracked work.
 

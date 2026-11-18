@@ -16,7 +16,8 @@ func TestDraftPartial(t *testing.T) {
 	t.Parallel()
 
 	it := &awssdk.Item{ID: "sdk/widget/release-1", Status: "new", Service: awssdk.Service{SDKID: "Widget", Module: "widget"},
-		Release: awssdk.Release{Tag: "release-1"}, Notes: []awssdk.Note{{Text: "Adds gadgets and colors."}}}
+		Release: awssdk.Release{Tag: "release-1", URL: "https://github.com/aws/aws-sdk-go-v2/releases/tag/release-1",
+			CommitURL: "https://github.com/aws/aws-sdk-go-v2/commit/abc"}, Notes: []awssdk.Note{{Text: "Adds gadgets and colors."}}}
 	gadget := enrich.Work{Kind: enrich.WorkNewResource, Subject: "Gadget", Operations: []string{"CreateGadget", "DeleteGadget"}}
 	color := enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateThingRequest.Color", Operations: []string{"CreateThing"},
 		UsedBy: []string{"thing.go"}, Member: "color"}
@@ -34,6 +35,10 @@ func TestDraftPartial(t *testing.T) {
 	}
 	if strings.Contains(d.Body, "aws_widget_gadget") || !strings.Contains(d.Body, "new argument `color`") {
 		t.Errorf("partial draft body has the tracked resource or lacks the uncovered argument:\n%s", d.Body)
+	}
+	// A partial draft cites the release tag: the commit would make it read as tracking the whole release.
+	if !strings.Contains(d.Body, "](https://github.com/aws/aws-sdk-go-v2/releases/tag/release-1)") {
+		t.Errorf("partial draft doesn't cite the tag:\n%s", d.Body)
 	}
 	if !strings.Contains(d.Body, "\nRelates #7\n") || strings.Contains(d.Body, "#8") {
 		t.Errorf("body relates =\n%s", d.Body)
@@ -57,7 +62,7 @@ func TestDraftPartial(t *testing.T) {
 	if d, err = Draft(it, en, rec, texts, draft.Options{Repo: "o/r", Prefix: "aws_"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(d.Body, "aws_widget_gadget") || strings.Contains(d.Body, "Relates") ||
+	if !strings.Contains(d.Body, "aws_widget_gadget") || strings.Contains(d.Body, "Relates") || !strings.Contains(d.Body, "/commit/abc)") ||
 		!slices.ContainsFunc(d.Warnings, func(w string) bool { return strings.Contains(w, "already tracked: #7") }) {
 		t.Errorf("covered draft:\n%s\nwarnings %q", d.Body, d.Warnings)
 	}

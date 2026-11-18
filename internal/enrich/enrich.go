@@ -115,7 +115,9 @@ type Work struct {
 	Subject string `json:"subject"`
 	// Operations are the new operations in the group, or the operations whose input or output reaches the shape.
 	Operations []string `json:"operations,omitempty"`
-	Basis      string   `json:"basis"`
+	// Returns are, for a new argument whose shape is in both inputs and outputs, the operations whose output reaches it.
+	Returns []string `json:"returns,omitempty"`
+	Basis   string   `json:"basis"`
 	// UsedBy are provider files that call one of Operations, from a code search. It's evidence.
 	UsedBy []string `json:"used_by,omitempty"`
 	// Member is the likely Terraform name of a new argument of a write operation, and FoundIn the UsedBy files that

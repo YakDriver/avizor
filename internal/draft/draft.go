@@ -139,8 +139,13 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 		d.Warnings = append(d.Warnings, fmt.Sprintf("the item is %s: %s", it.Status, it.SkipReason))
 	}
 
-	data := Data{Item: it, Release: releaseName(it.Release.Tag), ReleaseURL: cmp(it.Release.URL, it.Release.CommitURL),
+	// The commit URL is the release's citation: reconciliation takes an issue citing it as tracking the whole release.
+	// A partial draft cites the tag, since it tracks only part of the release.
+	data := Data{Item: it, Release: releaseName(it.Release.Tag), ReleaseURL: cmp(it.Release.CommitURL, it.Release.URL),
 		Module: it.Service.ModulePath, Version: it.Service.ModuleVersion, Service: en.Service, Work: en.Work}
+	if opts.Partial != nil {
+		data.ReleaseURL = cmp(it.Release.URL, it.Release.CommitURL)
+	}
 	for _, n := range it.Notes {
 		if n.Text != NewModuleNote {
 			data.Notes = append(data.Notes, n.Text)

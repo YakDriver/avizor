@@ -37,7 +37,7 @@ func implemented(pkg string, work ...enrich.Work) *enrich.Result {
 
 var opts = Options{Repo: "o/r", Prefix: "aws_"}
 
-const requires = "Requires AWS SDK for Go v2 [Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/releases/tag/release-2026-01-02) " +
+const requires = "Requires AWS SDK for Go v2 [Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc) " +
 	"(`github.com/aws/aws-sdk-go-v2/service/widget` v1.2.0). The target has it since https://github.com/o/r/pull/10."
 
 func inferred(d *Draft, field string) []string {

@@ -62,7 +62,7 @@ func work(d *smithy.Diff, usages map[string]*smithy.Usage) []Work {
 			// Errors and shapes used only by new operations aren't reached from an existing operation.
 			continue
 		case len(u.Input) > 0:
-			w.Kind, w.Operations = WorkNewArgument, u.Input
+			w.Kind, w.Operations, w.Returns = WorkNewArgument, u.Input, u.Output
 			w.Basis = "new member of a shape in the input of " + list(u.Input)
 		default:
 			w.Kind, w.Operations = WorkNewAttribute, u.Output

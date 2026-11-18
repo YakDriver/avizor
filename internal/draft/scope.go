@@ -267,17 +267,50 @@ func resourceNotes(s *enrich.Spec, name string, decide decider) []string {
 	return out
 }
 
-// change is a new member of existing resources: arguments and attributes of one name, grouped.
+// change is a new member of existing resources: the arguments and attributes that describe one Terraform field, the
+// create, update, and read members of one noun's shapes.
 type change struct {
-	name     string
-	path     string
+	name string
+	// paths are the parent blocks' paths from the schema; with several, the block is a judgment call.
+	paths    []string
 	subjects []string
-	// returned are the attribute subjects of an argument: output members of the same name.
+	// returned are the attribute subjects of an argument, and the operations whose output reaches its shape.
 	returned  []string
 	works     []enrich.Work
 	field     *enrich.Field
+	fieldFrom string
 	argument  bool
 	attribute bool
+	// returns is set when read returns an argument: a matching attribute, or an output reaching its shape.
+	returns bool
+}
+
+// shapeVerbs start operation input and output shape names.
+var shapeVerbs = []string{"Create", "Update", "Modify", "Put", "Get", "Describe", "List", "Delete", "Register", "Start", "Set", "Associate"}
+
+// shapeNoun is the noun of an operation's input or output shape (CreateClusterInput → Cluster), or the shape.
+func shapeNoun(shape string) string {
+	n := shape
+	for _, suffix := range []string{"Input", "Output", "Request", "Response", "Result"} {
+		if rest, ok := strings.CutSuffix(n, suffix); ok && rest != "" {
+			n = rest
+			break
+		}
+	}
+	if n == shape {
+		return shape
+	}
+	for _, v := range shapeVerbs {
+		if rest, ok := strings.CutPrefix(n, v); ok && rest != "" {
+			return rest
+		}
+	}
+	return n
+}
+
+// createInput reports whether a subject is a create or put input, whose requiredness is the argument's.
+func createInput(subject string) bool {
+	return strings.HasPrefix(subject, "Create") || strings.HasPrefix(subject, "Put")
 }
 
 // changes renders new arguments, attributes, enum values, and other work on existing resources, with notes. It also
@@ -296,48 +329,63 @@ func changes(en *enrich.Result, checkout string, decide decider) (lines, notes, 
 		if w.Kind != enrich.WorkNewArgument && w.Kind != enrich.WorkNewAttribute {
 			continue
 		}
-		_, member, _ := strings.Cut(w.Subject, ".")
+		shape, member, _ := strings.Cut(w.Subject, ".")
 		name := cmp(w.Member, enrich.Snake(member))
-		path := ""
-		if len(w.Schema) > 0 {
-			path = w.Schema[0].Path
+		var paths []string
+		for _, p := range w.Schema {
+			if !slices.Contains(paths, p.Path) {
+				paths = append(paths, p.Path)
+			}
 		}
-		key := path + "." + name
+		slices.Sort(paths)
+		key := shapeNoun(shape) + "|" + strings.Join(paths, ",") + "|" + name
 		c := byKey[key]
 		if c == nil {
-			c = &change{name: name, path: path}
+			c = &change{name: name, paths: paths}
 			byKey[key] = c
 			cs = append(cs, c)
 		}
 		c.works = append(c.works, w)
 		if w.Kind == enrich.WorkNewArgument {
+			// The argument's field is the create input's, then any input's, never an output's.
+			if w.Field != nil && (!c.argument || c.field == nil || createInput(w.Subject) && !createInput(c.fieldFrom)) {
+				c.field, c.fieldFrom = w.Field, w.Subject
+			}
 			c.argument = true
-			if c.field == nil || !c.field.Required && w.Field != nil {
-				c.field = w.Field
+			if len(w.Returns) > 0 {
+				c.returns = true
 			}
 		} else {
 			c.attribute = true
 			if c.field == nil {
-				c.field = w.Field
+				c.field, c.fieldFrom = w.Field, w.Subject
 			}
 		}
 	}
 
 	for _, c := range cs {
+		var outputs []string
 		for _, w := range c.works {
 			if !c.argument || w.Kind == enrich.WorkNewArgument {
 				c.subjects = append(c.subjects, "`"+w.Subject+"`")
+				for _, op := range w.Returns {
+					if !slices.Contains(outputs, "`"+op+"`") {
+						outputs = append(outputs, "`"+op+"`")
+					}
+				}
 			} else {
 				c.returned = append(c.returned, "`"+w.Subject+"`")
 			}
 		}
+		c.returned = append(c.returned, outputs...)
+		c.returns = c.returns || c.argument && c.attribute
 	}
 
 	seenPlace := map[string]bool{}
 	for _, c := range cs {
 		where := c.name
-		if c.path != "" {
-			where = c.path + "." + c.name
+		if len(c.paths) == 1 && c.paths[0] != "" {
+			where = c.paths[0] + "." + c.name
 		}
 		// An argument is in the resources that write it; the outputs that return it may be other resources'.
 		rs := changeResources(slices.DeleteFunc(slices.Clone(c.works), func(w enrich.Work) bool {
@@ -369,11 +417,18 @@ func changes(en *enrich.Result, checkout string, decide decider) (lines, notes, 
 		case len(rs) > 1:
 			line += decide(where, "which of these resources")
 		}
+		if len(c.paths) > 1 {
+			var ps []string
+			for _, p := range c.paths {
+				ps = append(ps, "`"+p+"."+c.name+"`")
+			}
+			line += decide(where, "which block: "+joinOr(ps))
+		}
 		if c.field != nil {
 			if single := singleScalar(*c.field); single != "" {
 				line += decide(where, fmt.Sprintf(decideSetOrBlock, single))
 			}
-			if c.argument && c.attribute && !c.field.Required && (c.field.Default != "" || collection(*c.field)) {
+			if c.argument && c.returns && !c.field.Required && (c.field.Default != "" || collection(*c.field)) {
 				line += decide(where, decideComputed)
 			}
 		}
@@ -429,7 +484,11 @@ func changes(en *enrich.Result, checkout string, decide decider) (lines, notes, 
 			}
 			lines = append(lines, line)
 		case enrich.WorkNewOperation:
-			lines = append(lines, "- New operation `"+w.Subject+"`."+decide(w.Subject, "resource, argument, or none"))
+			ops := "operation"
+			if len(w.Operations) > 1 {
+				ops = "operations"
+			}
+			lines = append(lines, "- New "+ops+" "+joinAnd(quoted(w.Operations))+"."+decide(w.Subject, "resource, argument, or none"))
 		case enrich.WorkTagging:
 			if !slices.ContainsFunc(en.Work, func(w enrich.Work) bool { return w.Kind == enrich.WorkNewResource }) {
 				lines = append(lines, "- New tagging operations "+joinAnd(quoted(w.Operations))+".")
@@ -498,6 +557,14 @@ func quoted(vs []string) []string {
 		out[i] = "`" + v + "`"
 	}
 	return out
+}
+
+// joinOr joins "a", "b", or "c".
+func joinOr(ss []string) string {
+	if len(ss) == 2 {
+		return ss[0] + " or " + ss[1]
+	}
+	return strings.Replace(joinAnd(ss), ", and ", ", or ", 1)
 }
 
 // joinAnd joins "a", "b", and "c".

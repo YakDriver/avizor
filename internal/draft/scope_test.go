@@ -118,6 +118,67 @@ func TestScopeChanges(t *testing.T) {
 	}
 }
 
+// Fields are grouped per noun and path; the create input's field describes the argument; an output reaching the
+// argument's own shape counts as read returning it; several schema paths are a judgment call; new operations are named.
+func TestScopeChangeGroups(t *testing.T) {
+	t.Parallel()
+
+	co := t.TempDir()
+	src := filepath.Join(co, "internal", "service", "widget")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for f, name := range map[string]string{"cluster.go": "aws_widget_cluster", "peering.go": "aws_widget_peering"} {
+		if err := os.WriteFile(filepath.Join(src, f), []byte("package widget\n\n// @FrameworkResource(\""+name+"\", name=\"X\")\nfunc f() {}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cluster, peering := "internal/service/widget/cluster.go", "internal/service/widget/peering.go"
+	reqString := &enrich.Field{Name: "color", Member: "Color", Type: "string", Required: true}
+	optList := &enrich.Field{Name: "color", Member: "Color", Type: "list", Elem: "string"}
+	en := implemented("widget",
+		// The output comes first, required; the create input is optional.
+		enrich.Work{Kind: enrich.WorkNewAttribute, Subject: "GetClusterOutput.Size", UsedBy: []string{cluster}, Field: &enrich.Field{Name: "size", Type: "list", Elem: "string", Required: true}},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "UpdateClusterInput.Size", UsedBy: []string{cluster}, Member: "size", Field: &enrich.Field{Name: "size", Type: "list", Elem: "string", Required: true}},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateClusterInput.Size", UsedBy: []string{cluster}, Member: "size", Field: &enrich.Field{Name: "size", Type: "list", Elem: "string"}},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateClusterInput.Color", UsedBy: []string{cluster}, Member: "color", Field: reqString},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreatePeeringInput.Color", UsedBy: []string{peering}, Member: "color", Field: optList},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "Settings.Mode", UsedBy: []string{cluster}, Member: "mode", Returns: []string{"GetCluster"},
+			Field:  &enrich.Field{Name: "mode", Type: "list", Elem: "string"},
+			Schema: []enrich.SchemaPlace{{File: cluster, Line: 10, Path: "primary.settings"}, {File: cluster, Line: 20, Path: "secondary.settings"}}},
+		enrich.Work{Kind: enrich.WorkNewOperation, Subject: "Job", Operations: []string{"StartJob", "StopJob"}},
+	)
+	o := opts
+	o.Checkout = co
+	d, err := New(item("widget", "Adds things."), en, nil, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"- `aws_widget_cluster`: new argument `size` (optional; list of string), from `UpdateClusterInput.Size` and `CreateClusterInput.Size`; returned by `GetClusterOutput.Size`. <!-- decide: optional, or optional and computed -->\n",
+		"- `aws_widget_cluster`: new argument `color` (required; string), from `CreateClusterInput.Color`.\n",
+		"- `aws_widget_peering`: new argument `color` (optional; list of string), from `CreatePeeringInput.Color`.\n",
+		"- `aws_widget_cluster`: new argument `mode` (optional; list of string), from `Settings.Mode`; returned by `GetCluster`. " +
+			"<!-- decide: which block: `primary.settings.mode` or `secondary.settings.mode` --> <!-- decide: optional, or optional and computed -->\n",
+		"- New operations `StartJob` and `StopJob`. <!-- decide: resource, argument, or none -->\n",
+	} {
+		if !strings.Contains(d.Body, want) {
+			t.Errorf("body has no %q:\n%s", want, d.Body)
+		}
+	}
+}
+
+func TestShapeNoun(t *testing.T) {
+	t.Parallel()
+
+	for in, want := range map[string]string{"CreateClusterInput": "Cluster", "GetClusterOutput": "Cluster", "UpdateClusterRequest": "Cluster",
+		"VpcEgressConfiguration": "VpcEgressConfiguration", "Output": "Output", "ClusterOutput": "Cluster"} {
+		if got := shapeNoun(in); got != want {
+			t.Errorf("shapeNoun(%s) = %s, want %s", in, got, want)
+		}
+	}
+}
+
 func TestAbbreviates(t *testing.T) {
 	t.Parallel()
 
