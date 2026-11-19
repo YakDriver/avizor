@@ -40,7 +40,8 @@ Usage:
   avizor brief [flags] <item-id>...           Show what deciding an item needs: state, work, candidates, announcements.
   avizor draft [flags] <item-id>              Draft a new issue for an item.
   avizor queue [flags]                        List recent items that need a decision.
-  avizor decide [flags] <item-id> <decision> [issue...]
+  avizor posts [flags]                        List recent blog posts that no issue or PR covers.
+  avizor decide [flags] <item-id|post-url> <decision> [issue...]
                                              Record a decision: created, duplicate, skipped, deferred, or cleared.
   avizor decisions [flags] [item-id]          List recorded decisions.
   avizor version
@@ -91,6 +92,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return cmdDecisions(ctx, args[1:], stdout, stderr)
 	case "queue":
 		return cmdQueue(ctx, args[1:], stdout, stderr)
+	case "posts":
+		return cmdPosts(ctx, args[1:], stdout, stderr)
 	case "draft":
 		return cmdDraft(ctx, args[1:], stdout, stderr)
 	case "inspect":
