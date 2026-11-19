@@ -278,7 +278,7 @@ The reviewer section also lists warnings and possibly related issues and PRs:
 
 ## Evaluate
 
-`avizor eval` scores reconciliation and queue states against 207 cases labeled from provider history. See [eval/README.md](eval/README.md).
+`avizor eval` scores reconciliation and queue states against 207 cases labeled from provider history, and blog post ranking against 51 more. See [eval/README.md](eval/README.md).
 
 ## Develop
 
