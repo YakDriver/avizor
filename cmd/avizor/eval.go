@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -233,4 +234,21 @@ func (e *evalItems) State(ctx context.Context, id string, code bool, rec *reconc
 	}
 	q := queue.Classify(it, en, rec, d, texts)
 	return q.State, q.Reason, nil
+}
+
+// BlogPosts ranks the blog posts near an item's release, as brief does.
+func (e *evalItems) BlogPosts(ctx context.Context, id string) ([]eval.Returned, error) {
+	it, en, err := e.enrich(ctx, id, false)
+	if err != nil {
+		return nil, err
+	}
+	posts := blogPosts(e.c.dir, e.stderr)
+	if posts == nil {
+		return nil, errors.New("no blog posts loaded; run `avizor pull aws-blogs --since 365d`")
+	}
+	var out []eval.Returned
+	for i, p := range enrich.BlogPosts(posts, it, en.Announcement, 0) {
+		out = append(out, eval.Returned{Rank: i + 1, Ref: p.URL, Title: p.Title})
+	}
+	return out, nil
 }

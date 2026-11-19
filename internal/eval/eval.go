@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,12 @@ type ItemSource interface {
 // Cases that expect a state need one.
 type StateSource interface {
 	State(ctx context.Context, id string, code bool, rec *reconcile.Result, texts map[int]string) (state, reason string, err error)
+}
+
+// BlogSource ranks the blog posts near an item's release, best first, as refs (URLs) with titles. Cases with blog
+// need one.
+type BlogSource interface {
+	BlogPosts(ctx context.Context, id string) ([]Returned, error)
 }
 
 // Runner evaluates cases with a reconciler. Each case runs on a copy of Base with AsOf and NoCode set from the case.
@@ -256,6 +263,19 @@ func (r *Runner) runCase(ctx context.Context, cs *Case) CaseResult {
 		cr.AsOf = rc.AsOf.UTC().Format(time.RFC3339)
 	}
 
+	if len(cs.Blog) > 0 {
+		bs, ok := r.Items.(BlogSource)
+		if !ok {
+			return fail(errors.New("no blog source: cases with blog need one"))
+		}
+		posts, err := bs.BlogPosts(ctx, cs.Item)
+		if err != nil {
+			return fail(err)
+		}
+		scoreBlog(cs, posts, &cr)
+		return cr
+	}
+
 	var res *reconcile.Result
 	var err error
 	if cs.Item != "" {
@@ -393,6 +413,40 @@ func score(cs *Case, res *reconcile.Result, cr *CaseResult) {
 		}
 	}
 
+	cr.Pass = len(cr.Failures) == 0
+}
+
+// scoreBlog scores a blog case: it passes when any expected post is in the top passK.
+func scoreBlog(cs *Case, posts []Returned, cr *CaseResult) {
+	ranks := map[string]int{}
+	for i, p := range posts {
+		ranks[strings.TrimSuffix(p.Ref, "/")] = i + 1
+		if i < 10 {
+			cr.Top = append(cr.Top, Returned{Rank: i + 1, Ref: p.Ref, Title: p.Title})
+		}
+	}
+	best := 0
+	for _, u := range cs.Blog {
+		er := ExpectResult{Ref: u}
+		if rank, ok := ranks[strings.TrimSuffix(u, "/")]; ok {
+			er.Found, er.Rank = true, rank
+			if best == 0 || rank < best {
+				best = rank
+			}
+		}
+		cr.Expected = append(cr.Expected, er)
+	}
+	cr.Hit = map[int]bool{}
+	for _, k := range Ks {
+		cr.Hit[k] = best > 0 && best <= k
+	}
+	switch {
+	case best == 0:
+		cr.Failures = append(cr.Failures, "no expected blog post in the window")
+	case best > passK:
+		cr.Failures = append(cr.Failures, fmt.Sprintf("best expected blog post ranked %d, beyond top %d", best, passK))
+	}
+	cr.Confident = []Judged{}
 	cr.Pass = len(cr.Failures) == 0
 }
 

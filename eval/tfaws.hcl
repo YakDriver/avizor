@@ -10,6 +10,7 @@
 #   related            Trackers whose "Relates" link is a similar but different feature.
 #   new                Headlines reconciled a minute before their tracker was filed, when nothing tracked them yet.
 #   no-work            SDK release notes that need no provider work.
+#   blog               Blog posts linked from provider issues, each mapped by hand to the item the issue tracks.
 #   item-tracked       Pulled SDK items whose release commit a maintainer tracker (or PR) with the item's service label
 #                      cites, reconciled 30 minutes after the later of the release and the last such tracker. Every
 #                      such item in releases from 2025-12-01 to 2026-11-11, except ec2/release-2026-09-04, which only
@@ -2267,4 +2268,377 @@ case "item-partial-lambda-2025-12-02" {
     "internal/service/lambda/function.go",
   ]
   different = [45800]
+}
+
+# --- blog
+# Blog posts linked from provider issues created since 2025-11-18, each mapped by hand to the SDK item the issue
+# tracks. Any listed post in the top 5 of the item's blog posts (brief's list) passes.
+
+case "blog-eks-2025-12-01" {
+  item = "aws-sdk-go-v2/eks/release-2025-12-01"
+  kind = "blog"
+  note = "#45324"
+  blog = ["https://aws.amazon.com/blogs/aws/announcing-amazon-eks-capabilities-for-workload-orchestration-and-cloud-resource-management/"]
+}
+
+case "blog-lambda-2025-12-01" {
+  item = "aws-sdk-go-v2/lambda/release-2025-12-01"
+  kind = "blog"
+  note = "#45332"
+  blog = ["https://aws.amazon.com/blogs/aws/introducing-aws-lambda-managed-instances-serverless-simplicity-with-ec2-flexibility/"]
+}
+
+case "blog-bedrockagentcorecontrol-2025-12-02" {
+  item = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2025-12-02"
+  kind = "blog"
+  note = "#46878"
+  blog = ["https://aws.amazon.com/blogs/machine-learning/streamline-ai-agent-tool-interactions-connect-api-gateway-to-agentcore-gateway-with-mcp/"]
+}
+
+case "blog-fsx-2025-12-02" {
+  item = "aws-sdk-go-v2/fsx/release-2025-12-02"
+  kind = "blog"
+  note = "#45362"
+  blog = ["https://aws.amazon.com/blogs/aws/amazon-fsx-for-netapp-ontap-now-integrates-with-amazon-s3-for-seamless-data-access/"]
+}
+
+case "blog-lambda-2025-12-02" {
+  item = "aws-sdk-go-v2/lambda/release-2025-12-02"
+  kind = "blog"
+  note = "#45354"
+  blog = ["https://aws.amazon.com/blogs/aws/build-multi-step-applications-and-ai-workflows-with-aws-lambda-durable-functions/"]
+}
+
+case "blog-s3control-2025-12-02" {
+  item = "aws-sdk-go-v2/s3control/release-2025-12-02"
+  kind = "blog"
+  note = "#46851"
+  blog = ["https://aws.amazon.com/blogs/aws/amazon-s3-storage-lens-adds-performance-metrics-support-for-billions-of-prefixes-and-export-to-s3-tables/"]
+}
+
+case "blog-s3tables-2025-12-02" {
+  item = "aws-sdk-go-v2/s3tables/release-2025-12-02"
+  kind = "blog"
+  note = "#45353, #45361, #45586"
+  blog = ["https://aws.amazon.com/blogs/aws/announcing-replication-support-and-intelligent-tiering-for-amazon-s3-tables/"]
+}
+
+case "blog-sagemaker-2025-12-02" {
+  item = "aws-sdk-go-v2/sagemaker/release-2025-12-02"
+  kind = "blog"
+  note = "#46194"
+  blog = ["https://aws.amazon.com/blogs/machine-learning/scaling-mlflow-for-enterprise-ai-whats-new-in-sagemaker-ai-with-mlflow/"]
+}
+
+case "blog-s3-2026-01-28" {
+  item = "aws-sdk-go-v2/s3/release-2026-01-28"
+  kind = "blog"
+  note = "#46261"
+  blog = ["https://aws.amazon.com/blogs/aws/aws-weekly-roundup-amazon-bedrock-agent-workflows-amazon-sagemaker-private-connectivity-and-more-february-2-2026/"]
+}
+
+case "blog-cloudfront-2026-02-02" {
+  item = "aws-sdk-go-v2/cloudfront/release-2026-02-02"
+  kind = "blog"
+  note = "#46360"
+  blog = ["https://aws.amazon.com/blogs/networking-and-content-delivery/amazon-cloudfront-now-supports-mtls-authentication-to-origins/"]
+}
+
+case "blog-s3-2026-03-12" {
+  item = "aws-sdk-go-v2/s3/release-2026-03-12"
+  kind = "blog"
+  note = "#46902, #46962, #47073"
+  blog = ["https://aws.amazon.com/blogs/aws/introducing-account-regional-namespaces-for-amazon-s3-general-purpose-buckets/"]
+}
+
+case "blog-rds-2026-03-24" {
+  item = "aws-sdk-go-v2/rds/release-2026-03-24"
+  kind = "blog"
+  note = "#47117"
+  blog = ["https://aws.amazon.com/blogs/aws/announcing-amazon-aurora-postgresql-serverless-database-creation-in-seconds/"]
+}
+
+case "blog-ecs-2026-04-01" {
+  item = "aws-sdk-go-v2/ecs/release-2026-04-01"
+  kind = "blog"
+  note = "#47200"
+  blog = ["https://aws.amazon.com/blogs/aws/announcing-managed-daemon-support-for-amazon-ecs-managed-instances/"]
+}
+
+case "blog-s3files-2026-04-07" {
+  item = "aws-sdk-go-v2/s3files/release-2026-04-07"
+  kind = "blog"
+  note = "#47324"
+  blog = ["https://aws.amazon.com/blogs/aws/launching-s3-files-making-s3-buckets-accessible-as-file-systems/"]
+}
+
+case "blog-bedrockagentcorecontrol-2026-04-09" {
+  item = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-04-09"
+  kind = "blog"
+  note = "#48501"
+  blog = ["https://aws.amazon.com/blogs/machine-learning/the-future-of-managing-agents-at-scale-aws-agent-registry-now-in-preview/"]
+}
+
+case "blog-interconnect-2026-04-13" {
+  item = "aws-sdk-go-v2/interconnect/release-2026-04-13"
+  kind = "blog"
+  note = "#47458"
+  blog = ["https://aws.amazon.com/blogs/aws/aws-interconnect-is-now-generally-available-with-a-new-option-to-simplify-last-mile-connectivity/"]
+}
+
+case "blog-ec2-2026-04-20" {
+  item = "aws-sdk-go-v2/ec2/release-2026-04-20"
+  kind = "blog"
+  note = "#47627"
+  blog = ["https://aws.amazon.com/blogs/networking-and-content-delivery/introducing-aws-client-vpn-native-aws-transit-gateway-attachment/"]
+}
+
+case "blog-cloudfront-2026-04-29" {
+  item = "aws-sdk-go-v2/cloudfront/release-2026-04-29"
+  kind = "blog"
+  note = "#47865"
+  blog = ["https://aws.amazon.com/blogs/networking-and-content-delivery/manage-caches-with-precision-using-amazon-cloudfront-invalidation-by-cache-tag/"]
+}
+
+case "blog-sagemaker-2026-04-30" {
+  item = "aws-sdk-go-v2/sagemaker/release-2026-04-30"
+  kind = "blog"
+  note = "#48469"
+  blog = ["https://aws.amazon.com/blogs/machine-learning/capacity-aware-inference-automatic-instance-fallback-for-sagemaker-ai-endpoints/"]
+}
+
+case "blog-opensearchserverless-2026-05-28" {
+  item = "aws-sdk-go-v2/opensearchserverless/release-2026-05-28"
+  kind = "blog"
+  note = "#48113, #48183"
+  blog = [
+    "https://aws.amazon.com/blogs/aws/introducing-the-next-generation-of-amazon-opensearch-serverless-for-building-your-agentic-ai-applications/",
+    "https://aws.amazon.com/blogs/big-data/the-next-generation-of-amazon-opensearch-serverless-built-from-the-ground-up-for-agents/",
+  ]
+}
+
+case "blog-resiliencehubv2-2026-05-28" {
+  item = "aws-sdk-go-v2/resiliencehubv2/release-2026-05-28"
+  kind = "blog"
+  note = "#48122"
+  blog = ["https://aws.amazon.com/blogs/aws/introducing-the-next-generation-of-aws-resilience-hub-for-generative-ai-based-sre-resilience-journey/"]
+}
+
+case "blog-elasticache-2026-06-02" {
+  item = "aws-sdk-go-v2/elasticache/release-2026-06-02"
+  kind = "blog"
+  note = "#48228"
+  blog = ["https://aws.amazon.com/blogs/database/announcing-durability-for-amazon-elasticache/"]
+}
+
+case "blog-wafv2-2026-06-15" {
+  item = "aws-sdk-go-v2/wafv2/release-2026-06-15"
+  kind = "blog"
+  note = "#48418"
+  blog = ["https://aws.amazon.com/blogs/aws/aws-waf-adds-ai-traffic-monetization-capability-to-help-content-owners-charge-ai-bots-for-content-access/"]
+}
+
+case "blog-s3-2026-06-16" {
+  item = "aws-sdk-go-v2/s3/release-2026-06-16"
+  kind = "blog"
+  note = "#48444"
+  blog = ["https://aws.amazon.com/blogs/aws/amazon-s3-annotations-attach-rich-queryable-context-directly-to-your-objects/"]
+}
+
+case "blog-mq-2026-06-17" {
+  item = "aws-sdk-go-v2/mq/release-2026-06-17"
+  kind = "blog"
+  note = "#48487"
+  blog = ["https://aws.amazon.com/blogs/big-data/introducing-private-networking-for-amazon-mq-for-rabbitmq/"]
+}
+
+case "blog-ecs-2026-06-18" {
+  item = "aws-sdk-go-v2/ecs/release-2026-06-18"
+  kind = "blog"
+  note = "#48669"
+  blog = ["https://aws.amazon.com/blogs/aws/amazon-ecs-introduces-new-high-resolution-metrics-for-faster-service-auto-scaling/"]
+}
+
+case "blog-eks-2026-06-18" {
+  item = "aws-sdk-go-v2/eks/release-2026-06-18"
+  kind = "blog"
+  note = "#48470"
+  blog = ["https://aws.amazon.com/blogs/containers/amazon-eks-now-supports-control-plane-egress-through-your-vpc/"]
+}
+
+case "blog-lambdamicrovms-2026-06-22" {
+  item = "aws-sdk-go-v2/lambdamicrovms/release-2026-06-22"
+  kind = "blog"
+  note = "#48526"
+  blog = ["https://aws.amazon.com/blogs/aws/run-isolated-sandboxes-with-full-lifecycle-control-aws-lambda-introduces-microvms/"]
+}
+
+case "blog-acm-2026-06-30" {
+  item = "aws-sdk-go-v2/acm/release-2026-06-30"
+  kind = "blog"
+  note = "#48727"
+  blog = ["https://aws.amazon.com/blogs/aws/automate-public-tls-certificate-issuance-with-acme-support-in-aws-certificate-manager/"]
+}
+
+case "blog-cloudformation-2026-06-30" {
+  item = "aws-sdk-go-v2/cloudformation/release-2026-06-30"
+  kind = "blog"
+  note = "#48728"
+  blog = ["https://aws.amazon.com/blogs/aws/accelerate-your-infrastructure-deployments-by-up-to-4x-with-aws-cloudformation-express-mode/"]
+}
+
+case "blog-eks-2026-06-30" {
+  item = "aws-sdk-go-v2/eks/release-2026-06-30"
+  kind = "blog"
+  note = "#48751"
+  blog = [
+    "https://aws.amazon.com/blogs/aws/upgrade-amazon-eks-clusters-with-confidence-using-kubernetes-version-rollbacks/",
+    "https://aws.amazon.com/blogs/containers/announcing-amazon-eks-rollback-for-safe-and-reliable-management-of-cluster-upgrades/",
+  ]
+}
+
+case "blog-elasticloadbalancingv2-2026-07-15" {
+  item = "aws-sdk-go-v2/elasticloadbalancingv2/release-2026-07-15"
+  kind = "blog"
+  note = "#49368"
+  blog = ["https://aws.amazon.com/blogs/networking-and-content-delivery/consolidate-dual-stack-architectures-with-listener-rules-for-network-load-balancer/"]
+}
+
+case "blog-dynamodb-2026-08-04" {
+  item = "aws-sdk-go-v2/dynamodb/release-2026-08-04"
+  kind = "blog"
+  note = "#49350"
+  blog = ["https://aws.amazon.com/blogs/aws/amazon-dynamodb-now-supports-real-time-vector-search-at-any-scale/"]
+}
+
+case "blog-bedrockagentcorecontrol-2026-08-06" {
+  item = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-08-06"
+  kind = "blog"
+  note = "#49344, #49352"
+  blog = [
+    "https://aws.amazon.com/blogs/machine-learning/configure-rate-limits-for-ai-traffic-on-agentcore-gateway/",
+    "https://aws.amazon.com/blogs/aws/runtime-instances-persistent-compute-for-production-ai-agents-on-amazon-bedrock-agentcore/",
+  ]
+}
+
+case "blog-s3-2026-08-06" {
+  item = "aws-sdk-go-v2/s3/release-2026-08-06"
+  kind = "blog"
+  note = "#49351"
+  blog = ["https://aws.amazon.com/blogs/storage/access-amazon-s3-backup-data-directly-using-s3-access-points-in-aws-backup/"]
+}
+
+case "blog-eks-2026-08-11" {
+  item = "aws-sdk-go-v2/eks/release-2026-08-11"
+  kind = "blog"
+  note = "#49411"
+  blog = ["https://aws.amazon.com/blogs/containers/introducing-advanced-kubernetes-control-plane-configuration-in-amazon-eks/"]
+}
+
+case "blog-odb-2026-08-12" {
+  item = "aws-sdk-go-v2/odb/release-2026-08-12"
+  kind = "blog"
+  note = "#49464"
+  blog = ["https://aws.amazon.com/blogs/database/introducing-oracle-exadata-on-exascale-for-oracle-ai-databaseaws/"]
+}
+
+case "blog-redshift-2026-08-19" {
+  item = "aws-sdk-go-v2/redshift/release-2026-08-19"
+  kind = "blog"
+  note = "#49640"
+  blog = ["https://aws.amazon.com/blogs/big-data/long-term-system-tables-retention-in-amazon-redshift-with-amazon-s3-tables/"]
+}
+
+case "blog-kinesis-2026-08-31" {
+  item = "aws-sdk-go-v2/kinesis/release-2026-08-31"
+  kind = "blog"
+  note = "#49792"
+  blog = ["https://aws.amazon.com/blogs/big-data/deliver-real-time-data-to-streaming-tables-for-apache-iceberg-with-amazon-kinesis-data-streams/"]
+}
+
+case "blog-bedrockagentcorecontrol-2026-09-03" {
+  item = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-09-03"
+  kind = "blog"
+  note = "#49882"
+  blog = ["https://aws.amazon.com/blogs/machine-learning/manage-end-user-oauth-consent-for-ai-agents-with-amazon-bedrock-agentcore/"]
+}
+
+case "blog-s3-2026-09-08" {
+  item = "aws-sdk-go-v2/s3/release-2026-09-08"
+  kind = "blog"
+  note = "#49909"
+  blog = ["https://aws.amazon.com/blogs/storage/flexibly-control-amazon-s3-object-lock-retention-based-on-real-business-events/"]
+}
+
+case "blog-bedrockagentcorecontrol-2026-09-15" {
+  item = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-09-15"
+  kind = "blog"
+  note = "#50244"
+  blog = ["https://aws.amazon.com/blogs/machine-learning/the-new-agentcore-runtime-elastic-optimized-and-consistently-fast-starts/"]
+}
+
+case "blog-elasticbeanstalk-2026-09-16" {
+  item = "aws-sdk-go-v2/elasticbeanstalk/release-2026-09-16"
+  kind = "blog"
+  note = "#50064"
+  blog = ["https://aws.amazon.com/blogs/aws/aws-elastic-beanstalk-introduces-cluster-mode/"]
+}
+
+case "blog-cloudwatchomni-2026-09-22" {
+  item = "aws-sdk-go-v2/cloudwatchomni/release-2026-09-22"
+  kind = "blog"
+  note = "#50218"
+  blog = [
+    "https://aws.amazon.com/blogs/aws/introducing-amazon-cloudwatch-omni-ai-powered-observability-for-generative-ai-and-agentic-workloads/",
+    "https://aws.amazon.com/blogs/aws/introducing-amazon-cloudwatch-omni-collaborative-ai-powered-observability-for-your-applications/",
+  ]
+}
+
+case "blog-eventbridgev2-2026-09-24" {
+  item = "aws-sdk-go-v2/eventbridgev2/release-2026-09-24"
+  kind = "blog"
+  note = "#50154"
+  blog = ["https://aws.amazon.com/blogs/aws/introducing-enhanced-custom-event-buses-in-amazon-eventbridge-for-enterprise-scale-event-driven-applications/"]
+}
+
+case "blog-lambdaweb-2026-10-12" {
+  item = "aws-sdk-go-v2/lambdaweb/release-2026-10-12"
+  kind = "blog"
+  note = "#50429"
+  blog = ["https://aws.amazon.com/blogs/aws/announcing-aws-lambda-web-functions-for-fast-consistent-web-app-performance-anywhere/"]
+}
+
+case "blog-ecs-2026-10-20" {
+  item = "aws-sdk-go-v2/ecs/release-2026-10-20"
+  kind = "blog"
+  note = "#50573"
+  blog = ["https://aws.amazon.com/blogs/aws/introducing-amazon-ecs-gateway-a-fully-managed-ingress-solution-for-ecs-services/"]
+}
+
+case "blog-kinesisanalyticsv2-2026-11-11" {
+  item = "aws-sdk-go-v2/kinesisanalyticsv2/release-2026-11-11"
+  kind = "blog"
+  note = "#51073"
+  blog = ["https://aws.amazon.com/blogs/big-data/introducing-enhanced-snapshots-for-amazon-managed-service-for-apache-flink/"]
+}
+
+case "blog-dsql-2026-11-16" {
+  item = "aws-sdk-go-v2/dsql/release-2026-11-16"
+  kind = "blog"
+  note = "#51095"
+  blog = ["https://aws.amazon.com/blogs/database/use-query-statistics-to-find-slow-and-expensive-queries-in-aurora-dsql/"]
+}
+
+case "blog-lambda-2026-11-16" {
+  item = "aws-sdk-go-v2/lambda/release-2026-11-16"
+  kind = "blog"
+  note = "#51046"
+  blog = ["https://aws.amazon.com/blogs/aws/aws-lambda-now-supports-gpu-instances-for-event-functions-on-lambda-managed-instances/"]
+}
+
+case "blog-sagemaker-2026-11-16" {
+  item = "aws-sdk-go-v2/sagemaker/release-2026-11-16"
+  kind = "blog"
+  note = "#51090"
+  blog = ["https://aws.amazon.com/blogs/machine-learning/how-salesforce-is-advancing-global-scale-model-serving-with-cross-region-inference-routing-in-amazon-sagemaker-ai/"]
 }

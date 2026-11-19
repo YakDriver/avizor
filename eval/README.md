@@ -28,6 +28,12 @@ Item cases need pulled SDK items and the models clone:
 avizor pull --since 2025-11-30
 ```
 
+Blog cases need a year of blog posts:
+
+```
+avizor pull aws-blogs --since 365d
+```
+
 ## Point in time
 
 Each case reconciles against the index as it looked at the case's `as_of` time. Without that, the answer leaks into the result: a duplicate's original would show as closed, or the PR that implemented an announcement would appear before the announcement was even filed.
@@ -57,6 +63,12 @@ case "dup-41552" {
   different = [43195]          # not the same work: may appear only as "related"
   unmatched = false            # optional: expected summary.unmatched
   # state   = "covered"        # item cases only: expected queue state
+}
+
+case "blog-dsql-2026-11-16" {
+  item = "aws-sdk-go-v2/dsql/release-2026-11-16"
+  kind = "blog"
+  blog = ["https://aws.amazon.com/blogs/database/..."]  # any of these in the top 5 blog posts passes
 }
 ```
 
@@ -91,6 +103,7 @@ Labels come from repository history, not from Avizor's output.
 | `item-covered` | 4 | Gap-sample items that existing code, an issue, or a PR covers, though no tracker cites the release commit. |
 | `item-covered-sample` | 30 | The covered sample: random `covered` items, each hand-checked for its queue state (`covered` or `partial`) and with every confident candidate judged. |
 | `item-partial` | 15 | Covered items the first `partial` run flagged, outside the sample, hand-checked: `partial` when some work has no code or issue, `covered` when the launch's tracker covers it. |
+| `blog` | 51 | AWS blog posts linked from provider issues created since 2025-11-18, each mapped by hand to the SDK item the issue tracks, plus the three examples from #62. Issues linking a post with no matching item (no API change, such as the 90-minute Lambda timeout, or not provider work, such as retry behavior) are left out. A case passes when any listed post is in the top 5 of `brief`'s blog posts. These measure only blog ranking, not reconciliation. |
 
 The gap sample tests the claim behind every gap draft: that nothing covers the item. Items in implemented services, with the SDK version available and some inferred work, were drafted in a seeded random order until 30 had no confident existing work (32 drafted; the other 2 had correct confident candidates). Each was checked by hand against provider code and a GitHub search of issues and PRs. These labels don't come from the release-commit signal Avizor matches on.
 
