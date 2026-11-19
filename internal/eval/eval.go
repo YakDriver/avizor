@@ -32,6 +32,21 @@ type StateSource interface {
 	State(ctx context.Context, id string, code bool, rec *reconcile.Result, texts map[int]string) (state, reason string, err error)
 }
 
+// PostSource resolves post cases. PostText is what a post is reconciled from. PostState classifies the reconciled post
+// as `avizor posts` does, ignoring decisions. Cases with post need one.
+type PostSource interface {
+	PostText(ctx context.Context, url string) (string, error)
+	PostState(ctx context.Context, url string, res *reconcile.Result) (PostState, error)
+}
+
+// PostState is a post's state without decisions, the issues and PRs that cover it, and whether it's significant.
+type PostState struct {
+	State       string
+	Numbers     []int
+	Significant bool
+	Signals     []string
+}
+
 // BlogSource ranks the blog posts near an item's release, best first, as refs (URLs) with titles. Cases with blog
 // need one.
 type BlogSource interface {
@@ -70,6 +85,10 @@ type CaseResult struct {
 	State       string `json:"state,omitempty"`
 	StateReason string `json:"state_reason,omitempty"`
 	StateOK     *bool  `json:"state_ok,omitempty"`
+	// Work is the post's label, and Significant whether it was found significant, with the signals.
+	Work        *bool    `json:"work,omitempty"`
+	Significant *bool    `json:"significant,omitempty"`
+	Signals     []string `json:"signals,omitempty"`
 	// Top lists the first candidates returned, for inspecting failures.
 	Top      []Returned `json:"top"`
 	Failures []string   `json:"failures,omitempty"`
@@ -130,6 +149,15 @@ type Metrics struct {
 	// StateLabeled and StateAccuracy cover item cases that label a queue state.
 	StateLabeled  int     `json:"state_labeled"`
 	StateAccuracy float64 `json:"state_accuracy"`
+	// WorkPosts and NoWorkPosts count post cases labeled with and without Terraform work, and the Significant fields
+	// how many of each were significant. SignificanceRecall is the share of work posts that are significant, and
+	// SignificancePrecision the share of significant labeled posts that have work.
+	WorkPosts             int     `json:"work_posts"`
+	WorkSignificant       int     `json:"work_significant"`
+	NoWorkPosts           int     `json:"no_work_posts"`
+	NoWorkSignificant     int     `json:"no_work_significant"`
+	SignificanceRecall    float64 `json:"significance_recall"`
+	SignificancePrecision float64 `json:"significance_precision"`
 	// Confident counts candidates returned above "related". Each is correct (expected or labeled the same work),
 	// wrong (labeled different work), or unjudged. Precision is correct / (correct + wrong): how often a confident
 	// category is on the right work.
@@ -239,6 +267,9 @@ func (r *Runner) runCase(ctx context.Context, cs *Case) CaseResult {
 	if cs.Item != "" {
 		cr.Input = "item: " + cs.Item
 	}
+	if cs.Post != "" {
+		cr.Input = "post: " + cs.Post
+	}
 	fail := func(err error) CaseResult {
 		cr.Error = err.Error()
 		cr.Failures = append(cr.Failures, "error: "+cr.Error)
@@ -278,6 +309,26 @@ func (r *Runner) runCase(ctx context.Context, cs *Case) CaseResult {
 
 	var res *reconcile.Result
 	var err error
+	if cs.Post != "" {
+		ps, ok := r.Items.(PostSource)
+		if !ok {
+			return fail(errors.New("no post source: post cases need one"))
+		}
+		text, err := ps.PostText(ctx, cs.Post)
+		if err != nil {
+			return fail(err)
+		}
+		if res, err = rc.Run(ctx, "", text); err != nil {
+			return fail(err)
+		}
+		got, err := ps.PostState(ctx, cs.Post, res)
+		if err != nil {
+			return fail(err)
+		}
+		score(cs, res, &cr)
+		scorePost(cs, got, &cr)
+		return cr
+	}
 	if cs.Item != "" {
 		if r.Items == nil {
 			return fail(errors.New("no item source: item cases need pulled items"))
@@ -416,6 +467,33 @@ func score(cs *Case, res *reconcile.Result, cr *CaseResult) {
 	cr.Pass = len(cr.Failures) == 0
 }
 
+// scorePost checks a post case's state and significance, after score has checked its candidates. A covered post must be
+// covered by an expected candidate, and a post with work must be significant.
+func scorePost(cs *Case, got PostState, cr *CaseResult) {
+	if cs.State != "" {
+		ok := got.State == cs.State
+		if ok && got.State == "covered" && len(cs.Expect) > 0 && !slices.ContainsFunc(cs.Expect, func(e Expect) bool {
+			return e.Number != 0 && slices.Contains(got.Numbers, e.Number)
+		}) {
+			ok = false
+			cr.Failures = append(cr.Failures, "covered by "+strings.Join(numberRefs(got.Numbers), ", ")+", not an expected candidate")
+		} else if !ok {
+			reason := ""
+			if len(got.Numbers) > 0 {
+				reason = " by " + strings.Join(numberRefs(got.Numbers), ", ")
+			}
+			cr.Failures = append(cr.Failures, fmt.Sprintf("state = %s%s, want %s", got.State, reason, cs.State))
+		}
+		cr.State, cr.StateOK = got.State, &ok
+	}
+	sig := got.Significant
+	cr.Significant, cr.Signals, cr.Work = &sig, got.Signals, cs.Work
+	if cs.Work != nil && *cs.Work && !sig {
+		cr.Failures = append(cr.Failures, "post has work but isn't significant")
+	}
+	cr.Pass = len(cr.Failures) == 0
+}
+
 // scoreBlog scores a blog case: it passes when any expected post is in the top passK.
 func scoreBlog(cs *Case, posts []Returned, cr *CaseResult) {
 	ranks := map[string]int{}
@@ -504,6 +582,16 @@ func aggregate(crs []CaseResult) Metrics {
 				stateOK++
 			}
 		}
+		if cr.Work != nil && cr.Significant != nil {
+			sig := btoi(*cr.Significant)
+			if *cr.Work {
+				m.WorkPosts++
+				m.WorkSignificant += sig
+			} else {
+				m.NoWorkPosts++
+				m.NoWorkSignificant += sig
+			}
+		}
 		for _, j := range cr.Confident {
 			m.Confident++
 			switch j.Verdict {
@@ -523,6 +611,8 @@ func aggregate(crs []CaseResult) Metrics {
 	m.CategoryAccuracy = ratio(catOK, m.CategoryLabeled)
 	m.UnmatchedAccuracy = ratio(unmatchedOK, m.UnmatchedLabeled)
 	m.StateAccuracy = ratio(stateOK, m.StateLabeled)
+	m.SignificanceRecall = ratio(m.WorkSignificant, m.WorkPosts)
+	m.SignificancePrecision = ratio(m.WorkSignificant, m.WorkSignificant+m.NoWorkSignificant)
 	m.ConfidentPrecision = ratio(m.ConfidentCorrect, m.ConfidentCorrect+m.ConfidentWrong)
 	return m
 }

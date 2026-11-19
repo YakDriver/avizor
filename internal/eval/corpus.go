@@ -25,11 +25,12 @@ type Corpus struct {
 // Case is one labeled reconciliation.
 type Case struct {
 	Name string `hcl:"name,label"`
-	// Input is an issue number or URL, as given to `avizor candidates`. Item is a pulled item ID. Exactly one of Input,
-	// Text, and Item is set.
+	// Input is an issue number or URL, as given to `avizor candidates`. Item is a pulled item ID, and Post a pulled blog
+	// post's URL. Exactly one of Input, Text, Item, and Post is set.
 	Input string `hcl:"input,optional"`
 	Text  string `hcl:"text,optional"`
 	Item  string `hcl:"item,optional"`
+	Post  string `hcl:"post,optional"`
 	// AsOf reconciles against the index as it was at a time, so later activity, such as the answer itself being filed,
 	// doesn't leak into the result. It is RFC 3339, YYYY-MM-DD (end of that day), "filed" (when the input issue was
 	// created), or "now". The default is "filed" for issue inputs and "now" otherwise.
@@ -44,8 +45,12 @@ type Case struct {
 	Expect []Expect `hcl:"expect,block"`
 	// Unmatched, if set, is the expected value of summary.unmatched.
 	Unmatched *bool `hcl:"unmatched,optional"`
-	// State, if set, is the item's expected queue state, such as "covered" or "partial". Item cases only.
+	// State, if set, is the item's expected queue state, such as "covered" or "partial", or the post's expected state
+	// without decisions, "covered" or "open". A covered post must be covered by an expected candidate, if any are set.
 	State string `hcl:"state,optional"`
+	// Work, if set, says whether the post has Terraform work. A post with work must be significant; a post without work
+	// may be, and counts against significance precision. Post cases only.
+	Work *bool `hcl:"work,optional"`
 	// Blog lists blog post URLs, any of which is a right post for the item: one of them must be in the top 5 blog
 	// posts. A case with Blog measures only blog posts, not reconciliation. Item cases only.
 	Blog []string `hcl:"blog,optional"`
@@ -70,6 +75,9 @@ type Expect struct {
 	// Category, if set, is the category the candidate should have.
 	Category string `hcl:"category,optional"`
 }
+
+// PostStates are the states a post case can expect. Eval ignores decisions, so a post is covered by candidates or open.
+var PostStates = []string{"covered", "open"}
 
 // Special as_of values.
 const (
@@ -123,8 +131,8 @@ func (cs *Case) validate() error {
 	if !nameRE.MatchString(cs.Name) {
 		return errors.New("name must be lowercase letters, digits, and dashes")
 	}
-	if n := btoi(cs.Input != "") + btoi(cs.Text != "") + btoi(cs.Item != ""); n != 1 {
-		return errors.New("set exactly one of input, text, and item")
+	if n := btoi(cs.Input != "") + btoi(cs.Text != "") + btoi(cs.Item != "") + btoi(cs.Post != ""); n != 1 {
+		return errors.New("set exactly one of input, text, item, and post")
 	}
 	switch cs.AsOf {
 	case "", AsOfFiled, AsOfNow:
@@ -136,8 +144,14 @@ func (cs *Case) validate() error {
 		}
 		cs.asOf = t
 	}
-	if cs.State != "" && cs.Item == "" {
-		return errors.New("state needs an item")
+	if cs.State != "" && cs.Item == "" && cs.Post == "" {
+		return errors.New("state needs an item or a post")
+	}
+	if cs.Post != "" && cs.State != "" && !slices.Contains(PostStates, cs.State) {
+		return fmt.Errorf("post state %q: use one of %v", cs.State, PostStates)
+	}
+	if cs.Work != nil && cs.Post == "" {
+		return errors.New("work needs a post")
 	}
 	if len(cs.Blog) > 0 {
 		if cs.Item == "" {
@@ -148,8 +162,8 @@ func (cs *Case) validate() error {
 		}
 		return nil
 	}
-	if len(cs.Expect) == 0 && cs.Unmatched == nil && cs.State == "" && len(cs.Different)+len(cs.DifferentPaths) == 0 {
-		return errors.New("needs at least one of expect, unmatched, state, or different")
+	if len(cs.Expect) == 0 && cs.Unmatched == nil && cs.State == "" && cs.Work == nil && len(cs.Different)+len(cs.DifferentPaths) == 0 {
+		return errors.New("needs at least one of expect, unmatched, state, work, or different")
 	}
 	if err := cs.validateJudgments(); err != nil {
 		return err
