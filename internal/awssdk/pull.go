@@ -219,17 +219,29 @@ func (p *Puller) Pull(ctx context.Context, opts PullOptions) (*PullResult, error
 
 	p.cache = map[string]*smithy.Model{}
 	p.heads = map[string]Commit{}
-	// Resuming from the checkpoint, releases at or before it were pulled. Their stored models heads are the next
-	// releases' bases, so a commit is never in two releases. An explicit since recomputes every head, to repair.
-	if opts.Since.IsZero() {
-		for _, rel := range rels {
-			if rel.PublishedAt.After(since) {
-				break
-			}
-			if err := p.storedHead(ctx, rel); err != nil {
-				return nil, err
-			}
+	// Releases before the window keep their stored models heads, the bases of the releases after them, so a commit is
+	// never in two releases. A head that would now be different is reported: re-pulling from before that release
+	// repairs it.
+	for i, rel := range rels {
+		if !rel.PublishedAt.Before(since) && (inclusive || !rel.PublishedAt.Equal(since)) {
+			break
 		}
+		stored, err := p.storedHead(ctx, rel)
+		if err != nil {
+			return nil, err
+		}
+		if stored.SHA == "" {
+			continue
+		}
+		computed, err := p.releaseHead(ctx, rels, i)
+		if err != nil {
+			return nil, err
+		}
+		if computed.SHA != stored.SHA {
+			res.Warnings = append(res.Warnings, fmt.Sprintf("%s: its stored models end at %s, but would now end at %s; kept, so re-pull from before %s to repair it",
+				rel.TagName, short(stored.SHA), short(computed.SHA), rel.TagName))
+		}
+		p.heads[rel.TagName] = stored
 	}
 	if p.Tags != nil {
 		if p.commits, err = p.Tags.TagCommits(ctx, p.Source.ReleasesRepo, "release-*"); err != nil {
@@ -327,15 +339,11 @@ func (p *Puller) releaseHead(ctx context.Context, rels []github.Release, i int) 
 	if err != nil || head.SHA == "" {
 		return head, err
 	}
-	bound := rel.PublishedAt.Add(ModelsLag)
 	var next map[string]*ServiceNotes
 	if i+1 < len(rels) {
 		next = ParseNotes(rels[i+1].Body)
-		if nb := rels[i+1].PublishedAt.Add(-time.Second); nb.Before(bound) {
-			bound = nb
-		}
 	}
-	later, err := p.Models.Commits(ctx, rel.PublishedAt, bound)
+	later, err := p.Models.Commits(ctx, rel.PublishedAt, modelsBound(rels, i))
 	if err != nil {
 		return Commit{}, err
 	}
@@ -359,20 +367,48 @@ func (p *Puller) releaseHead(ctx context.Context, rels []github.Release, i int) 
 	return head, nil
 }
 
-// storedHead records the models head stored with rel's items, if any, as rel's head.
-func (p *Puller) storedHead(ctx context.Context, rel github.Release) error {
-	recs, err := p.Store.List(ctx, items.Filter{Source: p.Source.Name, Since: rel.PublishedAt, Until: rel.PublishedAt, Limit: 1})
-	if err != nil || len(recs) == 0 {
-		return err
+// modelsBound is the latest a models commit can be and still be rels[i]'s: ModelsLag after it, and before the next
+// release.
+func modelsBound(rels []github.Release, i int) time.Time {
+	bound := rels[i].PublishedAt.Add(ModelsLag)
+	if i+1 < len(rels) {
+		if nb := rels[i+1].PublishedAt.Add(-time.Second); nb.Before(bound) {
+			bound = nb
+		}
 	}
-	var it Item
-	if err := json.Unmarshal(recs[0].Data, &it); err != nil {
-		return fmt.Errorf("%s: %w", recs[0].ID, err)
+	return bound
+}
+
+// storedHead returns the models head stored with rel's items for the pulled services, or a zero Commit if there are
+// none. Items with different heads are an error: which one the next release's base should be isn't known.
+func (p *Puller) storedHead(ctx context.Context, rel github.Release) (Commit, error) {
+	recs, err := p.Store.List(ctx, items.Filter{Source: p.Source.Name, Since: rel.PublishedAt, Until: rel.PublishedAt})
+	if err != nil {
+		return Commit{}, err
 	}
-	if it.Release.Tag == rel.TagName && it.Provenance.Head.SHA != "" {
-		p.heads[rel.TagName] = it.Provenance.Head
+	var head Commit
+	for _, r := range recs {
+		if r.Release != rel.TagName || !p.wanted(r.Service) {
+			continue
+		}
+		var it Item
+		if err := json.Unmarshal(r.Data, &it); err != nil {
+			return Commit{}, fmt.Errorf("%s: %w", r.ID, err)
+		}
+		switch h := it.Provenance.Head; {
+		case h.SHA == "":
+		case head.SHA == "":
+			head = h
+		case h.SHA != head.SHA:
+			return Commit{}, fmt.Errorf("%s: stored items end their models at both %s and %s; re-pull from before %s",
+				rel.TagName, short(head.SHA), short(h.SHA), rel.TagName)
+		}
 	}
-	return nil
+	return head, nil
+}
+
+func short(sha string) string {
+	return sha[:min(len(sha), 8)]
 }
 
 // changeNoted reports whether a module's notes say more than that its dependencies were updated.
@@ -425,9 +461,9 @@ func (p *Puller) pullRelease(ctx context.Context, rels []github.Release, i int, 
 	if err != nil {
 		return nil, "", false, err
 	}
-	// The newest release's models aren't settled within ModelsLag: they may not have landed, or a later commit may be
-	// the next release's.
-	if i == len(rels)-1 && known.Before(rel.PublishedAt.Add(ModelsLag)) {
+	// A release's models aren't settled until the clone's history reaches its bound: they may not have landed, or a
+	// later commit may be the next release's.
+	if known.Before(modelsBound(rels, i)) {
 		atRelease, err := p.Models.CommitAt(ctx, rel.PublishedAt)
 		if err != nil {
 			return nil, "", false, err
