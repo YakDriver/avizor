@@ -310,7 +310,7 @@ func (e *evalItems) PostState(ctx context.Context, url string, res *reconcile.Re
 			return
 		}
 		defer ist.Close()
-		e.idx, e.idxErr = loadItemIndex(ctx, ist, time.Time{}, announcements(e.c.dir, e.stderr))
+		e.idx, e.idxErr = loadItemIndex(ctx, ist, announcements(e.c.dir, e.stderr))
 	})
 	if e.idxErr != nil {
 		return eval.PostState{}, e.idxErr

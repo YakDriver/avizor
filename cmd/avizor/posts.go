@@ -195,11 +195,7 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	now := time.Now()
 	ps, early := postsInWindow(ps, decisions, since, *launch, now)
 	anns := announcements(c.dir, stderr)
-	var idx *enrich.ItemIndex
-	if len(ps) > 0 {
-		earliest := slices.MinFunc(ps, func(a, b whatsnew.Post) int { return a.PostedAt.Compare(b.PostedAt) }).PostedAt
-		idx, err = loadItemIndex(ctx, ist, earliest.Add(-enrich.PostItemsBefore), anns)
-	}
+	idx, err := loadItemIndex(ctx, ist, anns)
 	ist.Close()
 	if err != nil {
 		return err
@@ -299,10 +295,11 @@ func postAnnouncements(m *whatsnew.Matcher, p whatsnew.Post) []PostAnnouncement 
 // postItemsMax is how many SDK items are listed for a post.
 const postItemsMax = 3
 
-// loadItemIndex indexes the pulled items released since a time (all of them for the zero time), matched to
-// announcements. Skipped items have no API change, so they aren't loaded.
-func loadItemIndex(ctx context.Context, ist *items.Store, since time.Time, anns *whatsnew.Matcher) (*enrich.ItemIndex, error) {
-	recs, err := ist.List(ctx, items.Filter{Status: items.StatusNew, Since: since})
+// loadItemIndex indexes every pulled item, matched to announcements. Term weights come from the whole set, so a post's
+// items don't depend on the posts listed with it, and posts and eval rank the same way; Rank applies the release
+// window. Skipped items have no API change, so they aren't loaded.
+func loadItemIndex(ctx context.Context, ist *items.Store, anns *whatsnew.Matcher) (*enrich.ItemIndex, error) {
+	recs, err := ist.List(ctx, items.Filter{Status: items.StatusNew})
 	if err != nil {
 		return nil, err
 	}
