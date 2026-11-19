@@ -95,8 +95,17 @@ func TestNewArgument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Title != "r/`aws_widget_thing`: Add `size`" {
-		t.Errorf("title = %q", d.Title)
+	if d.Title != "r/`aws_widget_thing`: Add `size`" || !strings.Contains(d.Body, "\n- New argument `size`") {
+		t.Errorf("title = %q, body =\n%s", d.Title, d.Body)
+	}
+
+	// With a new resource, the title names it, so the line keeps the existing resource's name.
+	en.Work = append(en.Work, enrich.Work{Kind: enrich.WorkNewResource, Subject: "Gadget"})
+	if d, err = New(item("widget", "Adds a size setting."), en, nil, o); err != nil {
+		t.Fatal(err)
+	}
+	if d.Title != "New resource: `aws_widget_gadget`" || !strings.Contains(d.Body, "\n- `aws_widget_thing`: new argument `size`") {
+		t.Errorf("with a new resource, title = %q, body =\n%s", d.Title, d.Body)
 	}
 }
 

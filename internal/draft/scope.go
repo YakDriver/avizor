@@ -317,7 +317,8 @@ func createInput(subject string) bool {
 // returns the resources the arguments and attributes are in, and the names for a title: the arguments' in a known
 // resource, or with none, the attributes'.
 //
-// When every line is about one resource, lines leave out its name, which the title has. Lines leave out the API fields
+// When every line is about one resource and there's no new resource or data source, the title names the resource, so
+// lines leave out its name. Lines leave out the API fields
 // when the release notes name all of their operations.
 func changes(en *enrich.Result, checkout string, releaseNotes []string, decide decider) (lines, notes, targets []string, names []string) {
 	var attrNames []string
@@ -480,7 +481,10 @@ func changes(en *enrich.Result, checkout string, releaseNotes []string, decide d
 		}
 	}
 
-	if len(targets) == 1 && len(headed) == len(cs) {
+	newType := slices.ContainsFunc(en.Work, func(w enrich.Work) bool {
+		return w.Kind == enrich.WorkNewResource || w.Kind == enrich.WorkNewDataSource
+	})
+	if len(targets) == 1 && len(headed) == len(cs) && !newType {
 		for _, i := range headed {
 			rest := strings.TrimPrefix(lines[i], "- `"+targets[0]+"`: new ")
 			lines[i] = "- New " + rest
