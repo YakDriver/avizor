@@ -27,6 +27,8 @@ func TestPostSignificance(t *testing.T) {
 			signals: []string{SignalLaunch, SignalNewsBlog, SignalAnnouncement}},
 		"weekly roundup": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/aws/r/", Title: "AWS Weekly Roundup: A, B, and more", Tags: launch},
 			signals: []string{SignalLaunch, SignalNewsBlog}, kind: KindRoundup},
+		"monthly roundup title": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/aws/m/", Title: "AWS Monthly Roundup: November"},
+			signals: []string{SignalNewsBlog}, kind: KindRoundup},
 		"monthly roundup": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/machine-learning/r/", Title: "ICYMI: What landed in October", Tags: launch},
 			signals: []string{SignalLaunch}, kind: KindRoundup},
 		"event tag": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/security/e/", Title: "Sessions you won't miss", Tags: append(slices.Clone(launch), tagEvents)},

@@ -75,7 +75,7 @@ func postKind(p whatsnew.Post) string {
 		return slices.ContainsFunc(tags, func(t string) bool { return slices.Contains(p.Tags, t) })
 	}
 	switch {
-	case strings.Contains(title, "weekly roundup") || strings.HasPrefix(title, "icymi"):
+	case strings.Contains(title, "weekly roundup") || strings.Contains(title, "monthly roundup") || strings.HasPrefix(title, "icymi"):
 		return KindRoundup
 	case has(tagEvents) || strings.Contains(title, "re:invent"):
 		return KindEvent
