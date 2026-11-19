@@ -36,6 +36,7 @@ State lives in `~/.local/share/avizor` (`$XDG_DATA_HOME/avizor`), or in `state_d
 avizor sync --since 2025-11-01                    # index issues and PRs
 avizor pull                                       # pull SDK releases and What's New announcements
 avizor queue --format text                        # items that need a decision
+avizor posts --launch --format text               # blog posts that nothing covers
 avizor brief <item-id> --format text              # everything needed to decide an item
 avizor draft <item-id> --format text              # a new issue for a gap
 avizor decide <item-id> created 51234             # record what you did
@@ -210,6 +211,26 @@ For `partial`, a new argument counts as present when the files calling its opera
 
 A `gap` is a guess. Many need no provider work, and covering work can be in the related list, so check that list before drafting.
 
+## Posts
+
+```
+avizor posts --format text
+avizor posts --since 2026-11-01 --launch --all --format text
+```
+
+`avizor posts` checks whether existing issues and PRs cover each blog post from the last 30 days, newest first. AWS writes blog posts for the bigger launches, so every post with Terraform work should have an issue. The check doesn't need an SDK release: it reconciles the post's title, excerpt, and URL, plus the URLs of the What's New announcements that match it, as `candidates --text` would. An announcement matches when it was posted from 45 days before the post to 3 days after and scores at least 0.35, and 75% of the best. An open issue or PR, or a merged PR, with a strong signal covers the post. Usually that signal is a link to the post or to one of its announcements.
+
+| State | Shown | Meaning |
+|---|---|---|
+| `open` | yes | Nothing covers the post, and it has no decision. |
+| `covered` | no | A decision names the covering issues, or a confident issue or PR covers it. |
+| `no_work` | no | Decided as having no Terraform work (`skipped`). |
+| `deferred` | no | Deferred, and the revisit date hasn't passed. |
+
+`--launch` keeps only posts tagged as launch announcements. Each post is marked if it's on the AWS News Blog, and the text output has its URL for `avizor decide`. A post older than `--since` is checked too when its decision's revisit date has passed, and listed if it reopens. A revisit date on any decision ends it: the post is reconciled again. `--all` shows every state, `--state open,covered` picks some, and `--as-of` reads the index as it was at a date. The summary line reports coverage: covered posts as a share of covered and open ones. The 104 launch posts from 2026-11-02 to 2026-11-19 take about 4 seconds.
+
+An issue that doesn't link the post or its announcement isn't found, so record it on the post: `avizor decide <post-url> duplicate 51064`. Record a post with no Terraform work as `skipped`, with a reason.
+
 ## Decide
 
 ```
@@ -223,6 +244,8 @@ avizor decide aws-sdk-go-v2/rds/release-2026-08-27 deferred --revisit 60d
 avizor decide aws-sdk-go-v2/rds/release-2026-08-27 cleared
 avizor decisions --format text
 ```
+
+A blog post's URL works in place of an item ID, as in `avizor decide https://aws.amazon.com/blogs/... skipped --reason "customer story"`. Avizor records no evidence for a post, since `avizor posts` reconciles it on each run.
 
 An item whose work needs several issues (one per resource) records all of them; the first is the item's main issue. `--comment` (repeatable) records comments made on existing issues or PRs instead of filing new ones; it takes the comment's URL.
 

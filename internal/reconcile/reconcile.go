@@ -33,7 +33,7 @@ type Options struct {
 	NoFetch bool
 	// NoCode skips searching the checkout.
 	NoCode bool
-	// RelatedLimit caps the number of "related" candidates. Zero means the default.
+	// RelatedLimit caps the number of "related" candidates. Zero means the default, and a negative limit means none.
 	RelatedLimit int
 	// CommonThreshold skips exact signals found in more records than this, since they don't discriminate. Zero means the
 	// default.
