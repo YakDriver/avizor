@@ -11,3 +11,5 @@ Avizor gathers evidence for a decision; it never decides or writes to GitHub. Ke
 - `make ci` before committing. Tests need ripgrep and git.
 - Docs and PRs: plain, short sentences with real numbers. PRs have Changes and Results sections and end with the AI-assistance note.
 - Public issues and comments, on any repo: terse, natural language. No meta-narration, prompt leakage, needless explanation, or hedging.
+- Public issues should be tidy: streamlined, terse, and natural, with the minimum needed to convey the necessary information.
+- A missing prerequisite (an SDK version, a resource, or a service in the target) isn't a reason to defer an issue. An issue gathers interest while the prerequisite is worked out. Defer only when there's no API yet.
