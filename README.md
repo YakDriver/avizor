@@ -227,7 +227,7 @@ avizor posts --since 2026-11-01 --launch --all --format text
 | `no_work` | no | Decided as having no Terraform work (`skipped`). |
 | `deferred` | no | Deferred, and the revisit date hasn't passed. |
 
-`--launch` keeps only posts tagged as launch announcements. Each post is marked if it's on the AWS News Blog. `--all` shows every state, `--state open,covered` picks some, and `--as-of` reads the index as it was at a date. The summary line reports coverage: covered posts as a share of covered and open ones. The 104 launch posts from 2026-11-02 to 2026-11-19 take about 4 seconds.
+`--launch` keeps only posts tagged as launch announcements. Each post is marked if it's on the AWS News Blog, and the text output has its URL for `avizor decide`. A post older than `--since` is checked too when its decision's revisit date has passed, and listed if it reopens. A revisit date on any decision ends it: the post is reconciled again. `--all` shows every state, `--state open,covered` picks some, and `--as-of` reads the index as it was at a date. The summary line reports coverage: covered posts as a share of covered and open ones. The 104 launch posts from 2026-11-02 to 2026-11-19 take about 4 seconds.
 
 An issue that doesn't link the post or its announcement isn't found, so record it on the post: `avizor decide <post-url> duplicate 51064`. Record a post with no Terraform work as `skipped`, with a reason.
 

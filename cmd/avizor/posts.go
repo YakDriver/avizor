@@ -58,7 +58,7 @@ type PostEntry struct {
 	// Numbers are the issues and PRs that cover the post: the decision's, or else the covering candidates'.
 	Numbers  []int              `json:"numbers,omitempty"`
 	Decision *items.Disposition `json:"decision,omitempty"`
-	// Revisit is set for a deferred post whose revisit date has passed, which makes it open again.
+	// Revisit is set for an open post whose decision's revisit date has passed.
 	Revisit bool `json:"revisit,omitempty"`
 	// Announcements are the What's New announcements matched to the post. Their URLs are searched with the post's.
 	Announcements []PostAnnouncement `json:"announcements"`
@@ -66,6 +66,9 @@ type PostEntry struct {
 	// of the rest.
 	Covering []PostCandidate `json:"covering"`
 	Related  []PostCandidate `json:"related"`
+
+	// byDecision is set when the decision sets the state.
+	byDecision bool
 }
 
 // PostAnnouncement is a What's New announcement matched to a post.
@@ -164,9 +167,8 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if err != nil {
 		return err
 	}
-	ps = slices.DeleteFunc(ps, func(p whatsnew.Post) bool {
-		return p.PostedAt.Before(since) || (*launch && !slices.Contains(p.Tags, whatsnew.LaunchTag))
-	})
+	now := time.Now()
+	ps, early := postsInWindow(ps, decisions, since, *launch, now)
 	if len(ps) == 0 {
 		fmt.Fprintln(stderr, "avizor: warning: no blog posts in the window; pull them with `avizor pull aws-blogs`")
 	}
@@ -184,7 +186,9 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		wg.Go(func() {
 			// Each worker has its own reconciler, which caches state per run.
 			r := &reconcile.Reconciler{Store: st, Target: t, Services: svcs, Operations: ops.Operations, AsOf: asOf,
-				OperationsSource: ops.OperationsSource, Options: reconcile.Options{NoFetch: true, NoCode: *noCode, Version: version}}
+				OperationsSource: ops.OperationsSource, Options: reconcile.Options{NoFetch: true, NoCode: *noCode, Version: version,
+					// postEntry drops code candidates and then applies --related.
+					RelatedLimit: -1}}
 			for i := range next {
 				matched[i] = postAnnouncements(anns, ps[i])
 				results[i], errs[i] = r.Run(ctx, "", postText(ps[i], matched[i]))
@@ -197,17 +201,28 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	close(next)
 	wg.Wait()
 
-	now := time.Now()
-	out := PostsResult{Posts: []PostEntry{}, Summary: PostsSummary{Posts: len(ps), Counts: map[string]int{}}}
+	out := PostsResult{Posts: []PostEntry{}, Summary: PostsSummary{Counts: map[string]int{}}}
+	warned := map[string]bool{}
 	for i, p := range ps {
 		if errs[i] != nil {
 			return fmt.Errorf("%s: %w", p.URL, errs[i])
+		}
+		// Warnings such as an unsynced index apply to every post; report each once.
+		for _, w := range results[i].Warnings {
+			if !warned[w] {
+				warned[w] = true
+				fmt.Fprintf(stderr, "avizor: warning: %s\n", w)
+			}
 		}
 		var d *items.Disposition
 		if dd, ok := decisions[p.URL]; ok {
 			d = &dd
 		}
 		e := postEntry(p, matched[i], results[i], d, *related, now)
+		if early[p.URL] && e.State != PostOpen {
+			continue
+		}
+		out.Summary.Posts++
 		out.Summary.Counts[e.State]++
 		if shown(e.State) {
 			out.Posts = append(out.Posts, e)
@@ -228,12 +243,19 @@ func postAnnouncements(m *whatsnew.Matcher, p whatsnew.Post) []PostAnnouncement 
 	if m == nil {
 		return out
 	}
-	for _, r := range m.Rank(p.Title+"\n"+p.Excerpt, "", p.PostedAt, postAnnBefore, postAnnAfter, postAnnMax) {
-		if r.RegionExpansion || r.Score < postAnnMin || (len(out) > 0 && r.Score < postAnnRatio*out[0].Score) {
+	// Rank all, since region expansions are ranked too and are skipped here. Scores are in descending order.
+	for _, r := range m.Rank(p.Title+"\n"+p.Excerpt, "", p.PostedAt, postAnnBefore, postAnnAfter, 0) {
+		if r.RegionExpansion {
 			continue
+		}
+		if r.Score < postAnnMin || (len(out) > 0 && r.Score < postAnnRatio*out[0].Score) {
+			break
 		}
 		out = append(out, PostAnnouncement{Headline: r.Announcement.Headline, URL: r.Announcement.URL,
 			Posted: r.Announcement.PostedAt.Format(time.DateOnly), Days: r.Days, Score: r.Score})
+		if len(out) == postAnnMax {
+			break
+		}
 	}
 	return out
 }
@@ -253,8 +275,35 @@ func postText(p whatsnew.Post, anns []PostAnnouncement) string {
 	return b.String()
 }
 
+// postsInWindow keeps the posts created since a time, only launch announcements if launch is set. A post before then
+// stays in when its decision's revisit date has passed, so a deferral that comes due after the post leaves the window
+// is still seen; early marks those posts, which are listed only if they reopen.
+func postsInWindow(ps []whatsnew.Post, decisions map[string]items.Disposition, since time.Time, launch bool, now time.Time) ([]whatsnew.Post, map[string]bool) {
+	early := map[string]bool{}
+	ps = slices.DeleteFunc(ps, func(p whatsnew.Post) bool {
+		if launch && !slices.Contains(p.Tags, whatsnew.LaunchTag) {
+			return true
+		}
+		if !p.PostedAt.Before(since) {
+			return false
+		}
+		if d, ok := decisions[p.URL]; ok && revisitDue(d, now) {
+			early[p.URL] = true
+			return false
+		}
+		return true
+	})
+	return ps, early
+}
+
+// revisitDue reports whether a decision's revisit date has passed.
+func revisitDue(d items.Disposition, now time.Time) bool {
+	return !d.RevisitAfter.IsZero() && !now.Before(d.RevisitAfter)
+}
+
 // postEntry decides a post's state. A decision comes first: created and duplicate cover it, skipped means no work, and
-// deferred holds it until the revisit date. Without one, a confident issue or PR candidate covers it.
+// deferred holds it. Once a decision's revisit date passes, it no longer sets the state. Without one, a confident
+// issue or PR candidate covers the post.
 func postEntry(p whatsnew.Post, anns []PostAnnouncement, res *reconcile.Result, d *items.Disposition, relatedLimit int, now time.Time) PostEntry {
 	e := PostEntry{URL: p.URL, Title: p.Title, Posted: p.PostedAt.Format(time.DateOnly), Launch: slices.Contains(p.Tags, whatsnew.LaunchTag),
 		NewsBlog: strings.HasPrefix(p.URL, newsBlogPrefix), Decision: d, Announcements: anns, Covering: []PostCandidate{},
@@ -278,13 +327,14 @@ func postEntry(p whatsnew.Post, anns []PostAnnouncement, res *reconcile.Result, 
 			}
 		}
 	}
+	due := d != nil && revisitDue(*d, now)
 	switch {
-	case d != nil && (d.Decision == items.DecisionCreated || d.Decision == items.DecisionDuplicate):
-		e.State, e.Numbers = PostCovered, d.Numbers()
-	case d != nil && d.Decision == items.DecisionSkipped:
-		e.State = PostNoWork
-	case d != nil && d.Decision == items.DecisionDeferred && now.Before(d.RevisitAfter):
-		e.State = PostDeferred
+	case d != nil && !due && (d.Decision == items.DecisionCreated || d.Decision == items.DecisionDuplicate):
+		e.State, e.Numbers, e.byDecision = PostCovered, d.Numbers(), true
+	case d != nil && !due && d.Decision == items.DecisionSkipped:
+		e.State, e.byDecision = PostNoWork, true
+	case d != nil && !due && d.Decision == items.DecisionDeferred:
+		e.State, e.byDecision = PostDeferred, true
 	case len(e.Covering) > 0:
 		e.State = PostCovered
 		for _, c := range e.Covering {
@@ -292,7 +342,7 @@ func postEntry(p whatsnew.Post, anns []PostAnnouncement, res *reconcile.Result, 
 		}
 	default:
 		e.State = PostOpen
-		e.Revisit = d != nil && d.Decision == items.DecisionDeferred
+		e.Revisit = due
 	}
 	return e
 }
@@ -312,7 +362,7 @@ func writePostsText(w io.Writer, res PostsResult, shownState func(string) bool) 
 		switch {
 		case e.Revisit:
 			note = decisionText(*e.Decision) + "; revisit due"
-		case e.Decision != nil && (e.Decision.Decision != items.DecisionDeferred || e.State == PostDeferred):
+		case e.byDecision:
 			note = decisionText(*e.Decision)
 		case e.State == PostCovered:
 			note = "covered by " + issueList(e.Numbers)
@@ -323,7 +373,7 @@ func writePostsText(w io.Writer, res PostsResult, shownState func(string) bool) 
 			}
 			note = "related " + strings.Join(rel, ", ")
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Posted, e.State, cmp.Or(strings.Join(flags, ","), "-"), truncate(e.Title, 80), note)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Posted, e.State, cmp.Or(strings.Join(flags, ","), "-"), truncate(e.Title, 60), e.URL, note)
 	}
 	if err := tw.Flush(); err != nil {
 		return err
