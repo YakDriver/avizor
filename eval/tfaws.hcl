@@ -2652,7 +2652,10 @@ case "blog-sagemaker-2026-11-16" {
 # --- posts
 # Blog posts from 2026-11-02 to 2026-11-19 decided in the 2026-11-19 coverage pass: the 104 launch posts and the 8
 # other posts with a decision or an issue. Post cases reconcile the post as `avizor posts` does and ignore decisions.
-# A post with work must be significant. Post cases need pulled blog posts and announcements: run
+# A post with work must be significant. items are the SDK items a post's issues track: the items decided with those
+# issues, the releases the issues cite (a "Release YYYY-MM-DD" link or an aws-sdk-go-v2 commit or tag), or, for 9
+# posts whose issues cite none, the item found by hand in the release notes. 4 posts with work have no item: Systems
+# Manager for SAP and the two cross-partition posts have no SDK change, and the Infoblox preview has none yet. Post cases need pulled blog posts and announcements: run
 # `avizor pull aws-blogs --since 365d` and `avizor pull aws-whats-new --since 365d` first.
 
 case "post-aws-weekly-roundup-gpt-6-1-terra-on-bedrock-step-f" {
@@ -2669,6 +2672,7 @@ case "post-introducing-queue-consumption-mode-for-apache-kafk" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/lambda/release-2026-10-30"]
   expect {
     number = 50775
   }
@@ -2759,6 +2763,7 @@ case "post-introducing-device-posture-assessment-for-aws-clie" {
   as_of = "2026-11-19T19:15:00Z"
   state = "open"
   work  = true
+  items = ["aws-sdk-go-v2/ec2/release-2026-09-28"]
 }
 
 case "post-introducing-tunnel-endpoints-for-private-access-to" {
@@ -2768,6 +2773,7 @@ case "post-introducing-tunnel-endpoints-for-private-access-to" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/vpclattice/release-2026-09-17"]
   expect {
     number = 50087
   }
@@ -2795,6 +2801,7 @@ case "post-sagemaker-inference-now-supports-multi-instance-gp" {
   as_of = "2026-11-19T19:15:00Z"
   state = "open"
   work  = true
+  items = ["aws-sdk-go-v2/sagemaker/release-2026-10-30"]
 }
 
 case "post-aws-weekly-roundup-agentcore-runtime-v2-amazon-dyn" {
@@ -2811,6 +2818,7 @@ case "post-amazon-athena-introduces-system-tables-for-query-e" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/athena/release-2026-11-06"]
   expect {
     number = 50887
   }
@@ -2840,6 +2848,7 @@ case "post-aws-nitro-sandboxes-hardware-enforced-workload-iso" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/ecs/release-2026-11-09"]
   expect {
     number = 50875
   }
@@ -2886,6 +2895,7 @@ case "post-nitro-sandboxes-hardware-isolation-for-every-eks-p" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/ecs/release-2026-11-09"]
   expect {
     number = 50875
   }
@@ -2984,6 +2994,7 @@ case "post-managed-cross-region-disaster-recovery-for-amazon" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/opensearch/release-2026-10-28"]
   expect {
     number = 50859
   }
@@ -3017,6 +3028,7 @@ case "post-run-agents-securely-and-efficiently-with-the-next" {
   as_of = "2026-11-19T19:15:00Z"
   state = "open"
   work  = true
+  items = ["aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-11-10"]
 }
 
 case "post-nfl-and-aws-introduce-next-gen-trends" {
@@ -3073,6 +3085,7 @@ case "post-monitoring-global-traffic-with-aws-cloud-wan-flow" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/ec2/release-2026-11-11"]
   expect {
     number = 51011
   }
@@ -3114,6 +3127,7 @@ case "post-announcing-updates-to-the-aws-well-architected-fra" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/wellarchitected/release-2026-11-16"]
   expect {
     number = 51057
   }
@@ -3140,6 +3154,7 @@ case "post-deliver-petabytes-of-apache-kafka-data-to-amazon-s" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/kafka/release-2026-07-30"]
   expect {
     number = 49266
   }
@@ -3152,6 +3167,7 @@ case "post-introducing-enhanced-snapshots-for-amazon-managed" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/kinesisanalyticsv2/release-2026-11-11"]
   expect {
     number = 51003
   }
@@ -3179,6 +3195,7 @@ case "post-workspaces-for-ai-agents-now-available-on-workspac" {
   as_of = "2026-11-19T19:15:00Z"
   state = "open"
   work  = true
+  items = ["aws-sdk-go-v2/appstream/release-2026-11-13"]
 }
 
 case "post-how-to-make-four-specialist-ai-agents-act-as-one-t" {
@@ -3195,6 +3212,7 @@ case "post-customize-answers-per-tenant-in-amazon-bedrock-man" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/bedrockagent/release-2026-10-19"]
   expect {
     number = 50992
   }
@@ -3217,6 +3235,7 @@ case "post-introducing-11-nat-on-aws-transit-gateway-and-aws" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/ec2/release-2026-10-22", "aws-sdk-go-v2/networkmanager/release-2026-10-22"]
   expect {
     number = 50613
   }
@@ -3251,6 +3270,7 @@ case "post-reduce-the-complexity-and-cost-of-real-time-proces" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/kinesis/release-2026-11-17"]
   expect {
     number = 51120
   }
@@ -3263,6 +3283,7 @@ case "post-securing-rest-apis-with-jwt-authorizers-in-amazon" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/apigateway/release-2026-11-17"]
   expect {
     number = 51086
   }
@@ -3275,6 +3296,7 @@ case "post-accelerate-your-dynamodb-workloads-with-dynamodb-c" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/elasticache/release-2026-11-17"]
   expect {
     number = 51117
   }
@@ -3287,6 +3309,7 @@ case "post-use-query-statistics-to-find-slow-and-expensive-qu" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/dsql/release-2026-11-16"]
   expect {
     number = 51095
   }
@@ -3313,6 +3336,7 @@ case "post-amazon-sagemaker-ai-real-time-endpoints-now-suppor" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/sagemaker/release-2026-11-16"]
   expect {
     number = 51090
   }
@@ -3362,6 +3386,7 @@ case "post-aws-lambda-now-supports-gpu-instances-for-event-fu" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/lambda/release-2026-11-16"]
   expect {
     number = 51046
   }
@@ -3375,6 +3400,7 @@ case "post-introducing-amazon-opensearch-memory-persistent-me" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/opensearchmemory/release-2026-11-16"]
   expect {
     number = 51056
   }
@@ -3401,6 +3427,7 @@ case "post-control-your-aws-lambda-runtimes-with-customer-man" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/lambda/release-2026-11-13", "aws-sdk-go-v2/lambdacore/release-2026-11-13"]
   expect {
     number = 51040
   }
@@ -3480,6 +3507,7 @@ case "post-how-salesforce-is-advancing-global-scale-model-ser" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/sagemaker/release-2026-11-16"]
   expect {
     number = 51090
   }
@@ -3505,6 +3533,7 @@ case "post-introducing-workload-recovery-and-expanded-infrast" {
   as_of = "2026-11-19T19:15:00Z"
   state = "open"
   work  = true
+  items = ["aws-sdk-go-v2/sagemaker/release-2026-10-26"]
 }
 
 case "post-governing-your-ai-workloads-on-aws-at-scale-visibi" {
@@ -3514,6 +3543,7 @@ case "post-governing-your-ai-workloads-on-aws-at-scale-visibi" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/configservice/release-2026-11-17"]
   expect {
     number = 51116
   }
@@ -3526,6 +3556,7 @@ case "post-hybrid-dns-with-amazon-route-53-global-resolver-fo" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/route53globalresolver/release-2025-12-01"]
   expect {
     number = 45334
   }
@@ -3566,6 +3597,7 @@ case "post-introducing-automatic-version-upgrades-for-aws-glu" {
   as_of = "2026-11-19T19:15:00Z"
   state = "open"
   work  = true
+  items = ["aws-sdk-go-v2/glue/release-2026-11-05"]
 }
 
 case "post-monitor-the-efficiency-and-availability-of-acceler" {
@@ -3575,6 +3607,7 @@ case "post-monitor-the-efficiency-and-availability-of-acceler" {
   as_of = "2026-11-19T19:15:00Z"
   state = "open"
   work  = true
+  items = ["aws-sdk-go-v2/ec2/release-2026-11-12"]
 }
 
 case "post-amazon-elasticache-serverless-turns-three" {
@@ -3598,6 +3631,7 @@ case "post-introducing-enhanced-observability-in-amazon-sagem" {
   as_of = "2026-11-19T19:15:00Z"
   state = "open"
   work  = true
+  items = ["aws-sdk-go-v2/sagemaker/release-2026-10-26"]
 }
 
 case "post-polyai-dialog-rsn-1-is-now-on-amazon-sagemaker-jum" {
@@ -3614,6 +3648,7 @@ case "post-introducing-resource-context-for-firewall-policies" {
   as_of = "2026-11-19"
   state = "covered"
   work  = true
+  items = ["aws-sdk-go-v2/networkfirewall/release-2026-11-16", "aws-sdk-go-v2/networkmanager/release-2026-11-16"]
   expect {
     number = 51064
   }

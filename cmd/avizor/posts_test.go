@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/YakDriver/avizor/internal/enrich"
 	"github.com/YakDriver/avizor/internal/items"
 	"github.com/YakDriver/avizor/internal/reconcile"
 	"github.com/YakDriver/avizor/internal/whatsnew"
@@ -142,7 +143,9 @@ func TestWritePostsText(t *testing.T) {
 	res := PostsResult{
 		Posts: []PostEntry{
 			{Posted: "2026-11-18", State: PostOpen, Launch: true, NewsBlog: true, Title: "A launch",
-				Related: []PostCandidate{{Number: 5, Kind: reconcile.KindIssue}, {Number: 6, Kind: reconcile.KindPR}}},
+				Related: []PostCandidate{{Number: 5, Kind: reconcile.KindIssue}, {Number: 6, Kind: reconcile.KindPR}},
+				Items:   []enrich.PostItem{{ID: "aws-sdk-go-v2/kafka/release-2026-07-30"}, {ID: "aws-sdk-go-v2/kafka/release-2026-08-24"}}},
+			{Posted: "2026-11-18", State: PostOpen, Title: "Items only", Items: []enrich.PostItem{{ID: "aws-sdk-go-v2/glue/release-2026-11-05"}}},
 			{Posted: "2026-11-17", State: PostOpen, Title: "Deferred", Revisit: true,
 				Decision: &items.Disposition{Decision: items.DecisionDeferred}},
 			{Posted: "2026-11-16", State: PostCovered, Title: "Covered", URL: "https://aws.amazon.com/blogs/x/covered/", Numbers: []int{7, 8}},
@@ -158,8 +161,9 @@ func TestWritePostsText(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := b.String()
-	for _, want := range []string{"news,launch,sig", "related #5, #6 (PR)", "deferred; revisit due", "https://aws.amazon.com/blogs/x/covered/", "covered by #7, #8", "skipped (customer story)",
-		"4 of 10 post(s) shown; open 2; hidden: covered 6, no work 2; coverage 75% (6 of 8)\nsignificant: 5 post(s), open 1, covered 4; coverage 80% (4 of 5)\n"} {
+	for _, want := range []string{"news,launch,sig", "related #5, #6 (PR); items aws-sdk-go-v2/kafka/release-2026-07-30, aws-sdk-go-v2/kafka/release-2026-08-24\n",
+		"  items aws-sdk-go-v2/glue/release-2026-11-05\n", "deferred; revisit due", "https://aws.amazon.com/blogs/x/covered/", "covered by #7, #8", "skipped (customer story)",
+		"5 of 10 post(s) shown; open 2; hidden: covered 6, no work 2; coverage 75% (6 of 8)\nsignificant: 5 post(s), open 1, covered 4; coverage 80% (4 of 5)\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}

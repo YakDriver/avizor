@@ -136,6 +136,10 @@ func writeEvalText(w io.Writer, rep *eval.Report, failuresOnly bool) error {
 			m.WorkSignificant, m.WorkPosts, pct(m.SignificanceRecall, m.WorkPosts), m.NoWorkSignificant, m.NoWorkPosts,
 			pct(m.SignificancePrecision, m.WorkSignificant+m.NoWorkSignificant))
 	}
+	if m := rep.Overall; m.ItemsLabeled > 0 {
+		fmt.Fprintf(w, "post items: %d of %d posts list an expected item (%s), %d first (%s)\n", m.ItemsListed, m.ItemsLabeled,
+			pct(float64(m.ItemsListed)/float64(m.ItemsLabeled), m.ItemsLabeled), m.ItemsFirst, pct(float64(m.ItemsFirst)/float64(m.ItemsLabeled), m.ItemsLabeled))
+	}
 	if rep.Overall.MissedUnmatched > 0 {
 		fmt.Fprintf(w, "%d case(s) with existing work were summarized as unmatched\n", rep.Overall.MissedUnmatched)
 	}
@@ -197,6 +201,11 @@ type evalItems struct {
 	mu       sync.Mutex
 	enriched map[string]*evalItem
 	posts    map[string]*evalPost
+
+	// idx ranks items for post cases, loaded once with every pulled item.
+	idxOnce sync.Once
+	idx     *enrich.ItemIndex
+	idxErr  error
 }
 
 // evalPost is a blog post and its matched announcements, loaded once.
@@ -294,7 +303,23 @@ func (e *evalItems) PostState(ctx context.Context, url string, res *reconcile.Re
 		return eval.PostState{}, err
 	}
 	pe := postEntry(*ep.p, ep.anns, res, nil, 0, time.Now())
-	return eval.PostState{State: pe.State, Numbers: pe.Numbers, Significant: pe.Significant, Signals: pe.Signals}, nil
+	e.idxOnce.Do(func() {
+		ist, err := openItems(e.c.dir)
+		if err != nil {
+			e.idxErr = err
+			return
+		}
+		defer ist.Close()
+		e.idx, e.idxErr = loadItemIndex(ctx, ist, time.Time{}, announcements(e.c.dir, e.stderr))
+	})
+	if e.idxErr != nil {
+		return eval.PostState{}, e.idxErr
+	}
+	var ids []string
+	for _, it := range rankPostItems(e.idx, *ep.p, ep.anns) {
+		ids = append(ids, it.ID)
+	}
+	return eval.PostState{State: pe.State, Numbers: pe.Numbers, Significant: pe.Significant, Signals: pe.Signals, Items: ids}, nil
 }
 
 // BlogPosts ranks the blog posts near an item's release, as brief does.

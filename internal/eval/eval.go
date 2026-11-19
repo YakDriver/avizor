@@ -45,6 +45,8 @@ type PostState struct {
 	Numbers     []int
 	Significant bool
 	Signals     []string
+	// Items are the SDK items listed for the post, best first.
+	Items []string
 }
 
 // BlogSource ranks the blog posts near an item's release, best first, as refs (URLs) with titles. Cases with blog
@@ -89,6 +91,11 @@ type CaseResult struct {
 	Work        *bool    `json:"work,omitempty"`
 	Significant *bool    `json:"significant,omitempty"`
 	Signals     []string `json:"signals,omitempty"`
+	// Items are the SDK items listed for a post. For cases that expect items, ExpectedItems are those, and ItemRank is
+	// the best one's rank among the listed items, or 0 if none is listed.
+	Items         []string `json:"items,omitempty"`
+	ExpectedItems []string `json:"expected_items,omitempty"`
+	ItemRank      int      `json:"item_rank,omitempty"`
 	// Top lists the first candidates returned, for inspecting failures.
 	Top      []Returned `json:"top"`
 	Failures []string   `json:"failures,omitempty"`
@@ -158,6 +165,11 @@ type Metrics struct {
 	NoWorkSignificant     int     `json:"no_work_significant"`
 	SignificanceRecall    float64 `json:"significance_recall"`
 	SignificancePrecision float64 `json:"significance_precision"`
+	// ItemsLabeled counts post cases that expect items, ItemsListed those listing an expected item, and ItemsFirst
+	// those listing one first.
+	ItemsLabeled int `json:"items_labeled"`
+	ItemsListed  int `json:"items_listed"`
+	ItemsFirst   int `json:"items_first"`
 	// Confident counts candidates returned above "related". Each is correct (expected or labeled the same work),
 	// wrong (labeled different work), or unjudged. Precision is correct / (correct + wrong): how often a confident
 	// category is on the right work.
@@ -491,6 +503,18 @@ func scorePost(cs *Case, got PostState, cr *CaseResult) {
 	if cs.Work != nil && *cs.Work && !sig {
 		cr.Failures = append(cr.Failures, "post has work but isn't significant")
 	}
+	cr.Items, cr.ExpectedItems = got.Items, cs.Items
+	if len(cs.Items) > 0 {
+		for i, id := range got.Items {
+			if slices.Contains(cs.Items, id) {
+				cr.ItemRank = i + 1
+				break
+			}
+		}
+		if cr.ItemRank == 0 {
+			cr.Failures = append(cr.Failures, "no expected item listed")
+		}
+	}
 	cr.Pass = len(cr.Failures) == 0
 }
 
@@ -580,6 +604,15 @@ func aggregate(crs []CaseResult) Metrics {
 			m.StateLabeled++
 			if *cr.StateOK {
 				stateOK++
+			}
+		}
+		if len(cr.ExpectedItems) > 0 && cr.Error == "" {
+			m.ItemsLabeled++
+			if cr.ItemRank > 0 {
+				m.ItemsListed++
+			}
+			if cr.ItemRank == 1 {
+				m.ItemsFirst++
 			}
 		}
 		if cr.Work != nil && cr.Significant != nil {

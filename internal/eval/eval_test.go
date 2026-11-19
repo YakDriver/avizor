@@ -535,6 +535,7 @@ case "covered" {
   kind  = "post-covered"
   state = "covered"
   work  = true
+  items = ["sdk/widget/release-2", "sdk/gizmo/release-1"]
   expect {
     number = 1
   }
@@ -555,6 +556,7 @@ case "gap-not-significant" {
   kind  = "post-gap"
   state = "open"
   work  = true
+  items = ["sdk/widget/release-3"]
 }
 
 case "no-work-significant" {
@@ -568,9 +570,10 @@ case "no-work-significant" {
 		t.Fatal(err)
 	}
 	posts := &fakePosts{states: map[string]PostState{
-		"https://aws.amazon.com/blogs/x/covered/": {State: "covered", Numbers: []int{1}, Significant: true, Signals: []string{"launch"}},
+		"https://aws.amazon.com/blogs/x/covered/": {State: "covered", Numbers: []int{1}, Significant: true, Signals: []string{"launch"},
+			Items: []string{"sdk/widget/release-1", "sdk/widget/release-2"}},
 		"https://aws.amazon.com/blogs/x/other/":   {State: "covered", Numbers: []int{4}, Significant: true},
-		"https://aws.amazon.com/blogs/x/gap/":     {State: "open"},
+		"https://aws.amazon.com/blogs/x/gap/":     {State: "open", Items: []string{"sdk/widget/release-1"}},
 		"https://aws.amazon.com/blogs/x/roundup/": {State: "open", Significant: true},
 	}}
 	r := &Runner{Base: &reconcile.Reconciler{Store: seed(t), Target: &config.Target{Name: "t", Repo: repo, ServiceLabelPrefix: "service/"}}, Items: posts}
@@ -578,14 +581,15 @@ case "no-work-significant" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cr := rep.Cases[0]; !cr.Pass || cr.Input != "post: https://aws.amazon.com/blogs/x/covered/" || !slices.Equal(cr.Signals, []string{"launch"}) {
+	// Any expected item among the listed ones passes.
+	if cr := rep.Cases[0]; !cr.Pass || cr.Input != "post: https://aws.amazon.com/blogs/x/covered/" || !slices.Equal(cr.Signals, []string{"launch"}) || cr.ItemRank != 2 {
 		t.Errorf("covered = %+v", cr)
 	}
 	// Covered, but not by an expected candidate.
 	if cr := rep.Cases[1]; cr.Pass || !slices.Contains(cr.Failures, "covered by #4, not an expected candidate") || *cr.StateOK {
 		t.Errorf("covered-by-other = %+v", cr)
 	}
-	if cr := rep.Cases[2]; cr.Pass || !slices.Equal(cr.Failures, []string{"post has work but isn't significant"}) {
+	if cr := rep.Cases[2]; cr.Pass || !slices.Equal(cr.Failures, []string{"post has work but isn't significant", "no expected item listed"}) || cr.ItemRank != 0 {
 		t.Errorf("gap-not-significant = %+v", cr)
 	}
 	// A significant post without work passes, and counts against precision.
@@ -594,12 +598,14 @@ case "no-work-significant" {
 	}
 	m := rep.Overall
 	if m.WorkPosts != 3 || m.WorkSignificant != 2 || m.NoWorkPosts != 1 || m.NoWorkSignificant != 1 ||
-		m.SignificanceRecall != 2.0/3 || m.SignificancePrecision != 2.0/3 || m.StateLabeled != 3 || m.StateAccuracy != 2.0/3 {
+		m.SignificanceRecall != 2.0/3 || m.SignificancePrecision != 2.0/3 || m.StateLabeled != 3 || m.StateAccuracy != 2.0/3 ||
+		m.ItemsLabeled != 2 || m.ItemsListed != 1 || m.ItemsFirst != 0 {
 		t.Errorf("metrics = %+v", m)
 	}
 
 	for body, want := range map[string]string{
 		`case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n" + `work = true` + "\n}":                      "work needs a post",
+		`case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n" + `items = ["i"]` + "\n}":                    "items needs a post",
 		`case "a" {` + "\n" + `post = "u"` + "\n" + `kind = "k"` + "\n" + `state = "gap"` + "\n}":                     `post state "gap"`,
 		`case "a" {` + "\n" + `post = "u"` + "\n" + `item = "i"` + "\n" + `kind = "k"` + "\n" + `work = true` + "\n}": "exactly one of input, text, item, and post",
 	} {
