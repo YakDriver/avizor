@@ -21,10 +21,10 @@ import (
 func TestServiceMentions(t *testing.T) {
 	t.Parallel()
 
-	if got := serviceWords("Amazon SageMaker"); !slices.Equal(got, []string{"sage", "maker"}) {
+	if got := enrich.ServiceWords("Amazon SageMaker"); !slices.Equal(got, []string{"sage", "maker"}) {
 		t.Errorf("serviceWords = %v", got)
 	}
-	dsql := serviceWords("DSQL")
+	dsql := enrich.ServiceWords("DSQL")
 	for _, tc := range []struct {
 		a    whatsnew.Announcement
 		want bool
@@ -37,7 +37,7 @@ func TestServiceMentions(t *testing.T) {
 			t.Errorf("mentions(%q) = %t, want %t", tc.a.Headline, got, tc.want)
 		}
 	}
-	if mentions(whatsnew.Announcement{Headline: "Amazon anything"}, serviceWords("Amazon")) {
+	if mentions(whatsnew.Announcement{Headline: "Amazon anything"}, enrich.ServiceWords("Amazon")) {
 		t.Error("a service name of only generic words mentions everything")
 	}
 }
@@ -128,27 +128,5 @@ func TestRankPosts(t *testing.T) {
 	none.rankPosts(it, nil, 5)
 	if len(none.BlogPosts) != 0 || len(none.Warnings) != 1 || !strings.Contains(none.Warnings[0], "avizor pull aws-blogs") {
 		t.Errorf("without posts: %+v", none)
-	}
-}
-
-func TestTaggedService(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		tag, service string
-		want         bool
-	}{
-		{"blog-posts#category-database-amazon-aurora#dsql", "DSQL", true},
-		{"blog-posts#category-artificial-intelligence#amazon-sagemaker-ai", "SageMaker", true},
-		{"blog-posts#category-compute#aws-lambda", "Lambda", true},
-		{"blog-posts#category-compute#aws-lambda", "Lambda Core", false},
-		{"GLOBAL#content-type#launch-announcement", "Launch", false},
-		{"blog-posts#category-storage#amazon-s3", "DSQL", false},
-		{"blog-posts#category-security-identity-compliance#aws-secrets-manager", "ECR", false},
-		{"blog-posts#category-security-identity-compliance#aws-secrets-manager", "Secrets Manager", true},
-	} {
-		if got := taggedService([]string{tc.tag}, strings.Join(serviceWords(tc.service), "")); got != tc.want {
-			t.Errorf("taggedService(%s, %s) = %t", tc.tag, tc.service, got)
-		}
 	}
 }

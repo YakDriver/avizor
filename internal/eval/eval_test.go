@@ -427,3 +427,85 @@ case "item-wrong" {
 		t.Errorf("state on input: err = %v", err)
 	}
 }
+
+// fakeBlogs ranks fixed posts for every item.
+type fakeBlogs struct {
+	fakeItems
+	posts []Returned
+}
+
+func (f *fakeBlogs) BlogPosts(context.Context, string) ([]Returned, error) { return f.posts, nil }
+
+func TestRunBlog(t *testing.T) {
+	t.Parallel()
+
+	path := writeCorpus(t, `
+target = "t"
+
+case "blog-second" {
+  item = "sdk/widget/release-1"
+  kind = "blog"
+  blog = ["https://aws.amazon.com/blogs/x/other/", "https://aws.amazon.com/blogs/x/b"]
+}
+
+case "blog-late" {
+  item = "sdk/widget/release-2"
+  kind = "blog"
+  blog = ["https://aws.amazon.com/blogs/x/f/"]
+}
+
+case "blog-missing" {
+  item = "sdk/widget/release-3"
+  kind = "blog"
+  blog = ["https://aws.amazon.com/blogs/x/none/"]
+}
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var posts []Returned
+	for _, p := range []string{"a", "b", "c", "d", "e", "f"} {
+		posts = append(posts, Returned{Ref: "https://aws.amazon.com/blogs/x/" + p + "/", Title: p})
+	}
+	r := &Runner{Base: &reconcile.Reconciler{Store: seed(t), Target: &config.Target{Name: "t", Repo: repo}}, Items: &fakeBlogs{posts: posts}}
+	rep, err := r.Run(context.Background(), c, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Any listed post counts, with or without the trailing slash.
+	if cr := rep.Cases[0]; !cr.Pass || !cr.Hit[3] || cr.Hit[1] || len(cr.Top) != 6 {
+		t.Errorf("blog-second = %+v", cr)
+	}
+	if cr := rep.Cases[1]; cr.Pass || !slices.ContainsFunc(cr.Failures, func(f string) bool { return strings.Contains(f, "ranked 6, beyond top 5") }) {
+		t.Errorf("blog-late = %+v", cr)
+	}
+	if cr := rep.Cases[2]; cr.Pass || !slices.Contains(cr.Failures, "no expected blog post in the window") {
+		t.Errorf("blog-missing = %+v", cr)
+	}
+	if m := rep.ByKind["blog"]; m.Passed != 1 || m.WithExpect != 3 || m.Hit[5] != 1.0/3 {
+		t.Errorf("blog metrics = %+v", m)
+	}
+
+	// A URL repeated across the top-5 boundary keeps its first rank.
+	var repeated CaseResult
+	scoreBlog(&Case{Blog: []string{"https://aws.amazon.com/blogs/x/a"}}, append(slices.Clone(posts), Returned{Ref: "https://aws.amazon.com/blogs/x/a"}), &repeated)
+	if !repeated.Pass || repeated.Expected[0].Rank != 1 {
+		t.Errorf("repeated URL = %+v", repeated)
+	}
+
+	// Blog cases need an item and measure only blog posts.
+	for body, want := range map[string]string{
+		`case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "blog"` + "\n" + `blog = ["u"]` + "\n}":                         "blog needs an item",
+		`case "a" {` + "\n" + `item = "i"` + "\n" + `kind = "blog"` + "\n" + `blog = ["u"]` + "\n" + `state = "gap"` + "\n}": "measure only blog posts",
+	} {
+		if _, err := Load(writeCorpus(t, `target = "t"`+"\n"+body)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want containing %q", err, want)
+		}
+	}
+	// Without a BlogSource, blog cases are errors.
+	r.Items = &fakeItems{}
+	if rep, err = r.Run(context.Background(), c, path); err != nil || !strings.Contains(rep.Cases[0].Error, "no blog source") {
+		t.Errorf("no blog source: %+v, %v", rep.Cases[0], err)
+	}
+}

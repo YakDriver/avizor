@@ -55,7 +55,7 @@ type Brief struct {
 	Announcements []BriefAnnouncement `json:"announcements"`
 	// BlogPosts are the blog posts created from 3 days before the release to 21 days after, best first. An issue
 	// with a related post should link it; the reader picks.
-	BlogPosts []BriefPost `json:"blog_posts"`
+	BlogPosts []enrich.BlogPost `json:"blog_posts"`
 	// Warnings are the enrichment's and reconciliation's, such as a failed model load, an unsynced index, or a
 	// limited search, and a note when no announcements were loaded.
 	Warnings []string `json:"warnings,omitempty"`
@@ -80,24 +80,6 @@ type BriefAnnouncement struct {
 
 // maxRelatedText is how many related candidates text output shows; JSON has all.
 const maxRelatedText = 5
-
-// BriefPost is a blog post near the release, scored against the item and the matched announcement's headline. Launch
-// is set for a post tagged as a launch announcement, and TaggedService for one whose product tags name the service.
-type BriefPost struct {
-	Title         string  `json:"title"`
-	URL           string  `json:"url"`
-	Posted        string  `json:"posted"`
-	Days          float64 `json:"days"`
-	Score         float64 `json:"score"`
-	Launch        bool    `json:"launch,omitempty"`
-	TaggedService bool    `json:"tagged_service,omitempty"`
-}
-
-// Blog posts often come days after the release, so brief looks further after it than for announcements.
-const (
-	blogBefore = 3 * 24 * time.Hour
-	blogAfter  = 21 * 24 * time.Hour
-)
 
 // briefWindow is how far before and after a release brief looks for announcements.
 const briefWindow = 7 * 24 * time.Hour
@@ -224,7 +206,7 @@ func brief(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *reconcil
 		Item: it.ID, Service: q.Service, SDKID: it.Service.SDKID, Release: it.Release, Module: it.Service.ModulePath,
 		Version: it.Service.ModuleVersion, Published: q.Published, Availability: en.Availability, State: q.State, Reason: q.Reason,
 		StateIfAvailable: q.State, Queue: q.State, Title: q.Title, Labels: q.Labels, ServiceMatch: en.Service, Work: en.Work,
-		Candidates: rec.Candidates, Announcement: en.Announcement, Announcements: []BriefAnnouncement{}, BlogPosts: []BriefPost{}, entry: q,
+		Candidates: rec.Candidates, Announcement: en.Announcement, Announcements: []BriefAnnouncement{}, BlogPosts: []enrich.BlogPost{}, entry: q,
 		Warnings: slices.Concat(en.Warnings, rec.Warnings),
 	}
 	if b.State == queue.Pending {
@@ -241,7 +223,7 @@ func brief(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *reconcil
 		b.Warnings = append(b.Warnings, "no announcements loaded, so none are listed; run `avizor pull aws-whats-new`")
 	} else {
 		text, service := enrich.AnnouncementQuery(it)
-		svcWords := serviceWords(service)
+		svcWords := enrich.ServiceWords(service)
 		for _, a := range e.Announcements.Rank(text, service, it.Release.PublishedAt, briefWindow, briefWindow, maxAnns) {
 			ba := BriefAnnouncement{Headline: a.Announcement.Headline, URL: a.Announcement.URL,
 				Posted: a.Announcement.PostedAt.Format(time.DateOnly), Days: a.Days, Score: a.Score,
@@ -253,48 +235,13 @@ func brief(ctx context.Context, it *awssdk.Item, e *enrich.Enricher, r *reconcil
 	return b, nil
 }
 
-// rankPosts lists the blog posts near the release, scored against the item's text and the matched announcement's
-// headline.
+// rankPosts lists the blog posts near the release.
 func (b *Brief) rankPosts(it *awssdk.Item, posts *whatsnew.Matcher, n int) {
 	if posts == nil {
 		b.Warnings = append(b.Warnings, "no blog posts loaded, so none are listed; run `avizor pull aws-blogs`")
 		return
 	}
-	text, service := enrich.AnnouncementQuery(it)
-	if b.Announcement != nil {
-		text += "\n" + b.Announcement.Announcement.Headline
-	}
-	key := strings.Join(serviceWords(service), "")
-	for _, r := range posts.Rank(text, service, it.Release.PublishedAt, blogBefore, blogAfter, n) {
-		p := BriefPost{Title: r.Announcement.Headline, URL: r.Announcement.URL, Posted: r.Announcement.PostedAt.Format(time.DateOnly),
-			Days: r.Days, Score: r.Score, Launch: slices.Contains(r.Announcement.Tags, whatsnew.LaunchTag),
-			TaggedService: taggedService(r.Announcement.Tags, key)}
-		b.BlogPosts = append(b.BlogPosts, p)
-	}
-}
-
-// taggedService reports whether a blog post's product category tag names a service: whole words of the tag's last
-// part, run together, equal the service's identifying words run together. "dsql" in
-// blog-posts#category-database-amazon-aurora#dsql, "sagemaker" in ...#amazon-sagemaker-ai.
-func taggedService(tags []string, key string) bool {
-	if key == "" {
-		return false
-	}
-	return slices.ContainsFunc(tags, func(t string) bool {
-		if !strings.HasPrefix(t, "blog-posts#category") {
-			return false
-		}
-		// A run of whole words: "secrets-manager" for Secrets Manager, but not "ecr" inside "secrets".
-		words := strings.Split(t[strings.LastIndex(t, "#")+1:], "-")
-		for i := range words {
-			for j := i + 1; j <= len(words); j++ {
-				if strings.Join(words[i:j], "") == key {
-					return true
-				}
-			}
-		}
-		return false
-	})
+	b.BlogPosts = enrich.BlogPosts(posts, it, b.Announcement, n)
 }
 
 // decide attaches a decision as the queue does, comparing it with the entry's evidence, which can put the item in
@@ -310,14 +257,6 @@ func cmpOr(s, dflt string) string {
 		return s
 	}
 	return dflt
-}
-
-// genericWords are words of service names that don't identify the service.
-var genericWords = []string{"amazon", "aws", "service", "services"}
-
-// serviceWords returns the words of a service name that identify it: "SageMaker" → sage, maker.
-func serviceWords(service string) []string {
-	return slices.DeleteFunc(whatsnew.Tokens(service), func(w string) bool { return slices.Contains(genericWords, w) })
 }
 
 // mentions reports whether an announcement's headline or body has every one of words.

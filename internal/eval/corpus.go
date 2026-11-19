@@ -46,6 +46,9 @@ type Case struct {
 	Unmatched *bool `hcl:"unmatched,optional"`
 	// State, if set, is the item's expected queue state, such as "covered" or "partial". Item cases only.
 	State string `hcl:"state,optional"`
+	// Blog lists blog post URLs, any of which is a right post for the item: one of them must be in the top 5 blog
+	// posts. A case with Blog measures only blog posts, not reconciliation. Item cases only.
+	Blog []string `hcl:"blog,optional"`
 	// Same and SamePaths label other candidates that are the same work as the input, such as a second duplicate or the
 	// PR that implemented it. They needn't appear, but a confident category on them is correct.
 	Same      []int    `hcl:"same,optional"`
@@ -135,6 +138,15 @@ func (cs *Case) validate() error {
 	}
 	if cs.State != "" && cs.Item == "" {
 		return errors.New("state needs an item")
+	}
+	if len(cs.Blog) > 0 {
+		if cs.Item == "" {
+			return errors.New("blog needs an item")
+		}
+		if len(cs.Expect) > 0 || cs.Unmatched != nil || cs.State != "" || len(cs.Same)+len(cs.SamePaths)+len(cs.Different)+len(cs.DifferentPaths) > 0 {
+			return errors.New("blog cases measure only blog posts: no expect, unmatched, state, same, or different")
+		}
+		return nil
 	}
 	if len(cs.Expect) == 0 && cs.Unmatched == nil && cs.State == "" && len(cs.Different)+len(cs.DifferentPaths) == 0 {
 		return errors.New("needs at least one of expect, unmatched, state, or different")
