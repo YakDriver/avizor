@@ -1937,8 +1937,8 @@ case "item-covered-sample-lambda-2026-08-20" {
   ]
 }
 
-case "item-covered-sample-lambdaweb-2026-10-02" {
-  item  = "aws-sdk-go-v2/lambdaweb/release-2026-10-02"
+case "item-covered-sample-lambdaweb-2026-10-01" {
+  item  = "aws-sdk-go-v2/lambdaweb/release-2026-10-01"
   as_of = "2026-11-13T19:00:00Z"
   code  = true
   kind  = "item-covered-sample"

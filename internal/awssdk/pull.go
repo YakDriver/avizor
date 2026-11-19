@@ -22,6 +22,10 @@ const (
 	SkipModelRemoved = "service model removed"
 )
 
+// ModelsLag bounds how long after an SDK release its models can land in the models repository. Of the 358 releases
+// from 2025-06-01 to 2026-11-18, 7 had a models commit after the release, at most 177 minutes after it.
+const ModelsLag = 4 * time.Hour
+
 // Item is one service's change in one SDK release. Every field is evidence: observed in a release or a model, with
 // where it came from in Provenance.
 type Item struct {
@@ -130,9 +134,20 @@ type Puller struct {
 	// Version is recorded in provenance.
 	Version string
 	Log     func(format string, args ...any)
+	// Now, if set, replaces time.Now, for tests.
+	Now func() time.Time
 
 	cache   map[string]*smithy.Model
 	commits map[string]string
+	// heads are the models commits computed for releases in this pull, by tag.
+	heads map[string]Commit
+}
+
+func (p *Puller) now() time.Time {
+	if p.Now != nil {
+		return p.Now()
+	}
+	return time.Now()
 }
 
 // PullOptions control one pull.
@@ -185,12 +200,14 @@ func (p *Puller) Pull(ctx context.Context, opts PullOptions) (*PullResult, error
 	// Without a fetch, the clone may be missing models for recent releases, and their changes would look like no change.
 	// Only releases the clone provably covers, those published before its newest commit, are pulled then.
 	var coveredUntil time.Time
+	// known is how far the clone's history is complete: now after a fetch, else its newest commit.
+	known := p.now()
 	if !current {
 		tip, err := p.Models.Tip(ctx)
 		if err != nil {
 			return nil, err
 		}
-		coveredUntil = tip.Time
+		coveredUntil, known = tip.Time, tip.Time
 	}
 
 	rels, err := p.Releases.ListReleases(ctx, p.Source.ReleasesRepo, since)
@@ -201,6 +218,19 @@ func (p *Puller) Pull(ctx context.Context, opts PullOptions) (*PullResult, error
 	slices.Reverse(rels)
 
 	p.cache = map[string]*smithy.Model{}
+	p.heads = map[string]Commit{}
+	// Resuming from the checkpoint, releases at or before it were pulled. Their stored models heads are the next
+	// releases' bases, so a commit is never in two releases. An explicit since recomputes every head, to repair.
+	if opts.Since.IsZero() {
+		for _, rel := range rels {
+			if rel.PublishedAt.After(since) {
+				break
+			}
+			if err := p.storedHead(ctx, rel); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if p.Tags != nil {
 		if p.commits, err = p.Tags.TagCommits(ctx, p.Source.ReleasesRepo, "release-*"); err != nil {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("release commits unavailable: %v", err))
@@ -220,15 +250,25 @@ func (p *Puller) Pull(ctx context.Context, opts PullOptions) (*PullResult, error
 				rel.TagName, coveredUntil.Format(time.RFC3339)))
 			break
 		}
-		recs, warn, err := p.pullRelease(ctx, rels[i-1], rel)
+		recs, warn, stop, err := p.pullRelease(ctx, rels, i, known)
 		if err != nil {
 			return res, fmt.Errorf("%s: %w", rel.TagName, err)
 		}
 		if warn != "" {
 			res.Warnings = append(res.Warnings, warn)
 		}
-		if err := p.Store.Put(ctx, recs); err != nil {
-			return res, err
+		if stop {
+			break
+		}
+		if recs != nil {
+			stale, err := p.Store.PutRelease(ctx, p.Source.Name, rel.TagName, recs, p.wanted)
+			if err != nil {
+				return res, err
+			}
+			if len(stale) > 0 {
+				res.Warnings = append(res.Warnings, fmt.Sprintf("%s: removed %d item(s) a re-pull no longer produces: %s",
+					rel.TagName, len(stale), strings.Join(stale, ", ")))
+			}
 		}
 		for _, r := range recs {
 			if r.Status == items.StatusNew {
@@ -272,23 +312,139 @@ func (p *Puller) since(ctx context.Context, override time.Time) (time.Time, bool
 	return t, true, err
 }
 
-func (p *Puller) pullRelease(ctx context.Context, prev, rel github.Release) ([]items.Record, string, error) {
-	base, err := p.Models.CommitAt(ctx, prev.PublishedAt)
-	if err != nil {
-		return nil, "", err
+// releaseHead returns the models commit that completes rels[i]: the last commit at or before its publication, extended
+// over later commits that belong to it. A commit after the release belongs to it when it's before the next release,
+// within ModelsLag, and adds or changes the model of a module the release notes list with more than a dependency update
+// and the next release's notes don't list. Commits that change no model pass. Removals don't count: services are
+// removed by hand, sometimes more than once, and a removed model is skipped anyway. The first commit that doesn't belong ends it,
+// and it and later commits are the next release's, as are all commits when the next release lists the same modules.
+func (p *Puller) releaseHead(ctx context.Context, rels []github.Release, i int) (Commit, error) {
+	rel := rels[i]
+	if h, ok := p.heads[rel.TagName]; ok {
+		return h, nil
 	}
 	head, err := p.Models.CommitAt(ctx, rel.PublishedAt)
+	if err != nil || head.SHA == "" {
+		return head, err
+	}
+	bound := rel.PublishedAt.Add(ModelsLag)
+	var next map[string]*ServiceNotes
+	if i+1 < len(rels) {
+		next = ParseNotes(rels[i+1].Body)
+		if nb := rels[i+1].PublishedAt.Add(-time.Second); nb.Before(bound) {
+			bound = nb
+		}
+	}
+	later, err := p.Models.Commits(ctx, rel.PublishedAt, bound)
 	if err != nil {
-		return nil, "", err
+		return Commit{}, err
+	}
+	listed := ParseNotes(rel.Body)
+	prev := head.SHA
+	for _, c := range later {
+		mods, removes, err := p.changedModules(ctx, prev, c.SHA)
+		if err != nil {
+			return Commit{}, err
+		}
+		prev = c.SHA
+		if len(mods) == 0 {
+			continue
+		}
+		if removes || !slices.ContainsFunc(mods, func(m string) bool { return changeNoted(listed[m]) && next[m] == nil }) {
+			break
+		}
+		head = c
+	}
+	p.heads[rel.TagName] = head
+	return head, nil
+}
+
+// storedHead records the models head stored with rel's items, if any, as rel's head.
+func (p *Puller) storedHead(ctx context.Context, rel github.Release) error {
+	recs, err := p.Store.List(ctx, items.Filter{Source: p.Source.Name, Since: rel.PublishedAt, Until: rel.PublishedAt, Limit: 1})
+	if err != nil || len(recs) == 0 {
+		return err
+	}
+	var it Item
+	if err := json.Unmarshal(recs[0].Data, &it); err != nil {
+		return fmt.Errorf("%s: %w", recs[0].ID, err)
+	}
+	if it.Release.Tag == rel.TagName && it.Provenance.Head.SHA != "" {
+		p.heads[rel.TagName] = it.Provenance.Head
+	}
+	return nil
+}
+
+// changeNoted reports whether a module's notes say more than that its dependencies were updated.
+func changeNoted(sn *ServiceNotes) bool {
+	return sn != nil && slices.ContainsFunc(sn.Notes, func(n Note) bool { return n.Kind != "Dependency Update" })
+}
+
+// changedModules returns the modules whose models differ between two commits, and whether any model was removed.
+func (p *Puller) changedModules(ctx context.Context, base, head string) (mods []string, removes bool, err error) {
+	changes, err := p.Models.ChangedModels(ctx, base, head)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, ch := range changes {
+		commit := head
+		if ch.Status == "D" {
+			commit, removes = base, true
+		}
+		// Cached, so the release's diff doesn't parse the model again.
+		m, err := p.model(ctx, commit, ch.Path, p.cache)
+		if err != nil {
+			return nil, false, fmt.Errorf("%s: %w", ch.Path, err)
+		}
+		if mod := ModuleName(m.SDKID); !slices.Contains(mods, mod) {
+			mods = append(mods, mod)
+		}
+	}
+	return mods, removes, nil
+}
+
+// pullRelease turns rels[i] into records. It reports stop, with a warning, when the release's models may not be in
+// the clone yet: no listed module's model changed, and known, how far the clone's history is complete, is within
+// ModelsLag of the release.
+func (p *Puller) pullRelease(ctx context.Context, rels []github.Release, i int, known time.Time) (recs []items.Record, warn string, stop bool, err error) {
+	prev, rel := rels[i-1], rels[i]
+	base, err := p.releaseHead(ctx, rels, i-1)
+	if err != nil {
+		return nil, "", false, err
+	}
+	head, err := p.releaseHead(ctx, rels, i)
+	if err != nil {
+		return nil, "", false, err
 	}
 	if base.SHA == "" {
-		return nil, fmt.Sprintf("%s: models repository has no history before %s; skipped", rel.TagName, prev.PublishedAt.Format(time.DateOnly)), nil
+		return nil, fmt.Sprintf("%s: models repository has no history before %s; skipped", rel.TagName, prev.PublishedAt.Format(time.DateOnly)), false, nil
 	}
 
 	notes := ParseNotes(rel.Body)
 	changes, err := p.Models.ChangedModels(ctx, base.SHA, head.SHA)
 	if err != nil {
-		return nil, "", err
+		return nil, "", false, err
+	}
+	// The newest release's models aren't settled within ModelsLag: they may not have landed, or a later commit may be
+	// the next release's.
+	if i == len(rels)-1 && known.Before(rel.PublishedAt.Add(ModelsLag)) {
+		atRelease, err := p.Models.CommitAt(ctx, rel.PublishedAt)
+		if err != nil {
+			return nil, "", false, err
+		}
+		mods, _, err := p.changedModules(ctx, base.SHA, head.SHA)
+		if err != nil {
+			return nil, "", false, err
+		}
+		noted := slices.ContainsFunc(sortedKeys(notes), func(m string) bool { return changeNoted(notes[m]) })
+		switch {
+		case head.SHA != atRelease.SHA:
+			return nil, fmt.Sprintf("stopped before %s: models committed after it may be its own or the next release's; pull again %s after it",
+				rel.TagName, ModelsLag), true, nil
+		case noted && !slices.ContainsFunc(mods, func(m string) bool { return changeNoted(notes[m]) }):
+			return nil, fmt.Sprintf("stopped before %s: none of its listed modules has a model change yet, and models can land up to %s after a release; pull again later",
+				rel.TagName, ModelsLag), true, nil
+		}
 	}
 
 	prov := Provenance{
@@ -310,7 +466,7 @@ func (p *Puller) pullRelease(ctx context.Context, prev, rel github.Release) ([]i
 	for _, ch := range changes {
 		it, err := p.modelItem(ctx, ch, base.SHA, head.SHA, nextCache)
 		if err != nil {
-			return nil, "", fmt.Errorf("%s: %w", ch.Path, err)
+			return nil, "", false, fmt.Errorf("%s: %w", ch.Path, err)
 		}
 		if it == nil {
 			continue
@@ -332,7 +488,8 @@ func (p *Puller) pullRelease(ctx context.Context, prev, rel github.Release) ([]i
 		it.Notes = sn.Notes
 	}
 
-	var recs []items.Record
+	// Non-nil, so the release's stored items are replaced even when it has none.
+	recs = []items.Record{}
 	for _, mod := range sortedKeys(byModule) {
 		if !p.wanted(mod) {
 			continue
@@ -347,14 +504,14 @@ func (p *Puller) pullRelease(ctx context.Context, prev, rel github.Release) ([]i
 		}
 		data, err := json.Marshal(it)
 		if err != nil {
-			return nil, "", err
+			return nil, "", false, err
 		}
 		recs = append(recs, items.Record{
 			ID: it.ID, Source: it.Source, Service: mod, Release: rel.TagName, PublishedAt: release.PublishedAt,
 			Status: it.Status, PulledAt: prov.PulledAt, Data: data,
 		})
 	}
-	return recs, "", nil
+	return recs, "", false, nil
 }
 
 // modelItem diffs one changed model file. Parsed head models are added to next, to serve as the following release's
