@@ -74,7 +74,8 @@ type Data struct {
 	// Release is the release name, such as "Release 2025-12-02".
 	Release    string
 	ReleaseURL string
-	// Module and Version are the SDK module and its version in the release.
+	// Module and Version are the SDK module, without the SDK's path prefix ("service/dsql"), and its version in the
+	// release.
 	Module  string
 	Version string
 	// BumpPRURL is the target PR that brought the SDK version in, if it's merged.
@@ -146,7 +147,7 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	// The commit URL is the release's citation: reconciliation takes an issue citing it as tracking the whole release.
 	// A partial draft cites the tag, since it tracks only part of the release.
 	data := Data{Item: it, BlogPost: opts.BlogPost, Release: releaseName(it.Release.Tag), ReleaseURL: cmp(it.Release.CommitURL, it.Release.URL),
-		Module: it.Service.ModulePath, Version: it.Service.ModuleVersion, Service: en.Service, Work: en.Work}
+		Module: strings.TrimPrefix(it.Service.ModulePath, sdkPath), Version: it.Service.ModuleVersion, Service: en.Service, Work: en.Work}
 	if opts.Partial != nil {
 		data.ReleaseURL = cmp(it.Release.URL, it.Release.CommitURL)
 	}
@@ -188,7 +189,7 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	}
 	data.Resources = resources(en, pkg, opts.Prefix, decide)
 	var targets, names []string
-	data.Changes, data.ChangeNotes, targets, names = changes(en, opts.Checkout, decide)
+	data.Changes, data.ChangeNotes, targets, names = changes(en, opts.Checkout, data.Notes, decide)
 	d.Title, d.Labels = titleAndLabels(it, en, data.Headline, opts, targets, names, infer)
 	if p := opts.Partial; p != nil {
 		for _, c := range p.Covering {
@@ -290,13 +291,18 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 		for _, n := range newTypes {
 			infer("terraform_name", n, "provider prefix, service package, and the new operations' noun in snake case")
 		}
+		if len(newDataSources) == 0 {
+			title := "New resources: " + addNames(newTypes)
+			infer("title", title, "new resources inferred from the new operations")
+			return title, labels
+		}
 	case len(newDataSources) == 1:
 		title := fmt.Sprintf("New data source: `%s`", newDataSources[0])
 		infer("title", title, "one new data source inferred from new read-only operations")
 		infer("terraform_name", newDataSources[0], "provider prefix, service package, and the new operations' noun in snake case")
 		return title, labels
 	case len(newTypes) == 0 && len(newDataSources) == 0 && len(targets) == 1 && len(names) > 0:
-		title := fmt.Sprintf("r/%s: Add %s", targets[0], addNames(names))
+		title := fmt.Sprintf("r/`%s`: Add %s", targets[0], addNames(names))
 		infer("title", title, "new members of operations called only by "+targets[0])
 		return title, labels
 	}
@@ -431,6 +437,9 @@ func isBump(c reconcile.Candidate) bool {
 func isBug(c reconcile.Candidate) bool {
 	return slices.Contains(c.Labels, "bug") || strings.HasPrefix(strings.ToLower(c.Title), "[bug]")
 }
+
+// sdkPath prefixes the SDK's module paths.
+const sdkPath = "github.com/aws/aws-sdk-go-v2/"
 
 // releaseName turns "release-2025-12-02" into "Release 2025-12-02".
 func releaseName(tag string) string {

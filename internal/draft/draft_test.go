@@ -37,8 +37,8 @@ func implemented(pkg string, work ...enrich.Work) *enrich.Result {
 
 var opts = Options{Repo: "o/r", Prefix: "aws_"}
 
-const requires = "Requires AWS SDK for Go v2 [Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc) " +
-	"(`github.com/aws/aws-sdk-go-v2/service/widget` v1.2.0). The target has it since https://github.com/o/r/pull/10."
+const requires = "Requires `service/widget` v1.2.0 ([Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc)). " +
+	"The target has it since https://github.com/o/r/pull/10."
 
 func inferred(d *Draft, field string) []string {
 	var out []string
@@ -95,7 +95,7 @@ func TestNewArgument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Title != "r/aws_widget_thing: Add `size`" {
+	if d.Title != "r/`aws_widget_thing`: Add `size`" {
 		t.Errorf("title = %q", d.Title)
 	}
 }
@@ -225,17 +225,27 @@ func TestAnnouncement(t *testing.T) {
 		t.Errorf("body =\n%s\nwant\n%s", d.Body, want)
 	}
 
-	// A chosen blog post is linked below the announcement.
+	// A chosen blog post is linked after the announcement, which already has a title.
 	o.BlogPost = &whatsnew.Post{Title: "Widget sizes deep dive", URL: "https://aws.amazon.com/blogs/x/sizes/"}
 	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
 		t.Fatal(err)
 	}
-	want = "> Adds sizes. More.\n\n[Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/)\n\n" +
-		"Blog post: [Widget sizes deep dive](https://aws.amazon.com/blogs/x/sizes/)\n\n" + requires + "\n"
+	want = "> Adds sizes. More.\n\n[Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/) " +
+		"([blog post](https://aws.amazon.com/blogs/x/sizes/))\n\n" + requires + "\n"
 	if d.Body != want {
 		t.Errorf("body with a blog post =\n%s\nwant\n%s", d.Body, want)
 	}
-	o.BlogPost = nil
+
+	// Without the announcement, the blog post has its own line.
+	o.Announcement = false
+	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
+		t.Fatal(err)
+	}
+	want = "> Adds sizes. More.\n\n[Blog post](https://aws.amazon.com/blogs/x/sizes/)\n\n" + requires + "\n"
+	if d.Body != want {
+		t.Errorf("body with only a blog post =\n%s\nwant\n%s", d.Body, want)
+	}
+	o.Announcement, o.BlogPost = true, nil
 
 	// Asking for an announcement when none matched warns, even with no release notes.
 	if d, err = New(item("widget", NewModuleNote), implemented("widget"), nil, o); err != nil {
@@ -251,5 +261,27 @@ func TestAnnouncement(t *testing.T) {
 	}
 	if !strings.HasPrefix(d.Body, "> Adds sizes.") || !slices.ContainsFunc(d.Warnings, func(w string) bool { return strings.Contains(w, "no announcement matched") }) {
 		t.Errorf("body =\n%s\nwarnings %q", d.Body, d.Warnings)
+	}
+}
+
+// Several new resources are named in the title.
+func TestNewResources(t *testing.T) {
+	t.Parallel()
+
+	en := implemented("widget", enrich.Work{Kind: enrich.WorkNewResource, Subject: "Router"}, enrich.Work{Kind: enrich.WorkNewResource, Subject: "Policy"},
+		enrich.Work{Kind: enrich.WorkNewResource, Subject: "Route"}, enrich.Work{Kind: enrich.WorkNewResource, Subject: "Rule"})
+	d, err := New(item("widget", "Adds routers."), en, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "New resources: `aws_widget_router`, `aws_widget_policy`, and 2 more"; d.Title != want {
+		t.Errorf("title = %q, want %q", d.Title, want)
+	}
+	en.Work = en.Work[:2]
+	if d, err = New(item("widget", "Adds routers."), en, nil, opts); err != nil {
+		t.Fatal(err)
+	}
+	if want := "New resources: `aws_widget_router` and `aws_widget_policy`"; d.Title != want {
+		t.Errorf("title = %q, want %q", d.Title, want)
 	}
 }

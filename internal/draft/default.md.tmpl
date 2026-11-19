@@ -1,12 +1,12 @@
 {{- /* Body of a new issue for an SDK item. Data: see draft.Data. */ -}}
 {{range .Notes}}> {{.}}
 
-{{end}}{{if .Announcement}}[{{.Announcement.Headline}}]({{.Announcement.URL}})
+{{end}}{{if .Announcement}}[{{.Announcement.Headline}}]({{.Announcement.URL}}){{if .BlogPost}} ([blog post]({{.BlogPost.URL}})){{end}}
 
-{{end}}{{if .BlogPost}}Blog post: [{{.BlogPost.Title}}]({{.BlogPost.URL}})
+{{else if .BlogPost}}[Blog post]({{.BlogPost.URL}})
 
 {{end -}}
-Requires AWS SDK for Go v2 [{{.Release}}]({{.ReleaseURL}}){{if .Module}} (`{{.Module}}` {{.Version}}){{end}}.{{if .BumpPRURL}} The target has it since {{.BumpPRURL}}.{{end}}
+Requires {{if .Module}}`{{.Module}}` {{.Version}} ([{{.Release}}]({{.ReleaseURL}})){{else}}AWS SDK for Go v2 [{{.Release}}]({{.ReleaseURL}}){{end}}.{{if .BumpPRURL}} The target has it since {{.BumpPRURL}}.{{end}}
 {{if or .Resources .Changes}}
 ## Scope
 {{range .Resources}}
@@ -19,10 +19,7 @@ Notes:
 {{range .Notes}}- {{.}}
 {{end}}{{end}}{{end}}{{if .Changes}}
 {{range .Changes}}{{.}}
-{{end}}{{if .ChangeNotes}}
-Notes:
-
-{{range .ChangeNotes}}- {{.}}
-{{end}}{{end}}{{end}}{{end}}{{if .Relates}}
+{{end}}{{range .ChangeNotes}}- {{.}}
+{{end}}{{end}}{{end}}{{if .Relates}}
 {{range .Relates}}Relates #{{.}}
 {{end}}{{end}}

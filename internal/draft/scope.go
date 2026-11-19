@@ -316,7 +316,10 @@ func createInput(subject string) bool {
 // changes renders new arguments, attributes, enum values, and other work on existing resources, with notes. It also
 // returns the resources the arguments and attributes are in, and the names for a title: the arguments' in a known
 // resource, or with none, the attributes'.
-func changes(en *enrich.Result, checkout string, decide decider) (lines, notes, targets []string, names []string) {
+//
+// When every line is about one resource, lines leave out its name, which the title has. Lines leave out the API fields
+// when the release notes name all of their operations.
+func changes(en *enrich.Result, checkout string, releaseNotes []string, decide decider) (lines, notes, targets []string, names []string) {
 	var attrNames []string
 	defer func() {
 		if len(names) == 0 {
@@ -382,6 +385,7 @@ func changes(en *enrich.Result, checkout string, decide decider) (lines, notes, 
 	}
 
 	seenPlace := map[string]bool{}
+	var headed []int // lines that start with their one resource
 	for _, c := range cs {
 		where := c.name
 		if len(c.paths) == 1 && c.paths[0] != "" {
@@ -403,12 +407,17 @@ func changes(en *enrich.Result, checkout string, decide decider) (lines, notes, 
 			kind = "argument"
 		}
 		line := fmt.Sprintf("- %s: new %s `%s`", head, kind, where)
+		if len(rs) == 1 {
+			headed = append(headed, len(lines))
+		}
 		if c.field != nil {
 			line += " (" + fieldText(*c.field, c.argument) + ")"
 		}
-		line += ", from " + joinAnd(c.subjects)
-		if len(c.returned) > 0 {
-			line += "; returned by " + joinAnd(c.returned)
+		if !namedOperations(releaseNotes, c.works) {
+			line += ", from " + joinAnd(c.subjects)
+			if len(c.returned) > 0 {
+				line += "; returned by " + joinAnd(c.returned)
+			}
 		}
 		line += "."
 		switch {
@@ -471,6 +480,13 @@ func changes(en *enrich.Result, checkout string, decide decider) (lines, notes, 
 		}
 	}
 
+	if len(targets) == 1 && len(headed) == len(cs) {
+		for _, i := range headed {
+			rest := strings.TrimPrefix(lines[i], "- `"+targets[0]+"`: new ")
+			lines[i] = "- New " + rest
+		}
+	}
+
 	for _, w := range en.Work {
 		switch w.Kind {
 		case enrich.WorkNewEnumValue:
@@ -498,6 +514,47 @@ func changes(en *enrich.Result, checkout string, decide decider) (lines, notes, 
 		}
 	}
 	return lines, notes, targets, names
+}
+
+// namedOperations reports whether the release notes name, as whole words, every operation the works' members come
+// from or are returned by: "CreateCluster" for "CreateClusterInput.metricGroups" when CreateCluster is one of the work's
+// operations. A member of a shape that isn't an operation's own input or output, such as a nested structure, isn't named.
+func namedOperations(releaseNotes []string, works []enrich.Work) bool {
+	text := strings.Join(releaseNotes, "\n")
+	for _, w := range works {
+		shape, _, _ := strings.Cut(w.Subject, ".")
+		op := slices.IndexFunc(w.Operations, func(o string) bool {
+			return slices.ContainsFunc([]string{"Input", "Output", "Request", "Response"}, func(suffix string) bool { return shape == o+suffix })
+		})
+		if op < 0 || !wordIn(text, w.Operations[op]) {
+			return false
+		}
+		for _, r := range w.Returns {
+			if !wordIn(text, r) {
+				return false
+			}
+		}
+	}
+	return len(works) > 0
+}
+
+// wordIn reports whether w is in text with no letter or digit on either side.
+func wordIn(text, w string) bool {
+	for i := 0; ; {
+		j := strings.Index(text[i:], w)
+		if j < 0 {
+			return false
+		}
+		start, end := i+j, i+j+len(w)
+		if (start == 0 || !alnum(text[start-1])) && (end == len(text) || !alnum(text[end])) {
+			return true
+		}
+		i = start + 1
+	}
+}
+
+func alnum(b byte) bool {
+	return 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z' || '0' <= b && b <= '9'
 }
 
 // changeResources returns the Terraform resources in the files that call all of the works' operations, or, if no file
