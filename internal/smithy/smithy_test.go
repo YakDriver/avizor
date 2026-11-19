@@ -1,6 +1,8 @@
 package smithy
 
 import (
+	"encoding/json"
+	"maps"
 	"slices"
 	"testing"
 )
@@ -274,5 +276,107 @@ func TestParseTraits(t *testing.T) {
 	}
 	if _, ok := info["Plain"]; ok {
 		t.Error("Req.Plain has info; members without traits are left out")
+	}
+}
+
+// TestParseNamespaces checks that another namespace's shapes are kept only when the service reaches them, that its
+// unreachable shapes don't replace the service's shapes of the same name, and that the result is the same every time.
+func TestParseNamespaces(t *testing.T) {
+	t.Parallel()
+
+	model := func(extraOp bool) []byte {
+		shapes := map[string]any{
+			"com.amazonaws.x#Svc": map[string]any{"type": "service", "operations": []any{map[string]any{"target": "com.amazonaws.x#TagResource"}},
+				"traits": map[string]any{"aws.api#service": map[string]any{"sdkId": "X"}}},
+			"com.amazonaws.x#TagResource":        map[string]any{"type": "operation", "input": map[string]any{"target": "com.amazonaws.x#TagResourceRequest"}},
+			"com.amazonaws.x#TagResourceRequest": map[string]any{"type": "structure", "members": map[string]any{"Arn": map[string]any{"target": "com.other#Arn"}}},
+			// Reached from the service through a member: kept.
+			"com.other#Arn": map[string]any{"type": "string"},
+			// Not reached: dropped, though it shares the service's names.
+			"com.other#TagResource":        map[string]any{"type": "operation", "input": map[string]any{"target": "com.other#TagResourceRequest"}},
+			"com.other#TagResourceRequest": map[string]any{"type": "structure", "members": map[string]any{"Tags": map[string]any{"target": "smithy.api#String"}}},
+		}
+		if extraOp {
+			shapes["com.other#TransformData"] = map[string]any{"type": "operation"}
+		}
+		b, _ := json.Marshal(map[string]any{"smithy": "2.0", "shapes": shapes})
+		return b
+	}
+	for range 50 {
+		m, err := Parse(model(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := m.Shapes["TagResourceRequest"].Members; len(got) != 1 || got["Arn"] != "Arn" {
+			t.Fatalf("TagResourceRequest members = %v", got)
+		}
+		if _, ok := m.Shapes["Arn"]; !ok {
+			t.Fatal("reached shape from another namespace dropped")
+		}
+		if ops := m.Operations(); !slices.Equal(ops, []string{"TagResource"}) {
+			t.Fatalf("operations = %v", ops)
+		}
+	}
+	old, _ := Parse(model(false))
+	cur, _ := Parse(model(true))
+	if d := Compare(old, cur); !d.Empty() {
+		t.Errorf("an unbound operation in another namespace is a change: %+v", d)
+	}
+}
+
+// TestParseClosureEdges checks that a shape in another namespace is kept when the service reaches it through each kind
+// of reference.
+func TestParseClosureEdges(t *testing.T) {
+	t.Parallel()
+
+	ref := func(id string) map[string]any { return map[string]any{"target": id} }
+	for _, tc := range []struct {
+		name  string
+		svc   map[string]any            // fields added to the service shape
+		local map[string]map[string]any // more shapes in the service's namespace
+	}{
+		{"service operation", map[string]any{"operations": []any{ref("com.other#Want")}}, nil},
+		{"service resource", map[string]any{"resources": []any{ref("com.other#Want")}}, nil},
+		{"service error", map[string]any{"errors": []any{ref("com.other#Want")}}, nil},
+		{"resource lifecycle", map[string]any{"resources": []any{ref("com.amazonaws.x#R")}},
+			map[string]map[string]any{"com.amazonaws.x#R": {"type": "resource", "read": ref("com.other#Want")}}},
+		{"resource identifier", map[string]any{"resources": []any{ref("com.amazonaws.x#R")}},
+			map[string]map[string]any{"com.amazonaws.x#R": {"type": "resource", "identifiers": map[string]any{"id": ref("com.other#Want")}}}},
+		{"resource property", map[string]any{"resources": []any{ref("com.amazonaws.x#R")}},
+			map[string]map[string]any{"com.amazonaws.x#R": {"type": "resource", "properties": map[string]any{"p": ref("com.other#Want")}}}},
+		{"resource collection operation", map[string]any{"resources": []any{ref("com.amazonaws.x#R")}},
+			map[string]map[string]any{"com.amazonaws.x#R": {"type": "resource", "collectionOperations": []any{ref("com.other#Want")}}}},
+		{"operation error", map[string]any{"operations": []any{ref("com.amazonaws.x#Op")}},
+			map[string]map[string]any{"com.amazonaws.x#Op": {"type": "operation", "errors": []any{ref("com.other#Want")}}}},
+		{"operation output", map[string]any{"operations": []any{ref("com.amazonaws.x#Op")}},
+			map[string]map[string]any{"com.amazonaws.x#Op": {"type": "operation", "output": ref("com.other#Want")}}},
+		{"mixin", map[string]any{"operations": []any{ref("com.amazonaws.x#Op")}},
+			map[string]map[string]any{"com.amazonaws.x#Op": {"type": "operation", "input": ref("com.amazonaws.x#In")},
+				"com.amazonaws.x#In": {"type": "structure", "mixins": []any{ref("com.other#Want")}}}},
+		{"list member", map[string]any{"operations": []any{ref("com.amazonaws.x#Op")}},
+			map[string]map[string]any{"com.amazonaws.x#Op": {"type": "operation", "input": ref("com.amazonaws.x#L")},
+				"com.amazonaws.x#L": {"type": "list", "member": ref("com.other#Want")}}},
+		{"map value", map[string]any{"operations": []any{ref("com.amazonaws.x#Op")}},
+			map[string]map[string]any{"com.amazonaws.x#Op": {"type": "operation", "input": ref("com.amazonaws.x#M")},
+				"com.amazonaws.x#M": {"type": "map", "key": ref("smithy.api#String"), "value": ref("com.other#Want")}}},
+	} {
+		svc := map[string]any{"type": "service", "traits": map[string]any{"aws.api#service": map[string]any{"sdkId": "X"}}}
+		maps.Copy(svc, tc.svc)
+		shapes := map[string]any{"com.amazonaws.x#Svc": svc, "com.other#Want": map[string]any{"type": "structure"},
+			"com.other#Unreached": map[string]any{"type": "structure"}}
+		for id, s := range tc.local {
+			shapes[id] = s
+		}
+		b, _ := json.Marshal(map[string]any{"smithy": "2.0", "shapes": shapes})
+		m, err := Parse(b)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if _, ok := m.Shapes["Want"]; !ok {
+			t.Errorf("%s: reached shape dropped", tc.name)
+		}
+		if _, ok := m.Shapes["Unreached"]; ok {
+			t.Errorf("%s: unreached shape kept", tc.name)
+		}
 	}
 }

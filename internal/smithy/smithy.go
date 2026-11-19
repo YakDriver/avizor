@@ -146,6 +146,69 @@ type astShape struct {
 	Member  *astMember                 `json:"member"`
 	Key     *astMember                 `json:"key"`
 	Value   *astMember                 `json:"value"`
+
+	// Service and resource bindings, and other references, for the service closure.
+	Operations           []astMember          `json:"operations"`
+	Resources            []astMember          `json:"resources"`
+	Errors               []astMember          `json:"errors"`
+	CollectionOperations []astMember          `json:"collectionOperations"`
+	Mixins               []astMember          `json:"mixins"`
+	Identifiers          map[string]astMember `json:"identifiers"`
+	Properties           map[string]astMember `json:"properties"`
+	Create               *astMember           `json:"create"`
+	Put                  *astMember           `json:"put"`
+	Read                 *astMember           `json:"read"`
+	Update               *astMember           `json:"update"`
+	Delete               *astMember           `json:"delete"`
+	List                 *astMember           `json:"list"`
+}
+
+// refs returns the shape IDs a shape refers to.
+func (s *astShape) refs() []string {
+	var out []string
+	add := func(ms ...*astMember) {
+		for _, m := range ms {
+			if m != nil {
+				out = append(out, m.Target)
+			}
+		}
+	}
+	add(s.Input, s.Output, s.Member, s.Key, s.Value, s.Create, s.Put, s.Read, s.Update, s.Delete, s.List)
+	for _, list := range [][]astMember{s.Operations, s.Resources, s.Errors, s.CollectionOperations, s.Mixins} {
+		for i := range list {
+			add(&list[i])
+		}
+	}
+	for _, m := range []map[string]astMember{s.Members, s.Identifiers, s.Properties} {
+		for _, k := range sortedKeys(m) {
+			mem := m[k]
+			add(&mem)
+		}
+	}
+	return out
+}
+
+// closure returns the IDs of the shapes the model's service shapes reach, which are the shapes the SDK is generated
+// from. Shapes outside it, such as another namespace's operations no service binds, aren't part of the API.
+func (ast *astModel) closure() map[string]bool {
+	seen := map[string]bool{}
+	var stack []string
+	for _, id := range sortedKeys(ast.Shapes) {
+		if ast.Shapes[id].Type == TypeService {
+			stack = append(stack, id)
+		}
+	}
+	for len(stack) > 0 {
+		id := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		s, ok := ast.Shapes[id]
+		if !ok || seen[id] {
+			continue
+		}
+		seen[id] = true
+		stack = append(stack, s.refs()...)
+	}
+	return seen
 }
 
 type astMember struct {
@@ -153,16 +216,37 @@ type astMember struct {
 	Traits map[string]json.RawMessage `json:"traits"`
 }
 
-// Parse reads a Smithy JSON AST model. Shapes from other namespaces (prelude references) aren't in the file, so all
-// shapes are keyed by their name after "#".
+// Parse reads a Smithy JSON AST model, keying shapes by their name after "#". It keeps the shapes in the service's
+// namespace, and the shapes of other namespaces that the service closure reaches. The SDK is generated from the
+// closure, and Smithy requires shape names in it to be unique. Other namespaces' unreachable shapes, such as
+// operations no service binds, aren't part of the API, and their names can collide with the service's. Should names
+// still collide, the service's namespace wins, then the first shape ID in sorted order, so parsing is deterministic.
 func Parse(data []byte) (*Model, error) {
 	var ast astModel
 	if err := json.Unmarshal(data, &ast); err != nil {
 		return nil, fmt.Errorf("parsing Smithy model: %w", err)
 	}
-	m := &Model{Shapes: make(map[string]Shape, len(ast.Shapes))}
+	inClosure := ast.closure()
+	own := map[string]bool{}
 	for id, s := range ast.Shapes {
+		if s.Type == TypeService {
+			own[namespace(id)] = true
+		}
+	}
+	ids := sortedKeys(ast.Shapes)
+	slices.SortStableFunc(ids, func(a, b string) int {
+		return cmpBool(!own[namespace(a)], !own[namespace(b)])
+	})
+	m := &Model{Shapes: make(map[string]Shape, len(ast.Shapes))}
+	for _, id := range ids {
+		if !own[namespace(id)] && !inClosure[id] {
+			continue
+		}
+		s := ast.Shapes[id]
 		name := shortName(id)
+		if _, dup := m.Shapes[name]; dup {
+			continue
+		}
 		sh := Shape{Type: s.Type, Doc: docOf(s.Traits), Constraints: constraintsOf(s.Traits)}
 		if s.Input != nil {
 			sh.Input = shortName(s.Input.Target)
@@ -267,6 +351,23 @@ func (m *Model) typeOf(name string) string {
 		return s.Type
 	}
 	return preludeTypes[name]
+}
+
+func namespace(id string) string {
+	ns, _, _ := strings.Cut(id, "#")
+	return ns
+}
+
+// cmpBool orders false before true.
+func cmpBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case !a:
+		return -1
+	default:
+		return 1
+	}
 }
 
 func shortName(id string) string {
