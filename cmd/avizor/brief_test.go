@@ -111,7 +111,7 @@ func TestRankPosts(t *testing.T) {
 	posts := whatsnew.NewMatcher(whatsnew.PostsAsAnnouncements([]whatsnew.Post{
 		{URL: "u-stats", Title: "Use query statistics to find slow queries in Aurora DSQL", PostedAt: rel.Add(day),
 			Tags: []string{whatsnew.LaunchTag, "blog-posts#category-database-amazon-aurora#dsql"}},
-		{URL: "u-late", Title: "Aurora DSQL query statistics, a month on", PostedAt: rel.Add(22 * day)},
+		{URL: "u-late", Title: "Aurora DSQL query statistics, two months on", PostedAt: rel.Add(46 * day)},
 		{URL: "u-early", Title: "Aurora DSQL statistics preview", PostedAt: rel.Add(-4 * day)},
 		{URL: "u-other", Title: "Amazon S3 adds annotations", PostedAt: rel.Add(2 * day), Tags: []string{"blog-posts#category-storage#amazon-s3"}},
 	}))
@@ -121,7 +121,7 @@ func TestRankPosts(t *testing.T) {
 	b.rankPosts(it, posts, 0)
 	if len(b.BlogPosts) != 2 || b.BlogPosts[0].URL != "u-stats" || !b.BlogPosts[0].Launch || !b.BlogPosts[0].TaggedService ||
 		b.BlogPosts[1].TaggedService || b.BlogPosts[0].Days != 1 {
-		t.Errorf("blog posts = %+v; want the stats post first, and posts outside 3 days before to 21 after left out", b.BlogPosts)
+		t.Errorf("blog posts = %+v; want the stats post first, and posts outside 3 days before to 45 after left out", b.BlogPosts)
 	}
 
 	var none Brief

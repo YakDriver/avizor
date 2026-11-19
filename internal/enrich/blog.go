@@ -26,7 +26,7 @@ type BlogPost struct {
 // Blog posts often come days after the release, so the window reaches further after it than for announcements.
 const (
 	BlogBefore = 3 * 24 * time.Hour
-	BlogAfter  = 21 * 24 * time.Hour
+	BlogAfter  = 45 * 24 * time.Hour
 )
 
 // Ranking boosts: a launch announcement's score counts 1.5 times, and a post tagged with the service 1.25 times
