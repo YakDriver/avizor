@@ -53,7 +53,7 @@ type Brief struct {
 	// Announcement is the matcher's pick, if it made one. Announcements are every post within the window, best first.
 	Announcement  *whatsnew.Match     `json:"announcement,omitempty"`
 	Announcements []BriefAnnouncement `json:"announcements"`
-	// BlogPosts are the blog posts created from 3 days before the release to 21 days after, best first. An issue
+	// BlogPosts are the blog posts created from 3 days before the release to 45 days after, best first. An issue
 	// with a related post should link it; the reader picks.
 	BlogPosts []enrich.BlogPost `json:"blog_posts"`
 	// Warnings are the enrichment's and reconciliation's, such as a failed model load, an unsynced index, or a
@@ -346,7 +346,7 @@ func writeBriefText(w io.Writer, b Brief) {
 		p("  %.2f  %+5.1fd  %s%s", a.Score, a.Days, a.Headline, tail)
 		p("               %s", a.URL)
 	}
-	p("\nblog posts (created 3 days before to 21 days after the release, best first)")
+	p("\nblog posts (created 3 days before to 45 days after the release, best first)")
 	if len(b.BlogPosts) == 0 {
 		p("  none")
 	}
