@@ -1,6 +1,7 @@
 package smithy
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 )
@@ -274,5 +275,50 @@ func TestParseTraits(t *testing.T) {
 	}
 	if _, ok := info["Plain"]; ok {
 		t.Error("Req.Plain has info; members without traits are left out")
+	}
+}
+
+// TestParseNamespaces checks that another namespace's shapes are kept only when the service reaches them, that its
+// unreachable shapes don't replace the service's shapes of the same name, and that the result is the same every time.
+func TestParseNamespaces(t *testing.T) {
+	t.Parallel()
+
+	model := func(extraOp bool) []byte {
+		shapes := map[string]any{
+			"com.amazonaws.x#Svc": map[string]any{"type": "service", "operations": []any{map[string]any{"target": "com.amazonaws.x#TagResource"}},
+				"traits": map[string]any{"aws.api#service": map[string]any{"sdkId": "X"}}},
+			"com.amazonaws.x#TagResource":        map[string]any{"type": "operation", "input": map[string]any{"target": "com.amazonaws.x#TagResourceRequest"}},
+			"com.amazonaws.x#TagResourceRequest": map[string]any{"type": "structure", "members": map[string]any{"Arn": map[string]any{"target": "com.other#Arn"}}},
+			// Reached from the service through a member: kept.
+			"com.other#Arn": map[string]any{"type": "string"},
+			// Not reached: dropped, though it shares the service's names.
+			"com.other#TagResource":        map[string]any{"type": "operation", "input": map[string]any{"target": "com.other#TagResourceRequest"}},
+			"com.other#TagResourceRequest": map[string]any{"type": "structure", "members": map[string]any{"Tags": map[string]any{"target": "smithy.api#String"}}},
+		}
+		if extraOp {
+			shapes["com.other#TransformData"] = map[string]any{"type": "operation"}
+		}
+		b, _ := json.Marshal(map[string]any{"smithy": "2.0", "shapes": shapes})
+		return b
+	}
+	for range 50 {
+		m, err := Parse(model(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := m.Shapes["TagResourceRequest"].Members; len(got) != 1 || got["Arn"] != "Arn" {
+			t.Fatalf("TagResourceRequest members = %v", got)
+		}
+		if _, ok := m.Shapes["Arn"]; !ok {
+			t.Fatal("reached shape from another namespace dropped")
+		}
+		if ops := m.Operations(); !slices.Equal(ops, []string{"TagResource"}) {
+			t.Fatalf("operations = %v", ops)
+		}
+	}
+	old, _ := Parse(model(false))
+	cur, _ := Parse(model(true))
+	if d := Compare(old, cur); !d.Empty() {
+		t.Errorf("an unbound operation in another namespace is a change: %+v", d)
 	}
 }
