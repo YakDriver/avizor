@@ -487,6 +487,13 @@ case "blog-missing" {
 		t.Errorf("blog metrics = %+v", m)
 	}
 
+	// A URL repeated across the top-5 boundary keeps its first rank.
+	var repeated CaseResult
+	scoreBlog(&Case{Blog: []string{"https://aws.amazon.com/blogs/x/a"}}, append(slices.Clone(posts), Returned{Ref: "https://aws.amazon.com/blogs/x/a"}), &repeated)
+	if !repeated.Pass || repeated.Expected[0].Rank != 1 {
+		t.Errorf("repeated URL = %+v", repeated)
+	}
+
 	// Blog cases need an item and measure only blog posts.
 	for body, want := range map[string]string{
 		`case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "blog"` + "\n" + `blog = ["u"]` + "\n}":                         "blog needs an item",

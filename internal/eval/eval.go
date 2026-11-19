@@ -420,7 +420,10 @@ func score(cs *Case, res *reconcile.Result, cr *CaseResult) {
 func scoreBlog(cs *Case, posts []Returned, cr *CaseResult) {
 	ranks := map[string]int{}
 	for i, p := range posts {
-		ranks[strings.TrimSuffix(p.Ref, "/")] = i + 1
+		// The first rank counts: a URL listed twice, with and without a trailing slash, keeps its better rank.
+		if u := strings.TrimSuffix(p.Ref, "/"); ranks[u] == 0 {
+			ranks[u] = i + 1
+		}
 		if i < 10 {
 			cr.Top = append(cr.Top, Returned{Rank: i + 1, Ref: p.Ref, Title: p.Title})
 		}
