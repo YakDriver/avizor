@@ -52,9 +52,10 @@ type PostEntry struct {
 	Title  string `json:"title"`
 	Posted string `json:"posted"`
 	// Launch is set for a post tagged as a launch announcement, and NewsBlog for a post on the AWS News Blog.
-	Launch   bool   `json:"launch,omitempty"`
-	NewsBlog bool   `json:"news_blog,omitempty"`
-	State    string `json:"state"`
+	Launch   bool `json:"launch,omitempty"`
+	NewsBlog bool `json:"news_blog,omitempty"`
+	PostSignificance
+	State string `json:"state"`
 	// Numbers are the issues and PRs that cover the post: the decision's, or else the covering candidates'.
 	Numbers  []int              `json:"numbers,omitempty"`
 	Decision *items.Disposition `json:"decision,omitempty"`
@@ -66,6 +67,8 @@ type PostEntry struct {
 	// of the rest.
 	Covering []PostCandidate `json:"covering"`
 	Related  []PostCandidate `json:"related"`
+	// Services are the provider services reconciliation inferred from the post.
+	Services []string `json:"services,omitempty"`
 
 	// byDecision is set when the decision sets the state.
 	byDecision bool
@@ -91,12 +94,28 @@ type PostCandidate struct {
 	Signals []string `json:"signals,omitempty"`
 }
 
-// PostsSummary counts the posts in the window by state. Coverage is covered / (covered + open): the share of posts
-// that need work and have it tracked. Posts decided as no work, and deferred ones, don't count.
+// PostsSummary counts the posts in the window by state, and Significant counts the significant ones. Coverage is
+// covered / (covered + open): the share of posts that need work and have it tracked. Posts decided as no work, and
+// deferred ones, don't count.
 type PostsSummary struct {
+	PostCounts
+	Significant PostCounts `json:"significant"`
+}
+
+// PostCounts counts posts by state, with their coverage.
+type PostCounts struct {
 	Posts    int            `json:"posts"`
 	Counts   map[string]int `json:"counts"`
 	Coverage float64        `json:"coverage"`
+}
+
+// add counts a post.
+func (c *PostCounts) add(state string) {
+	c.Posts++
+	c.Counts[state]++
+	if n := c.Counts[PostCovered] + c.Counts[PostOpen]; n > 0 {
+		c.Coverage = float64(c.Counts[PostCovered]) / float64(n)
+	}
 }
 
 // PostsResult is the output of avizor posts.
@@ -113,6 +132,7 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	sinceFlag := fs.String("since", "30d", "only posts created since a date, RFC 3339 time, or age (30d)")
 	launch := fs.Bool("launch", false, "only posts tagged as launch announcements")
 	all := fs.Bool("all", false, "also show covered, no-work, and deferred posts")
+	significant := fs.Bool("significant", false, "only show significant posts (the summary counts all posts and significant ones)")
 	states := fs.String("state", "", "only these states, comma-separated (overrides --all): "+strings.Join(postStates, ", "))
 	noCode := fs.Bool("no-code", false, "don't search the target checkout")
 	related := fs.Int("related", 3, "maximum related issues and PRs per post")
@@ -135,7 +155,8 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 			want = append(want, s)
 		}
 	}
-	shown := func(s string) bool { return (want == nil && (*all || s == PostOpen)) || slices.Contains(want, s) }
+	shownState := func(s string) bool { return (want == nil && (*all || s == PostOpen)) || slices.Contains(want, s) }
+	shown := func(e PostEntry) bool { return shownState(e.State) && (!*significant || e.Significant) }
 	since, err := parseSince(*sinceFlag, time.Now())
 	if err != nil {
 		return fmt.Errorf("%w: %v", errUsage, err)
@@ -201,7 +222,8 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	close(next)
 	wg.Wait()
 
-	out := PostsResult{Posts: []PostEntry{}, Summary: PostsSummary{Counts: map[string]int{}}}
+	out := PostsResult{Posts: []PostEntry{}, Summary: PostsSummary{PostCounts: PostCounts{Counts: map[string]int{}},
+		Significant: PostCounts{Counts: map[string]int{}}}}
 	warned := map[string]bool{}
 	for i, p := range ps {
 		if errs[i] != nil {
@@ -222,19 +244,18 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		if early[p.URL] && e.State != PostOpen {
 			continue
 		}
-		out.Summary.Posts++
-		out.Summary.Counts[e.State]++
-		if shown(e.State) {
+		out.Summary.add(e.State)
+		if e.Significant {
+			out.Summary.Significant.add(e.State)
+		}
+		if shown(e) {
 			out.Posts = append(out.Posts, e)
 		}
-	}
-	if n := out.Summary.Counts[PostCovered] + out.Summary.Counts[PostOpen]; n > 0 {
-		out.Summary.Coverage = float64(out.Summary.Counts[PostCovered]) / float64(n)
 	}
 	if c.format != "text" {
 		return writeJSON(stdout, out)
 	}
-	return writePostsText(stdout, out, shown)
+	return writePostsText(stdout, out, shownState, *significant)
 }
 
 // postAnnouncements returns the announcements matched to a post, best first.
@@ -306,8 +327,13 @@ func revisitDue(d items.Disposition, now time.Time) bool {
 // issue or PR candidate covers the post.
 func postEntry(p whatsnew.Post, anns []PostAnnouncement, res *reconcile.Result, d *items.Disposition, relatedLimit int, now time.Time) PostEntry {
 	e := PostEntry{URL: p.URL, Title: p.Title, Posted: p.PostedAt.Format(time.DateOnly), Launch: slices.Contains(p.Tags, whatsnew.LaunchTag),
-		NewsBlog: strings.HasPrefix(p.URL, newsBlogPrefix), Decision: d, Announcements: anns, Covering: []PostCandidate{},
-		Related: []PostCandidate{}}
+		NewsBlog: strings.HasPrefix(p.URL, newsBlogPrefix), PostSignificance: postSignificance(p, anns), Decision: d,
+		Announcements: anns, Covering: []PostCandidate{}, Related: []PostCandidate{}}
+	for _, in := range res.Inferences {
+		if in.Type == "service" && !slices.Contains(e.Services, in.Value) {
+			e.Services = append(e.Services, in.Value)
+		}
+	}
 	for _, c := range res.Candidates {
 		if c.Kind != reconcile.KindIssue && c.Kind != reconcile.KindPR {
 			continue
@@ -347,8 +373,9 @@ func postEntry(p whatsnew.Post, anns []PostAnnouncement, res *reconcile.Result, 
 	return e
 }
 
-// writePostsText writes the posts and a summary line, which counts the states shown and hidden.
-func writePostsText(w io.Writer, res PostsResult, shownState func(string) bool) error {
+// writePostsText writes the posts and a summary line, which counts the states shown and hidden, then the significant
+// posts' coverage.
+func writePostsText(w io.Writer, res PostsResult, shownState func(string) bool, significantOnly bool) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, e := range res.Posts {
 		var flags []string
@@ -357,6 +384,9 @@ func writePostsText(w io.Writer, res PostsResult, shownState func(string) bool) 
 		}
 		if e.Launch {
 			flags = append(flags, "launch")
+		}
+		if e.Significant {
+			flags = append(flags, "sig")
 		}
 		note := ""
 		switch {
@@ -392,6 +422,9 @@ func writePostsText(w io.Writer, res PostsResult, shownState func(string) bool) 
 		}
 	}
 	fmt.Fprintf(w, "%d of %d post(s) shown", len(res.Posts), res.Summary.Posts)
+	if significantOnly {
+		fmt.Fprint(w, " (significant only)")
+	}
 	if len(shown) > 0 {
 		fmt.Fprintf(w, "; %s", strings.Join(shown, ", "))
 	}
@@ -400,6 +433,16 @@ func writePostsText(w io.Writer, res PostsResult, shownState func(string) bool) 
 	}
 	if n := res.Summary.Counts[PostCovered] + res.Summary.Counts[PostOpen]; n > 0 {
 		fmt.Fprintf(w, "; coverage %.0f%% (%d of %d)", 100*res.Summary.Coverage, res.Summary.Counts[PostCovered], n)
+	}
+	sig := res.Summary.Significant
+	fmt.Fprintf(w, "\nsignificant: %d post(s)", sig.Posts)
+	for _, s := range postStates {
+		if n := sig.Counts[s]; n > 0 {
+			fmt.Fprintf(w, ", %s %d", strings.ReplaceAll(s, "_", " "), n)
+		}
+	}
+	if n := sig.Counts[PostCovered] + sig.Counts[PostOpen]; n > 0 {
+		fmt.Fprintf(w, "; coverage %.0f%% (%d of %d)", 100*sig.Coverage, sig.Counts[PostCovered], n)
 	}
 	fmt.Fprintln(w)
 	return nil

@@ -216,6 +216,7 @@ A `gap` is a guess. Many need no provider work, and covering work can be in the 
 ```
 avizor posts --format text
 avizor posts --since 2026-11-01 --launch --all --format text
+avizor posts --significant --format text
 ```
 
 `avizor posts` checks whether existing issues and PRs cover each blog post from the last 30 days, newest first. AWS writes blog posts for the bigger launches, so every post with Terraform work should have an issue. The check doesn't need an SDK release: it reconciles the post's title, excerpt, and URL, plus the URLs of the What's New announcements that match it, as `candidates --text` would. An announcement matches when it was posted from 45 days before the post to 3 days after and scores at least 0.35, and 75% of the best. An open issue or PR, or a merged PR, with a strong signal covers the post. Usually that signal is a link to the post or to one of its announcements.
@@ -227,7 +228,9 @@ avizor posts --since 2026-11-01 --launch --all --format text
 | `no_work` | no | Decided as having no Terraform work (`skipped`). |
 | `deferred` | no | Deferred, and the revisit date hasn't passed. |
 
-`--launch` keeps only posts tagged as launch announcements. Each post is marked if it's on the AWS News Blog, and the text output has its URL for `avizor decide`. A post older than `--since` is checked too when its decision's revisit date has passed, and listed if it reopens. A revisit date on any decision ends it: the post is reconciled again. `--all` shows every state, `--state open,covered` picks some, and `--as-of` reads the index as it was at a date. The summary line reports coverage: covered posts as a share of covered and open ones. The 104 launch posts from 2026-11-02 to 2026-11-19 take about 4 seconds.
+A post is significant when it's likely to have Terraform work. It needs one of these signals: it's tagged as a launch announcement, it's on the AWS News Blog, or it matches a What's New announcement. Some kinds of post aren't significant whatever their signals: weekly and monthly roundups, event guides (the events tag or "re:Invent" in the title), developer tools (the developer tools tags or the Developer Tools Blog), and customer and partner stories (their post-type tags or the APN Blog). The summary reports coverage for all posts and for significant ones, and `--significant` lists only significant posts. On the 112 posts decided in the 2026-11-19 coverage pass, 34 of the 36 with work are significant, and 21 of the 76 without work are left out.
+
+`--launch` keeps only posts tagged as launch announcements. Each post is marked if it's on the AWS News Blog (`news`), a launch (`launch`), or significant (`sig`), and the text output has its URL for `avizor decide`. A post older than `--since` is checked too when its decision's revisit date has passed, and listed if it reopens. A revisit date on any decision ends it: the post is reconciled again. `--all` shows every state, `--state open,covered` picks some, and `--as-of` reads the index as it was at a date. The summary lines report coverage: covered posts as a share of covered and open ones. The 104 launch posts from 2026-11-02 to 2026-11-19 take about 4 seconds.
 
 An issue that doesn't link the post or its announcement isn't found, so record it on the post: `avizor decide <post-url> duplicate 51064`. Record a post with no Terraform work as `skipped`, with a reason.
 
@@ -304,7 +307,7 @@ The reviewer section also lists warnings and possibly related issues and PRs:
 
 ## Evaluate
 
-`avizor eval` scores reconciliation and queue states against 207 cases labeled from provider history, and blog post ranking against 51 more. See [eval/README.md](eval/README.md).
+`avizor eval` scores reconciliation and queue states against 207 cases labeled from provider history, blog post ranking against 51 more, and blog post coverage and significance against 112 posts. See [eval/README.md](eval/README.md).
 
 ## Develop
 

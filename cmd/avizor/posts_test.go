@@ -149,15 +149,17 @@ func TestWritePostsText(t *testing.T) {
 			{Posted: "2026-11-15", State: PostNoWork, Title: "No work", byDecision: true,
 				Decision: &items.Disposition{Decision: items.DecisionSkipped, Reason: "customer story"}},
 		},
-		Summary: PostsSummary{Posts: 10, Counts: map[string]int{PostOpen: 2, PostCovered: 6, PostNoWork: 2}, Coverage: 0.75},
+		Summary: PostsSummary{PostCounts: PostCounts{Posts: 10, Counts: map[string]int{PostOpen: 2, PostCovered: 6, PostNoWork: 2}, Coverage: 0.75},
+			Significant: PostCounts{Posts: 5, Counts: map[string]int{PostOpen: 1, PostCovered: 4}, Coverage: 0.8}},
 	}
+	res.Posts[0].Significant = true
 	var b bytes.Buffer
-	if err := writePostsText(&b, res, func(s string) bool { return s == PostOpen }); err != nil {
+	if err := writePostsText(&b, res, func(s string) bool { return s == PostOpen }, false); err != nil {
 		t.Fatal(err)
 	}
 	out := b.String()
-	for _, want := range []string{"news,launch", "related #5, #6 (PR)", "deferred; revisit due", "https://aws.amazon.com/blogs/x/covered/", "covered by #7, #8", "skipped (customer story)",
-		"4 of 10 post(s) shown; open 2; hidden: covered 6, no work 2; coverage 75% (6 of 8)"} {
+	for _, want := range []string{"news,launch,sig", "related #5, #6 (PR)", "deferred; revisit due", "https://aws.amazon.com/blogs/x/covered/", "covered by #7, #8", "skipped (customer story)",
+		"4 of 10 post(s) shown; open 2; hidden: covered 6, no work 2; coverage 75% (6 of 8)\nsignificant: 5 post(s), open 1, covered 4; coverage 80% (4 of 5)\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}

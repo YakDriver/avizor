@@ -31,7 +31,7 @@ func TestLoadErrors(t *testing.T) {
 
 	for name, tc := range map[string]struct{ body, want string }{
 		"no cases":     {`target = "t"`, "no cases"},
-		"both inputs":  {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `text = "x"` + "\n" + `kind = "k"` + "\n" + `unmatched = true` + "\n}", "exactly one of input, text, and item"},
+		"both inputs":  {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `text = "x"` + "\n" + `kind = "k"` + "\n" + `unmatched = true` + "\n}", "exactly one of input, text, item, and post"},
 		"no labels":    {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n}", "at least one of"},
 		"bad category": {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n" + `expect {` + "\n" + `number = 2` + "\n" + `category = "dup"` + "\n}\n}", "unknown category"},
 		"path no code": {`target = "t"` + "\n" + `case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n" + `expect {` + "\n" + `path = "x.go"` + "\n}\n}", "needs code = true"},
@@ -507,5 +507,109 @@ case "blog-missing" {
 	r.Items = &fakeItems{}
 	if rep, err = r.Run(context.Background(), c, path); err != nil || !strings.Contains(rep.Cases[0].Error, "no blog source") {
 		t.Errorf("no blog source: %+v, %v", rep.Cases[0], err)
+	}
+}
+
+// fakePosts reconciles every post from the same text and classifies each from a fixed state.
+type fakePosts struct {
+	fakeItems
+	states map[string]PostState
+}
+
+func (f *fakePosts) PostText(context.Context, string) (string, error) {
+	return "Support CreateWidget", nil
+}
+
+func (f *fakePosts) PostState(_ context.Context, url string, _ *reconcile.Result) (PostState, error) {
+	return f.states[url], nil
+}
+
+func TestRunPost(t *testing.T) {
+	t.Parallel()
+
+	path := writeCorpus(t, `
+target = "t"
+
+case "covered" {
+  post  = "https://aws.amazon.com/blogs/x/covered/"
+  kind  = "post-covered"
+  state = "covered"
+  work  = true
+  expect {
+    number = 1
+  }
+}
+
+case "covered-by-other" {
+  post  = "https://aws.amazon.com/blogs/x/other/"
+  kind  = "post-covered"
+  state = "covered"
+  work  = true
+  expect {
+    number = 1
+  }
+}
+
+case "gap-not-significant" {
+  post  = "https://aws.amazon.com/blogs/x/gap/"
+  kind  = "post-gap"
+  state = "open"
+  work  = true
+}
+
+case "no-work-significant" {
+  post = "https://aws.amazon.com/blogs/x/roundup/"
+  kind = "post-no-work"
+  work = false
+}
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	posts := &fakePosts{states: map[string]PostState{
+		"https://aws.amazon.com/blogs/x/covered/": {State: "covered", Numbers: []int{1}, Significant: true, Signals: []string{"launch"}},
+		"https://aws.amazon.com/blogs/x/other/":   {State: "covered", Numbers: []int{4}, Significant: true},
+		"https://aws.amazon.com/blogs/x/gap/":     {State: "open"},
+		"https://aws.amazon.com/blogs/x/roundup/": {State: "open", Significant: true},
+	}}
+	r := &Runner{Base: &reconcile.Reconciler{Store: seed(t), Target: &config.Target{Name: "t", Repo: repo, ServiceLabelPrefix: "service/"}}, Items: posts}
+	rep, err := r.Run(context.Background(), c, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cr := rep.Cases[0]; !cr.Pass || cr.Input != "post: https://aws.amazon.com/blogs/x/covered/" || !slices.Equal(cr.Signals, []string{"launch"}) {
+		t.Errorf("covered = %+v", cr)
+	}
+	// Covered, but not by an expected candidate.
+	if cr := rep.Cases[1]; cr.Pass || !slices.Contains(cr.Failures, "covered by #4, not an expected candidate") || *cr.StateOK {
+		t.Errorf("covered-by-other = %+v", cr)
+	}
+	if cr := rep.Cases[2]; cr.Pass || !slices.Equal(cr.Failures, []string{"post has work but isn't significant"}) {
+		t.Errorf("gap-not-significant = %+v", cr)
+	}
+	// A significant post without work passes, and counts against precision.
+	if cr := rep.Cases[3]; !cr.Pass {
+		t.Errorf("no-work-significant = %+v", cr)
+	}
+	m := rep.Overall
+	if m.WorkPosts != 3 || m.WorkSignificant != 2 || m.NoWorkPosts != 1 || m.NoWorkSignificant != 1 ||
+		m.SignificanceRecall != 2.0/3 || m.SignificancePrecision != 2.0/3 || m.StateLabeled != 3 || m.StateAccuracy != 2.0/3 {
+		t.Errorf("metrics = %+v", m)
+	}
+
+	for body, want := range map[string]string{
+		`case "a" {` + "\n" + `input = "1"` + "\n" + `kind = "k"` + "\n" + `work = true` + "\n}":                      "work needs a post",
+		`case "a" {` + "\n" + `post = "u"` + "\n" + `kind = "k"` + "\n" + `state = "gap"` + "\n}":                     `post state "gap"`,
+		`case "a" {` + "\n" + `post = "u"` + "\n" + `item = "i"` + "\n" + `kind = "k"` + "\n" + `work = true` + "\n}": "exactly one of input, text, item, and post",
+	} {
+		if _, err := Load(writeCorpus(t, `target = "t"`+"\n"+body)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want containing %q", err, want)
+		}
+	}
+	// Without a PostSource, post cases are errors.
+	r.Items = &fakeItems{}
+	if rep, err = r.Run(context.Background(), c, path); err != nil || !strings.Contains(rep.Cases[0].Error, "no post source") {
+		t.Errorf("no post source: %+v, %v", rep.Cases[0], err)
 	}
 }

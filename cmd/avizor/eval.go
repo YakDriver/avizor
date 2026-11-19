@@ -9,6 +9,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/YakDriver/avizor"
 	"github.com/YakDriver/avizor/internal/awssdk"
@@ -18,6 +19,7 @@ import (
 	"github.com/YakDriver/avizor/internal/gitcmd"
 	"github.com/YakDriver/avizor/internal/queue"
 	"github.com/YakDriver/avizor/internal/reconcile"
+	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
 func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -71,7 +73,7 @@ func cmdEval(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if *fetch {
 		base.HTTP = defaultHTTP()
 	}
-	items := &evalItems{c: &c, r: base, stderr: stderr, enriched: map[string]*evalItem{}}
+	items := &evalItems{c: &c, r: base, stderr: stderr, enriched: map[string]*evalItem{}, posts: map[string]*evalPost{}}
 	rep, err := (&eval.Runner{Base: base, Items: items, Jobs: *jobs}).Run(ctx, corpus, name)
 	if err != nil {
 		return err
@@ -128,6 +130,11 @@ func writeEvalText(w io.Writer, rep *eval.Report, failuresOnly bool) error {
 	row("overall", &rep.Overall)
 	if rep.Overall.Errors > 0 {
 		fmt.Fprintf(w, "\n%d case(s) errored\n", rep.Overall.Errors)
+	}
+	if m := rep.Overall; m.WorkPosts+m.NoWorkPosts > 0 {
+		fmt.Fprintf(w, "posts: %d of %d with work significant (recall %s), %d of %d without work significant; precision %s\n",
+			m.WorkSignificant, m.WorkPosts, pct(m.SignificanceRecall, m.WorkPosts), m.NoWorkSignificant, m.NoWorkPosts,
+			pct(m.SignificancePrecision, m.WorkSignificant+m.NoWorkSignificant))
 	}
 	if rep.Overall.MissedUnmatched > 0 {
 		fmt.Fprintf(w, "%d case(s) with existing work were summarized as unmatched\n", rep.Overall.MissedUnmatched)
@@ -189,6 +196,15 @@ type evalItems struct {
 
 	mu       sync.Mutex
 	enriched map[string]*evalItem
+	posts    map[string]*evalPost
+}
+
+// evalPost is a blog post and its matched announcements, loaded once.
+type evalPost struct {
+	once sync.Once
+	p    *whatsnew.Post
+	anns []PostAnnouncement
+	err  error
 }
 
 // evalItem is an item enriched once, by the first case that needs it.
@@ -234,6 +250,51 @@ func (e *evalItems) State(ctx context.Context, id string, code bool, rec *reconc
 	}
 	q := queue.Classify(it, en, rec, d, texts)
 	return q.State, q.Reason, nil
+}
+
+// post loads a blog post and matches its announcements, as posts does.
+func (e *evalItems) post(ctx context.Context, url string) (*evalPost, error) {
+	e.mu.Lock()
+	ep := e.posts[url]
+	if ep == nil {
+		ep = &evalPost{}
+		e.posts[url] = ep
+	}
+	e.mu.Unlock()
+	ep.once.Do(func() {
+		ist, err := openItems(e.c.dir)
+		if err != nil {
+			ep.err = err
+			return
+		}
+		defer ist.Close()
+		if ep.p, ep.err = ist.Post(ctx, url); ep.err == nil && ep.p == nil {
+			ep.err = fmt.Errorf("no blog post %q; pull them with `avizor pull aws-blogs`", url)
+		}
+		if ep.err == nil {
+			ep.anns = postAnnouncements(announcements(e.c.dir, e.stderr), *ep.p)
+		}
+	})
+	return ep, ep.err
+}
+
+// PostText is what a post is reconciled from, as posts does.
+func (e *evalItems) PostText(ctx context.Context, url string) (string, error) {
+	ep, err := e.post(ctx, url)
+	if err != nil {
+		return "", err
+	}
+	return postText(*ep.p, ep.anns), nil
+}
+
+// PostState classifies a reconciled post as posts does, without a decision.
+func (e *evalItems) PostState(ctx context.Context, url string, res *reconcile.Result) (eval.PostState, error) {
+	ep, err := e.post(ctx, url)
+	if err != nil {
+		return eval.PostState{}, err
+	}
+	pe := postEntry(*ep.p, ep.anns, res, nil, 0, time.Now())
+	return eval.PostState{State: pe.State, Numbers: pe.Numbers, Significant: pe.Significant, Signals: pe.Signals}, nil
 }
 
 // BlogPosts ranks the blog posts near an item's release, as brief does.

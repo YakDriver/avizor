@@ -28,6 +28,12 @@
 #                        partial when some work has no code or issue, covered when the launch's tracker covers it.
 #                        AgentCore release-2026-08-06 and Resilience Hub release-2026-05-28 are left out: each has a
 #                        release tracker that may cover the flagged work.
+#   post-covered       Blog posts from the 2026-11-19 coverage pass with existing issues or PRs: labeled in the pass,
+#                      decided as duplicates, or linked from an issue. Covered by an expected candidate as of that day.
+#   post-gap           Posts from the same pass with work nothing covered, reconciled before the gap issues were filed
+#                      (2026-11-19T19:15Z). They should be open and significant.
+#   post-no-work       Posts from the same pass decided as having no Terraform work. They measure significance
+#                      precision; a significant one doesn't fail.
 #
 # The gap sample: 32 items drafted in a seeded random order (seed 20261112) from items in implemented services with
 # the SDK version available and some inferred work, until 30 had no confident existing work. Each was hand-checked
@@ -2641,4 +2647,977 @@ case "blog-sagemaker-2026-11-16" {
   kind = "blog"
   note = "#51090"
   blog = ["https://aws.amazon.com/blogs/machine-learning/how-salesforce-is-advancing-global-scale-model-serving-with-cross-region-inference-routing-in-amazon-sagemaker-ai/"]
+}
+
+# --- posts
+# Blog posts from 2026-11-02 to 2026-11-19 decided in the 2026-11-19 coverage pass: the 104 launch posts and the 8
+# other posts with a decision or an issue. Post cases reconcile the post as `avizor posts` does and ignore decisions.
+# A post with work must be significant. Post cases need pulled blog posts and announcements: run
+# `avizor pull aws-blogs --since 365d` and `avizor pull aws-whats-new --since 365d` first.
+
+case "post-aws-weekly-roundup-gpt-6-1-terra-on-bedrock-step-f" {
+  post  = "https://aws.amazon.com/blogs/aws/aws-weekly-roundup-gpt-6-1-terra-on-bedrock-step-functions-as-agent-tools-and-more-november-2-2026/"
+  kind  = "post-no-work"
+  note  = "weekly roundup; its launches have their own posts and announcements"
+  work  = false
+}
+
+case "post-introducing-queue-consumption-mode-for-apache-kafk" {
+  post  = "https://aws.amazon.com/blogs/compute/introducing-queue-consumption-mode-for-apache-kafka-in-aws-lambda/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 50775
+  }
+  same  = [50778]
+}
+
+case "post-aws-contributes-a-large-transaction-binary-log-opt" {
+  post  = "https://aws.amazon.com/blogs/database/aws-contributes-a-large-transaction-binary-log-optimization-to-mysql/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-inside-a-successful-aws-european-sovereign-cloud-e" {
+  post  = "https://aws.amazon.com/blogs/security/inside-a-successful-aws-european-sovereign-cloud-exercise-to-demonstrate-independent-operation/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-deep-dive-auto-scaling-response-times-on-amazon-ec" {
+  post  = "https://aws.amazon.com/blogs/containers/deep-dive-auto-scaling-response-times-on-amazon-ecs/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-introducing-india-based-inference-for-kimi-k3-on-a" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/introducing-india-based-inference-for-kimi-k3-on-amazon-bedrock/"
+  kind  = "post-no-work"
+  note  = "model availability"
+  work  = false
+}
+
+case "post-find-your-logging-gaps-before-they-become-complian" {
+  post  = "https://aws.amazon.com/blogs/mt/find-your-logging-gaps-before-they-become-compliance-gaps-with-cloudtrail-data-event-coverage/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-tag-editor-moves-to-aws-resource-explorer-bulk-tag" {
+  post  = "https://aws.amazon.com/blogs/mt/tag-editor-moves-to-aws-resource-explorer-bulk-tag-resources-across-regions/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-introducing-change-based-throttling-for-amazon-rou" {
+  post  = "https://aws.amazon.com/blogs/networking-and-content-delivery/introducing-change-based-throttling-for-amazon-route-53-apis/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-amazon-s3-tables-now-offer-managed-migration-of-ap" {
+  post  = "https://aws.amazon.com/blogs/aws/amazon-s3-tables-now-offer-managed-migration-of-apache-hive-tables-to-apache-iceberg/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-plan-and-measure-ec2-flexibility-with-amazon-ec2-c" {
+  post  = "https://aws.amazon.com/blogs/compute/plan-and-measure-ec2-flexibility-with-amazon-ec2-capacity-manager/"
+  kind  = "post-no-work"
+  note  = "supportability scores and metrics are read-only; no resource"
+  work  = false
+}
+
+case "post-introducing-bulk-put-items-for-amazon-dynamodb-loa" {
+  post  = "https://aws.amazon.com/blogs/database/introducing-bulk-put-items-for-amazon-dynamodb-load-data-from-amazon-s3-into-existing-tables-at-scale/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-introducing-presigned-url-downloads-in-the-aws-sdk" {
+  post  = "https://aws.amazon.com/blogs/developer/introducing-presigned-url-downloads-in-the-aws-sdk-for-java-2-x/"
+  kind  = "post-no-work"
+  note  = "SDK or developer tooling"
+  work  = false
+}
+
+case "post-introducing-device-posture-assessment-for-aws-clie" {
+  post  = "https://aws.amazon.com/blogs/networking-and-content-delivery/introducing-device-posture-assessment-for-aws-client-vpn/"
+  kind  = "post-gap"
+  note  = "filed afterward as #51133, #51134"
+  as_of = "2026-11-19T19:15:00Z"
+  state = "open"
+  work  = true
+}
+
+case "post-introducing-tunnel-endpoints-for-private-access-to" {
+  post  = "https://aws.amazon.com/blogs/networking-and-content-delivery/introducing-tunnel-endpoints-for-private-access-to-network-segments/"
+  kind  = "post-covered"
+  note  = "decided as a duplicate; nothing links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 50087
+  }
+  expect {
+    number = 50553
+  }
+}
+
+case "post-aws-systems-manager-for-sap-now-supports-sap-hana" {
+  post  = "https://aws.amazon.com/blogs/awsforsap/aws-systems-manager-for-sap-now-supports-sap-hana-scale-out-deployments/"
+  kind  = "post-covered"
+  note  = "decided as a duplicate; nothing links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 39925
+  }
+}
+
+case "post-sagemaker-inference-now-supports-multi-instance-gp" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/sagemaker-inference-now-supports-multi-instance-gpu-to-maximize-gpu-utilization-for-model-endpoints/"
+  kind  = "post-gap"
+  note  = "filed afterward as #51138, #51139"
+  as_of = "2026-11-19T19:15:00Z"
+  state = "open"
+  work  = true
+}
+
+case "post-aws-weekly-roundup-agentcore-runtime-v2-amazon-dyn" {
+  post  = "https://aws.amazon.com/blogs/aws/aws-weekly-roundup-agentcore-runtime-v2-amazon-dynamodb-bulk-put-items-and-more-november-9-2026/"
+  kind  = "post-no-work"
+  note  = "weekly roundup; its launches have their own posts and announcements"
+  work  = false
+}
+
+case "post-amazon-athena-introduces-system-tables-for-query-e" {
+  post  = "https://aws.amazon.com/blogs/big-data/amazon-athena-introduces-system-tables-for-query-execution-observability/"
+  kind  = "post-covered"
+  note  = "the issue links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 50887
+  }
+  expect {
+    number = 50893
+  }
+}
+
+case "post-assess-and-track-your-amazon-redshift-ra3-to-rg-mo" {
+  post  = "https://aws.amazon.com/blogs/big-data/assess-and-track-your-amazon-redshift-ra3-to-rg-modernization-with-cudos/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-introducing-the-workday-data-cloud-integration-wit" {
+  post  = "https://aws.amazon.com/blogs/big-data/introducing-the-workday-data-cloud-integration-with-aws/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-aws-nitro-sandboxes-hardware-enforced-workload-iso" {
+  post  = "https://aws.amazon.com/blogs/containers/aws-nitro-sandboxes-hardware-enforced-workload-isolation-on-amazon-eks/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 50875
+  }
+  same  = [50971, 50973]
+}
+
+case "post-introducing-claude-fable-5-2-on-aws" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/introducing-claude-fable-5-2-on-aws/"
+  kind  = "post-no-work"
+  note  = "model availability"
+  work  = false
+}
+
+case "post-nvidia-nemotron-3-5-super-vl-is-now-available-in-a" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/nvidia-nemotron-3-5-super-vl-is-now-available-in-amazon-sagemaker-jumpstart/"
+  kind  = "post-no-work"
+  note  = "model availability"
+  work  = false
+}
+
+case "post-professional-work-deserves-professional-tools-meet" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/professional-work-deserves-professional-tools-meet-aws-quick/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-simplify-cross-partition-access-with-aws-iam-outbo" {
+  post  = "https://aws.amazon.com/blogs/security/simplify-cross-partition-access-with-aws-iam-outbound-identity-federation/"
+  kind  = "post-covered"
+  note  = "the issue links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51078
+  }
+}
+
+case "post-nitro-sandboxes-hardware-isolation-for-every-eks-p" {
+  post  = "https://aws.amazon.com/blogs/compute/nitro-sandboxes-hardware-isolation-for-every-eks-pod-ecs-task-and-ec2-workload/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 50875
+  }
+  same  = [50971, 50973]
+}
+
+case "post-updated-default-retry-behavior-for-aws-sdks-and-to" {
+  post  = "https://aws.amazon.com/blogs/developer/updated-default-retry-behavior-for-aws-sdks-and-tools/"
+  kind  = "post-no-work"
+  note  = "SDK or developer tooling"
+  work  = false
+  same  = [50905]
+}
+
+case "post-attendees-guide-to-aws-global-infrastructure-and-s" {
+  post  = "https://aws.amazon.com/blogs/infrastructure-sustainability/attendees-guide-to-aws-global-infrastructure-and-sustainability-at-aws-reinvent-2026/"
+  kind  = "post-no-work"
+  note  = "event guide"
+  work  = false
+}
+
+case "post-the-agent-evaluation-playbook-built-in-deepeval-an" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/the-agent-evaluation-playbook-built-in-deepeval-and-autoeval-on-agentcore/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-aws-refreshes-processunity-global-risk-exchange-as" {
+  post  = "https://aws.amazon.com/blogs/security/aws-refreshes-processunity-global-risk-exchange-assessment-to-enhance-customers-third-party-due-diligence/"
+  kind  = "post-no-work"
+  note  = "company, Region, or program news"
+  work  = false
+}
+
+case "post-digital-sovereignty-at-reinvent-2026-sessions-you" {
+  post  = "https://aws.amazon.com/blogs/security/digital-sovereignty-at-reinvent-2026-sessions-you-wont-want-to-miss/"
+  kind  = "post-no-work"
+  note  = "event guide"
+  work  = false
+}
+
+case "post-introducing-aws-billing-conductor-and-aws-billing" {
+  post  = "https://aws.amazon.com/blogs/aws-cloud-financial-management/introducing-aws-billing-conductor-and-aws-billing-transfer-views-as-source-views-for-custom-billing-views/"
+  kind  = "post-no-work"
+  note  = "aws_billing_view source_views takes the new view ARNs; no API change"
+  work  = false
+}
+
+case "post-test-your-applications-against-aws-locally-with-aw" {
+  post  = "https://aws.amazon.com/blogs/aws/test-your-applications-against-aws-locally-with-aws-emulator/"
+  kind  = "post-no-work"
+  note  = "SDK or developer tooling"
+  work  = false
+}
+
+case "post-migrate-from-amazon-ec2-to-amazon-elasticache-serv" {
+  post  = "https://aws.amazon.com/blogs/database/migrate-from-amazon-ec2-to-amazon-elasticache-serverless-with-zero-downtime/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-migrating-epic-to-aws-returned-185-over-three-year" {
+  post  = "https://aws.amazon.com/blogs/industries/migrating-epic-to-aws-returned-185-over-three-years-compared-to-on-premises-deployments/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-icymi-what-landed-for-ai-builders-in-october-2026" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/icymi-what-landed-for-ai-builders-in-october-2026/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-introducing-kimi-k3-1-pro-on-amazon-bedrock" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/introducing-kimi-k3-1-pro-on-amazon-bedrock/"
+  kind  = "post-no-work"
+  note  = "model availability"
+  work  = false
+}
+
+case "post-introducing-the-web-search-api-on-amazon-bedrock-a" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/introducing-the-web-search-api-on-amazon-bedrock-agentcore/"
+  kind  = "post-no-work"
+  note  = "API call with no resources to create"
+  work  = false
+}
+
+case "post-managed-cross-region-disaster-recovery-for-amazon" {
+  post  = "https://aws.amazon.com/blogs/big-data/managed-cross-region-disaster-recovery-for-amazon-opensearch-service/"
+  kind  = "post-covered"
+  note  = "decided as a duplicate; nothing links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 50859
+  }
+}
+
+case "post-from-vdi-to-workspaces-for-ai-agents-whats-next-fo" {
+  post  = "https://aws.amazon.com/blogs/desktop-and-application-streaming/from-vdi-to-workspaces-for-ai-agents-whats-next-for-amazon-workspaces-at-reinvent-2026/"
+  kind  = "post-no-work"
+  note  = "event guide"
+  work  = false
+}
+
+case "post-announcing-aws-sdk-for-net-4-1" {
+  post  = "https://aws.amazon.com/blogs/developer/announcing-aws-sdk-for-net-4-1/"
+  kind  = "post-no-work"
+  note  = "SDK or developer tooling"
+  work  = false
+}
+
+case "post-deploy-frontier-ai-models-on-aws-trainium-with-sgl" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/deploy-frontier-ai-models-on-aws-trainium-with-sglang-neuron/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-run-agents-securely-and-efficiently-with-the-next" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/run-agents-securely-and-efficiently-with-the-next-generation-agentcore-runtime/"
+  kind  = "post-gap"
+  note  = "filed afterward as #51142"
+  as_of = "2026-11-19T19:15:00Z"
+  state = "open"
+  work  = true
+}
+
+case "post-nfl-and-aws-introduce-next-gen-trends" {
+  post  = "https://aws.amazon.com/blogs/media/nfl-and-aws-introduce-next-gen-trends/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-resolving-cross-partition-dependencies-for-soverei" {
+  post  = "https://aws.amazon.com/blogs/multicloud/resolving-cross-partition-dependencies-for-sovereign-failover-on-the-aws-european-sovereign-cloud/"
+  kind  = "post-covered"
+  note  = "the issue links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51078
+  }
+}
+
+case "post-bringing-ai-agents-closer-to-sap-whats-new-in-aws" {
+  post  = "https://aws.amazon.com/blogs/awsforsap/bringing-ai-agents-closer-to-sap-whats-new-in-aws-for-sap-mcp-server/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-multi-statement-transactions-for-apache-iceberg-ta" {
+  post  = "https://aws.amazon.com/blogs/big-data/multi-statement-transactions-for-apache-iceberg-tables-in-amazon-redshift/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-cloud-and-ai-accelerate-game-development-innovatio" {
+  post  = "https://aws.amazon.com/blogs/gametech/cloud-and-ai-accelerate-game-development-innovation-at-aws-reinvent-2026/"
+  kind  = "post-no-work"
+  note  = "event guide"
+  work  = false
+}
+
+case "post-your-guide-to-aws-cloud-resilience-sessions-at-rei" {
+  post  = "https://aws.amazon.com/blogs/mt/your-guide-to-aws-cloud-resilience-sessions-at-reinvent-2026/"
+  kind  = "post-no-work"
+  note  = "event guide"
+  work  = false
+}
+
+case "post-monitoring-global-traffic-with-aws-cloud-wan-flow" {
+  post  = "https://aws.amazon.com/blogs/networking-and-content-delivery/monitoring-global-traffic-with-aws-cloud-wan-flow-logs/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51011
+  }
+  same  = [51023]
+}
+
+case "post-built-in-europe-what-500-founders-tell-us-about-sc" {
+  post  = "https://aws.amazon.com/blogs/physical-ai/built-in-europe-what-500-founders-tell-us-about-scaling-physical-ai/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-amazon-threat-intelligence-observes-threat-actors" {
+  post  = "https://aws.amazon.com/blogs/security/amazon-threat-intelligence-observes-threat-actors-running-cybercrime-campaigns-with-artex-ai-agents/"
+  kind  = "post-no-work"
+  note  = "company, Region, or program news"
+  work  = false
+}
+
+case "post-buckets-guide-to-whats-in-store-with-aws-storage-a" {
+  post  = "https://aws.amazon.com/blogs/storage/buckets-guide-to-whats-in-store-with-aws-storage-at-reinvent-2026/"
+  kind  = "post-no-work"
+  note  = "event guide"
+  work  = false
+}
+
+case "post-ja-canada-launches-generative-ai-with-qalius-and-a" {
+  post  = "https://aws.amazon.com/blogs/apn/ja-canada-launches-generative-ai-with-qalius-and-amazon-bedrock/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-announcing-updates-to-the-aws-well-architected-fra" {
+  post  = "https://aws.amazon.com/blogs/architecture/announcing-updates-to-the-aws-well-architected-framework-3/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51057
+  }
+}
+
+case "post-aws-weekly-roundup-aws-nitro-sandboxes-aws-emulato" {
+  post  = "https://aws.amazon.com/blogs/aws/aws-weekly-roundup-aws-nitro-sandboxes-aws-emulator-and-more-november-16-2026/"
+  kind  = "post-no-work"
+  note  = "weekly roundup; its launches have their own posts and announcements"
+  work  = false
+}
+
+case "post-aws-marketplace-in-singapore-sgd-support-local-inv" {
+  post  = "https://aws.amazon.com/blogs/awsmarketplace/aws-marketplace-in-singapore-sgd-support-local-invoicing-and-gst-compliance/"
+  kind  = "post-no-work"
+  note  = "company, Region, or program news"
+  work  = false
+}
+
+case "post-deliver-petabytes-of-apache-kafka-data-to-amazon-s" {
+  post  = "https://aws.amazon.com/blogs/big-data/deliver-petabytes-of-apache-kafka-data-to-amazon-s3-at-up-to-60-lower-cost-with-amazon-msk-express-brokers/"
+  kind  = "post-covered"
+  note  = "decided as a duplicate; nothing links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 49266
+  }
+}
+
+case "post-introducing-enhanced-snapshots-for-amazon-managed" {
+  post  = "https://aws.amazon.com/blogs/big-data/introducing-enhanced-snapshots-for-amazon-managed-service-for-apache-flink/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51003
+  }
+  same  = [51073]
+}
+
+case "post-migrate-apache-solr-to-amazon-opensearch-service-w" {
+  post  = "https://aws.amazon.com/blogs/big-data/migrate-apache-solr-to-amazon-opensearch-service-with-the-ai-driven-migration-assistant/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-exploring-new-features-of-apache-tinkerpop-3-8-x-i" {
+  post  = "https://aws.amazon.com/blogs/database/exploring-new-features-of-apache-tinkerpop-3-8-x-in-amazon-neptune/"
+  kind  = "post-no-work"
+  note  = "engine or instance type version"
+  work  = false
+}
+
+case "post-workspaces-for-ai-agents-now-available-on-workspac" {
+  post  = "https://aws.amazon.com/blogs/desktop-and-application-streaming/workspaces-for-ai-agents-now-available-on-workspaces-applications-image-builders/"
+  kind  = "post-gap"
+  note  = "filed afterward as #51131, #51132"
+  as_of = "2026-11-19T19:15:00Z"
+  state = "open"
+  work  = true
+}
+
+case "post-how-to-make-four-specialist-ai-agents-act-as-one-t" {
+  post  = "https://aws.amazon.com/blogs/industries/how-to-make-four-specialist-ai-agents-act-as-one-trusted-financial-advisor/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-customize-answers-per-tenant-in-amazon-bedrock-man" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/customize-answers-per-tenant-in-amazon-bedrock-managed-knowledge-base/"
+  kind  = "post-covered"
+  note  = "the issue links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 50992
+  }
+  expect {
+    number = 50993
+  }
+}
+
+case "post-use-prompt-caching-with-open-weight-models-on-amaz" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/use-prompt-caching-with-open-weight-models-on-amazon-bedrock/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-introducing-11-nat-on-aws-transit-gateway-and-aws" {
+  post  = "https://aws.amazon.com/blogs/networking-and-content-delivery/introducing-11-nat-on-aws-transit-gateway-and-aws-cloud-wan/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 50613
+  }
+  same  = [50669]
+}
+
+case "post-introducing-aws-backup-logically-air-gapped-vault" {
+  post  = "https://aws.amazon.com/blogs/storage/introducing-aws-backup-logically-air-gapped-vault-support-for-amazon-rds/"
+  kind  = "post-no-work"
+  note  = "existing logically air-gapped vault and backup plan resources; no API change"
+  work  = false
+}
+
+case "post-four-continents-four-new-aws-heroes-closing-out-20" {
+  post  = "https://aws.amazon.com/blogs/aws/four-continents-four-new-aws-heroes-closing-out-2026/"
+  kind  = "post-no-work"
+  note  = "company, Region, or program news"
+  work  = false
+}
+
+case "post-amazon-msk-express-brokers-available-on-aws-gravit" {
+  post  = "https://aws.amazon.com/blogs/big-data/amazon-msk-express-brokers-available-on-aws-graviton4-based-m8g-instances/"
+  kind  = "post-no-work"
+  note  = "engine or instance type version"
+  work  = false
+}
+
+case "post-reduce-the-complexity-and-cost-of-real-time-proces" {
+  post  = "https://aws.amazon.com/blogs/big-data/reduce-the-complexity-and-cost-of-real-time-processing-with-queues-in-amazon-kinesis-data-streams/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51120
+  }
+}
+
+case "post-securing-rest-apis-with-jwt-authorizers-in-amazon" {
+  post  = "https://aws.amazon.com/blogs/compute/securing-rest-apis-with-jwt-authorizers-in-amazon-api-gateway/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51086
+  }
+}
+
+case "post-accelerate-your-dynamodb-workloads-with-dynamodb-c" {
+  post  = "https://aws.amazon.com/blogs/database/accelerate-your-dynamodb-workloads-with-dynamodb-caching-with-amazon-elasticache-serverless-for-valkey/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51117
+  }
+}
+
+case "post-use-query-statistics-to-find-slow-and-expensive-qu" {
+  post  = "https://aws.amazon.com/blogs/database/use-query-statistics-to-find-slow-and-expensive-queries-in-aurora-dsql/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51095
+  }
+}
+
+case "post-introducing-smithy-idl-2-1" {
+  post  = "https://aws.amazon.com/blogs/developer/introducing-smithy-idl-2-1/"
+  kind  = "post-no-work"
+  note  = "SDK or developer tooling"
+  work  = false
+}
+
+case "post-one-call-no-waiting-amazon-connect-health-expands" {
+  post  = "https://aws.amazon.com/blogs/industries/one-call-no-waiting-amazon-connect-health-expands-agentic-ai-for-patient-access/"
+  kind  = "post-no-work"
+  note  = "Connect Health runtime features; service not in the provider"
+  work  = false
+}
+
+case "post-amazon-sagemaker-ai-real-time-endpoints-now-suppor" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/amazon-sagemaker-ai-real-time-endpoints-now-support-kv-cache-aware-routing/"
+  kind  = "post-covered"
+  note  = "decided as a duplicate; nothing links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51090
+  }
+}
+
+case "post-announcing-ai-data-preparation-capabilities-in-ama" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/announcing-ai-data-preparation-capabilities-in-amazon-sagemaker-build-high-quality-datasets-for-model-development-workflows/"
+  kind  = "post-no-work"
+  note  = "data preparation jobs run from the SDK; no resource"
+  work  = false
+}
+
+case "post-managed-nvidia-dynamo-on-amazon-sagemaker-hyperpod" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/managed-nvidia-dynamo-on-amazon-sagemaker-hyperpod-inference/"
+  kind  = "post-no-work"
+  note  = "installed with the HyperPod Inference EKS add-on (aws_eks_addon) and configured as Kubernetes custom resources"
+  work  = false
+}
+
+case "post-introducing-simplified-onboarding-for-aws-waf-bot" {
+  post  = "https://aws.amazon.com/blogs/security/introducing-simplified-onboarding-for-aws-waf-bot-control-at-the-targeted-inspection-level/"
+  kind  = "post-no-work"
+  note  = "managed rule group version and labels; set with the existing managed_rule_group_statement"
+  work  = false
+}
+
+case "post-using-the-aws-rmit-workbook-and-iso-compliance-gui" {
+  post  = "https://aws.amazon.com/blogs/security/using-the-aws-rmit-workbook-and-iso-compliance-guides-to-support-your-bnm-submissions/"
+  kind  = "post-no-work"
+  note  = "company, Region, or program news"
+  work  = false
+}
+
+case "post-block-dns-threats-with-infoblox-rules-in-amazon-ro" {
+  post  = "https://aws.amazon.com/blogs/architecture/block-dns-threats-with-infoblox-rules-in-amazon-route-53-resolver-dns-firewall/"
+  kind  = "post-gap"
+  note  = "deferred, preview; no SDK change yet"
+  as_of = "2026-11-19T19:15:00Z"
+  state = "open"
+  work  = true
+}
+
+case "post-aws-lambda-now-supports-gpu-instances-for-event-fu" {
+  post  = "https://aws.amazon.com/blogs/aws/aws-lambda-now-supports-gpu-instances-for-event-functions-on-lambda-managed-instances/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51046
+  }
+  same  = [51048]
+}
+
+case "post-introducing-amazon-opensearch-memory-persistent-me" {
+  post  = "https://aws.amazon.com/blogs/big-data/introducing-amazon-opensearch-memory-persistent-memory-for-ai-agents/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51056
+  }
+}
+
+case "post-introducing-the-apache-spark-optimization-agent-fo" {
+  post  = "https://aws.amazon.com/blogs/big-data/introducing-the-apache-spark-optimization-agent-for-amazon-emr-serverless-and-aws-glue-etl/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-long-term-amazon-redshift-observability-with-datad" {
+  post  = "https://aws.amazon.com/blogs/big-data/long-term-amazon-redshift-observability-with-datadog-and-amazon-s3-tables/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-control-your-aws-lambda-runtimes-with-customer-man" {
+  post  = "https://aws.amazon.com/blogs/compute/control-your-aws-lambda-runtimes-with-customer-managed-runtimes/"
+  kind  = "post-covered"
+  note  = "labeled in the coverage pass"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51040
+  }
+  expect {
+    number = 51043
+  }
+  same  = [51041, 51042]
+}
+
+case "post-agentic-ccaas-the-new-category-for-contact-center" {
+  post  = "https://aws.amazon.com/blogs/contact-center/agentic-ccaas-the-new-category-for-contact-center-platforms-and-why-it-matters/"
+  kind  = "post-no-work"
+  note  = "company, Region, or program news"
+  work  = false
+}
+
+case "post-amazon-rds-for-mysql-lts-version-9-7-is-now-genera" {
+  post  = "https://aws.amazon.com/blogs/database/amazon-rds-for-mysql-lts-version-9-7-is-now-generally-available/"
+  kind  = "post-no-work"
+  note  = "engine or instance type version"
+  work  = false
+}
+
+case "post-announcing-distributed-kv-caching-for-self-hosted" {
+  post  = "https://aws.amazon.com/blogs/database/announcing-distributed-kv-caching-for-self-hosted-llms-with-amazon-elasticache/"
+  kind  = "post-no-work"
+  note  = "client-side library; no API change"
+  work  = false
+}
+
+case "post-announcing-developer-preview-aws-sdk-for-python-v4" {
+  post  = "https://aws.amazon.com/blogs/developer/announcing-developer-preview-aws-sdk-for-python-v4/"
+  kind  = "post-no-work"
+  note  = "SDK or developer tooling"
+  work  = false
+}
+
+case "post-announcing-the-developer-preview-of-transfer-manag" {
+  post  = "https://aws.amazon.com/blogs/developer/announcing-the-developer-preview-of-transfer-manager-for-amazon-s3-in-the-aws-sdk-for-javascript-v3/"
+  kind  = "post-no-work"
+  note  = "SDK or developer tooling"
+  work  = false
+}
+
+case "post-high-throughput-transfer-manager-for-amazon-s3-in" {
+  post  = "https://aws.amazon.com/blogs/developer/high-throughput-transfer-manager-for-amazon-s3-in-rust-is-now-generally-available/"
+  kind  = "post-no-work"
+  note  = "SDK or developer tooling"
+  work  = false
+}
+
+case "post-physical-ai-production-designer-cell-programming-f" {
+  post  = "https://aws.amazon.com/blogs/industries/physical-ai-production-designer-cell-programming-from-weeks-to-hours/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-your-guide-to-retail-and-consumer-goods-at-reinven" {
+  post  = "https://aws.amazon.com/blogs/industries/your-guide-to-retail-and-consumer-goods-at-reinvent-2026/"
+  kind  = "post-no-work"
+  note  = "event guide"
+  work  = false
+}
+
+case "post-from-reporting-to-reasoning-getting-enterprise-dat" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/from-reporting-to-reasoning-getting-enterprise-data-ready-for-ai-agents/"
+  kind  = "post-no-work"
+  note  = "customer story or how-to guide"
+  work  = false
+}
+
+case "post-how-salesforce-is-advancing-global-scale-model-ser" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/how-salesforce-is-advancing-global-scale-model-serving-with-cross-region-inference-routing-in-amazon-sagemaker-ai/"
+  kind  = "post-covered"
+  note  = "the issue links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51090
+  }
+  expect {
+    number = 51091
+  }
+  expect {
+    number = 51092
+  }
+}
+
+case "post-introducing-the-amazon-sagemaker-jumpstart-model-l" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/introducing-the-amazon-sagemaker-jumpstart-model-leaderboard/"
+  kind  = "post-no-work"
+  note  = "model availability"
+  work  = false
+}
+
+case "post-introducing-workload-recovery-and-expanded-infrast" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/introducing-workload-recovery-and-expanded-infrastructure-checks-on-amazon-sagemaker-hyperpod/"
+  kind  = "post-gap"
+  note  = "filed afterward as #51143"
+  as_of = "2026-11-19T19:15:00Z"
+  state = "open"
+  work  = true
+}
+
+case "post-governing-your-ai-workloads-on-aws-at-scale-visibi" {
+  post  = "https://aws.amazon.com/blogs/mt/governing-your-ai-workloads-on-aws-at-scale-visibility-controls-and-monitoring/"
+  kind  = "post-covered"
+  note  = "the issue links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51116
+  }
+}
+
+case "post-hybrid-dns-with-amazon-route-53-global-resolver-fo" {
+  post  = "https://aws.amazon.com/blogs/networking-and-content-delivery/hybrid-dns-with-amazon-route-53-global-resolver-for-private-connections-on-aws-cloud-wan/"
+  kind  = "post-covered"
+  note  = "decided as a duplicate; nothing links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 45334
+  }
+}
+
+case "post-introducing-network-calls-in-amazon-cloudfront-fun" {
+  post  = "https://aws.amazon.com/blogs/networking-and-content-delivery/introducing-network-calls-in-amazon-cloudfront-functions/"
+  kind  = "post-no-work"
+  note  = "used in function code; no API change"
+  work  = false
+}
+
+case "post-new-site-to-site-vpn-connections-will-default-to-r" {
+  post  = "https://aws.amazon.com/blogs/networking-and-content-delivery/new-site-to-site-vpn-connections-will-default-to-recommended-cryptography/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-aws-named-a-leader-in-idc-marketscape-for-public-c" {
+  post  = "https://aws.amazon.com/blogs/storage/aws-named-a-leader-in-idc-marketscape-for-public-cloud-object-storage/"
+  kind  = "post-no-work"
+  note  = "company, Region, or program news"
+  work  = false
+}
+
+case "post-4-year-anniversary-news-about-aws-europe-zurich-re" {
+  post  = "https://aws.amazon.com/blogs/alps/4-year-anniversary-news-about-aws-europe-zurich-region/"
+  kind  = "post-no-work"
+  note  = "company, Region, or program news"
+  work  = false
+}
+
+case "post-introducing-automatic-version-upgrades-for-aws-glu" {
+  post  = "https://aws.amazon.com/blogs/big-data/introducing-automatic-version-upgrades-for-aws-glue-jobs/"
+  kind  = "post-gap"
+  note  = "filed afterward as #51140"
+  as_of = "2026-11-19T19:15:00Z"
+  state = "open"
+  work  = true
+}
+
+case "post-monitor-the-efficiency-and-availability-of-acceler" {
+  post  = "https://aws.amazon.com/blogs/compute/monitor-the-efficiency-and-availability-of-accelerated-computing-instances-with-amazon-ec2-detailed-monitoring-and-performance-status-checks/"
+  kind  = "post-gap"
+  note  = "filed afterward as #51135, #51136, #51137"
+  as_of = "2026-11-19T19:15:00Z"
+  state = "open"
+  work  = true
+}
+
+case "post-amazon-elasticache-serverless-turns-three" {
+  post  = "https://aws.amazon.com/blogs/database/amazon-elasticache-serverless-turns-three/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-full-fine-tuning-fft-on-sagemaker-ai-serverless-mo" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/full-fine-tuning-fft-on-sagemaker-ai-serverless-model-customization/"
+  kind  = "post-no-work"
+  note  = "no new resource or argument"
+  work  = false
+}
+
+case "post-introducing-enhanced-observability-in-amazon-sagem" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/introducing-enhanced-observability-in-amazon-sagemaker-hyperpod-to-diagnose-gpu-training-issues/"
+  kind  = "post-gap"
+  note  = "filed afterward as #51143"
+  as_of = "2026-11-19T19:15:00Z"
+  state = "open"
+  work  = true
+}
+
+case "post-polyai-dialog-rsn-1-is-now-on-amazon-sagemaker-jum" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/polyai-dialog-rsn-1-is-now-on-amazon-sagemaker-jumpstart/"
+  kind  = "post-no-work"
+  note  = "model availability"
+  work  = false
+}
+
+case "post-introducing-resource-context-for-firewall-policies" {
+  post  = "https://aws.amazon.com/blogs/networking-and-content-delivery/introducing-resource-context-for-firewall-policies-with-aws-transit-gateway/"
+  kind  = "post-covered"
+  note  = "decided as a duplicate; nothing links the post or its announcement"
+  as_of = "2026-11-19"
+  state = "covered"
+  work  = true
+  expect {
+    number = 51064
+  }
+  expect {
+    number = 51066
+  }
 }
