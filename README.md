@@ -114,7 +114,7 @@ The first pull covers the last 30 days. `--since` pulls an earlier window withou
 
 ### SDK releases
 
-Each AWS SDK for Go v2 release becomes one item per changed service. The item holds the release notes and the API model change: new and removed operations, shapes, members, and enum values, and changed member types. The change is a diff of a local bare clone of [aws/api-models-aws](https://github.com/aws/api-models-aws) (about 180 MB), which gets a commit about an hour before each release.
+Each AWS SDK for Go v2 release becomes one item per changed service. The item holds the release notes and the API model change: new and removed operations, shapes, members, and enum values, and changed member types. The change is a diff of a local bare clone of [aws/api-models-aws](https://github.com/aws/api-models-aws) (about 180 MB), which gets a commit about an hour before each release. Sometimes the models land after the release: 7 of 358 releases since 2025-06-01, up to 3 hours after. A commit after a release, and less than 4 hours after it and before the next release, counts for the release when it adds or changes a model of a module the release notes list and the next release's notes don't. The newest release waits until those 4 hours pass when no listed module has a model change yet, or when a commit after it could belong to it. Re-pulling a window with `--since` recomputes it and removes items it no longer produces.
 
 An item without an API change is `skipped`, with one of these reasons: only docs, traits, or rules changed; a release note had no model change; or the model was removed. Constraint changes, like a new maximum length, are skipped too. They can still matter for provider validation.
 

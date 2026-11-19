@@ -84,6 +84,34 @@ func (r *ModelsRepo) CommitAt(ctx context.Context, t time.Time) (Commit, error) 
 	return Commit{SHA: sha, Time: when.UTC()}, nil
 }
 
+// Commits returns the commits on Branch committed after after and at or before until, oldest first.
+func (r *ModelsRepo) Commits(ctx context.Context, after, until time.Time) ([]Commit, error) {
+	if !until.After(after) {
+		return nil, nil
+	}
+	out, err := r.git(ctx, "log", "--reverse", "--format=%H %cI", "--after="+after.UTC().Format(time.RFC3339),
+		"--before="+until.UTC().Format(time.RFC3339), "refs/heads/"+r.Branch, "--")
+	if err != nil {
+		return nil, err
+	}
+	var cs []Commit
+	for line := range strings.Lines(out) {
+		sha, ts, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
+		}
+		when, err := time.Parse(time.RFC3339, ts)
+		if err != nil {
+			return nil, fmt.Errorf("parsing commit time %q: %w", ts, err)
+		}
+		// --after is inclusive to the second; a commit exactly at after belongs before it.
+		if when.After(after) {
+			cs = append(cs, Commit{SHA: sha, Time: when.UTC()})
+		}
+	}
+	return cs, nil
+}
+
 // ModelChange is a model file added, modified, or deleted between two commits.
 type ModelChange struct {
 	// Status is "A", "M", or "D".

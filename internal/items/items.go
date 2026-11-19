@@ -133,6 +133,56 @@ func (s *Store) Put(ctx context.Context, recs []Record) error {
 		return err
 	}
 	defer tx.Rollback()
+	if err := put(ctx, tx, recs); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// PutRelease stores one release's records from a source, and in the same transaction deletes the source's other records
+// for that release whose service owns reports true. A re-pull then leaves no item the pull no longer produces. It
+// returns the IDs deleted, sorted.
+func (s *Store) PutRelease(ctx context.Context, source, release string, recs []Record, owns func(service string) bool) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	keep := map[string]bool{}
+	for _, r := range recs {
+		keep[r.ID] = true
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id, service FROM items WHERE source = ? AND release = ? ORDER BY id`, source, release)
+	if err != nil {
+		return nil, err
+	}
+	var stale []string
+	for rows.Next() {
+		var id, service string
+		if err := rows.Scan(&id, &service); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if !keep[id] && owns(service) {
+			stale = append(stale, id)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, id := range stale {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM items WHERE id = ?`, id); err != nil {
+			return nil, fmt.Errorf("deleting item %s: %w", id, err)
+		}
+	}
+	if err := put(ctx, tx, recs); err != nil {
+		return nil, err
+	}
+	return stale, tx.Commit()
+}
+
+func put(ctx context.Context, tx *sql.Tx, recs []Record) error {
 	for _, r := range recs {
 		_, err := tx.ExecContext(ctx, `
 INSERT INTO items(id, source, service, release, published_at, status, data, pulled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -144,7 +194,7 @@ ON CONFLICT(id) DO UPDATE SET source = excluded.source, service = excluded.servi
 			return fmt.Errorf("storing item %s: %w", r.ID, err)
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // Get returns one item, or nil if there is none.

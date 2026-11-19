@@ -450,3 +450,212 @@ func TestOperationsHasConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestPullLateModels checks that models committed after a release go to it when they change a module its notes list
+// and the next release's don't, stay with the next release otherwise, and that a re-pull removes items it no longer
+// produces.
+func TestPullLateModels(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	at := func(d, h, m int) time.Time { return time.Date(2026, 1, d, h, m, 0, 0, time.UTC) }
+	widget := "models/widget/service/2020-01-01/widget-2020-01-01.json"
+	gadget := "models/gadget/service/2020-01-01/gadget-2020-01-01.json"
+	gizmo := "models/gizmo/service/2020-01-01/gizmo-2020-01-01.json"
+	notes := func(mods ...string) string {
+		b := "## Module Highlights\n"
+		for _, m := range mods {
+			b += "* `github.com/aws/aws-sdk-go-v2/service/" + m + "`: [v1.1.0](x)\n  * **Feature**: " + m + " change.\n"
+		}
+		return b
+	}
+	commits := []commitSpec{
+		{at(1, 19, 0), map[string]string{widget: model("Widget", "CreateWidget"), gadget: model("Gadget", "GetGadget"),
+			gizmo: model("Gizmo", "GetGizmo")}},
+		// Day 2's release is at 20:00. A commit with no model change, then its widget models, land after it.
+		{at(2, 20, 10), map[string]string{"README.md": "x"}},
+		{at(2, 20, 30), map[string]string{widget: model("Widget", "CreateWidget", "TagWidget")}},
+		// Gadget's models come before the 22:00 release that lists it; day 2's release lists gadget too, so they're
+		// the 22:00 release's.
+		{at(2, 21, 0), map[string]string{gadget: model("Gadget", "GetGadget", "PutGadget")}},
+		{at(3, 19, 0), map[string]string{widget: model("Widget", "CreateWidget", "TagWidget", "UntagWidget")}},
+		// Day 3's widget models land after it too.
+		{at(3, 20, 15), map[string]string{widget: model("Widget", "CreateWidget", "TagWidget", "UntagWidget", "DescribeWidget")}},
+		// Day 3 deprecates gizmo, and its model is removed after the release: removals don't count.
+		{at(3, 20, 30), map[string]string{gizmo: ""}},
+		// So the clone provably covers day 3.
+		{at(4, 19, 0), map[string]string{"README.md": "y"}},
+	}
+	rels := fakeReleases{
+		{TagName: "release-2026-01-01", PublishedAt: at(1, 20, 0)},
+		{TagName: "release-2026-01-02", PublishedAt: at(2, 20, 0), Body: notes("widget", "gadget")},
+		{TagName: "release-2026-01-02.2", PublishedAt: at(2, 22, 0), Body: notes("gadget")},
+		{TagName: "release-2026-01-03", PublishedAt: at(3, 20, 0), Body: notes("widget", "gizmo")},
+	}
+	open := func() *items.Store {
+		st, err := items.Open(filepath.Join(t.TempDir(), "items.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { st.Close() })
+		return st
+	}
+	noFetch := false
+	src := &config.Source{Name: "sdk", Type: config.SourceAWSSDKGoV2, ModelsBranch: "main", Fetch: &noFetch, Start: "2026-01-01"}
+	get := func(st *items.Store, id string) *Item {
+		t.Helper()
+		r, err := st.Get(ctx, id)
+		if err != nil || r == nil {
+			t.Fatalf("item %s: %v, %v", id, r, err)
+		}
+		var it Item
+		if err := json.Unmarshal(r.Data, &it); err != nil {
+			t.Fatal(err)
+		}
+		return &it
+	}
+	ops := func(it *Item) string {
+		if it.Diff == nil {
+			return ""
+		}
+		return strings.Join(it.Diff.AddedOperations, ",")
+	}
+
+	st := open()
+	// A stale item from an earlier pull of day 2.
+	if err := st.Put(ctx, []items.Record{{ID: "sdk/sprocket/release-2026-01-02", Source: "sdk", Service: "sprocket", Release: "release-2026-01-02",
+		PublishedAt: at(2, 20, 0), Status: items.StatusNew, Data: []byte(`{}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	p := &Puller{Source: src, Models: &ModelsRepo{Dir: gitRepo(t, commits), Branch: "main"}, Releases: rels, Store: st}
+	res, err := p.Pull(ctx, PullOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Releases != 3 || !strings.Contains(strings.Join(res.Warnings, "\n"), "release-2026-01-02: removed 1 item(s) a re-pull no longer produces: sdk/sprocket/release-2026-01-02") {
+		t.Errorf("result = %+v", res)
+	}
+	if w := get(st, "sdk/widget/release-2026-01-02"); w.Status != items.StatusNew || ops(w) != "TagWidget" {
+		t.Errorf("day 2 widget = %s %q", w.Status, ops(w))
+	}
+	if g := get(st, "sdk/gadget/release-2026-01-02"); g.Status != items.StatusSkipped || g.SkipReason != SkipNoModel {
+		t.Errorf("day 2 gadget = %s %s", g.Status, g.SkipReason)
+	}
+	if g := get(st, "sdk/gadget/release-2026-01-02.2"); g.Status != items.StatusNew || ops(g) != "PutGadget" {
+		t.Errorf("day 2.2 gadget = %s %q", g.Status, ops(g))
+	}
+	if w := get(st, "sdk/widget/release-2026-01-03"); ops(w) != "DescribeWidget,UntagWidget" {
+		t.Errorf("day 3 widget = %q", ops(w))
+	}
+	if g := get(st, "sdk/gizmo/release-2026-01-03"); g.SkipReason != SkipNoModel {
+		t.Errorf("day 3 gizmo = %s %s", g.Status, g.SkipReason)
+	}
+
+	// A release the list didn't have yet, at 22:00 on day 3, also lists widget, so day 3's 20:15 widget models would now
+	// be its. Resuming keeps day 3's stored models as its base, so they aren't counted twice, and warns.
+	rels2 := slices.Insert(slices.Clone(rels), 4, github.Release{TagName: "release-2026-01-03.2", PublishedAt: at(3, 22, 0), Body: notes("widget")})
+	p2 := &Puller{Source: src, Models: p.Models, Releases: rels2, Store: st}
+	res, err = p2.Pull(ctx, PullOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Releases != 1 || !strings.Contains(strings.Join(res.Warnings, "\n"), "release-2026-01-03: its stored models end at") {
+		t.Errorf("resumed = %+v", res)
+	}
+	w := get(st, "sdk/widget/release-2026-01-03.2")
+	if w.Status != items.StatusSkipped || w.Provenance.Base.SHA != get(st, "sdk/widget/release-2026-01-03").Provenance.Head.SHA {
+		t.Errorf("day 3.2 widget = %s %s, base %s", w.Status, w.SkipReason, w.Provenance.Base.SHA)
+	}
+}
+
+// TestPullModelsPending checks that the newest release isn't pulled while its models may still be landing.
+func TestPullModelsPending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	at := func(d, h, m int) time.Time { return time.Date(2026, 1, d, h, m, 0, 0, time.UTC) }
+	widget := "models/widget/service/2020-01-01/widget-2020-01-01.json"
+	body := "## Module Highlights\n* `github.com/aws/aws-sdk-go-v2/service/widget`: [v1.1.0](x)\n  * **Feature**: Tagging.\n"
+	rels := fakeReleases{
+		{TagName: "release-2026-01-01", PublishedAt: at(1, 20, 0)},
+		{TagName: "release-2026-01-02", PublishedAt: at(2, 20, 0), Body: body},
+	}
+	for _, tc := range []struct {
+		name    string
+		commits []commitSpec
+		now     time.Time
+		want    string // warning; "" pulls
+		noFetch bool
+		later   []github.Release
+	}{
+		{"models not yet landed", []commitSpec{{at(1, 19, 0), map[string]string{widget: model("Widget", "CreateWidget")}}},
+			at(2, 20, 15), "stopped before release-2026-01-02: none of its listed modules has a model change yet", false, nil},
+		{"models landed after it", []commitSpec{{at(1, 19, 0), map[string]string{widget: model("Widget", "CreateWidget")}},
+			{at(2, 20, 30), map[string]string{widget: model("Widget", "CreateWidget", "TagWidget")}}},
+			at(2, 20, 45), "stopped before release-2026-01-02: models committed after it", false, nil},
+		{"models landed before it", []commitSpec{{at(1, 19, 0), map[string]string{widget: model("Widget", "CreateWidget")}},
+			{at(2, 19, 30), map[string]string{widget: model("Widget", "CreateWidget", "TagWidget")}}},
+			at(2, 20, 15), "", false, nil},
+		{"lag passed", []commitSpec{{at(1, 19, 0), map[string]string{widget: model("Widget", "CreateWidget")}}},
+			at(3, 1, 0), "", false, nil},
+		// Without a fetch, the clone's newest commit, 20:15, is how far its history is known, even with a later release.
+		{"unfetched clone behind a release that isn't the newest", []commitSpec{{at(1, 19, 0), map[string]string{widget: model("Widget", "CreateWidget")}},
+			{at(2, 20, 15), map[string]string{"README.md": "x"}}},
+			at(3, 1, 0), "stopped before release-2026-01-02: none of its listed modules", true,
+			[]github.Release{{TagName: "release-2026-01-02.2", PublishedAt: at(2, 22, 0)}}},
+	} {
+		fetch := !tc.noFetch
+		st, err := items.Open(filepath.Join(t.TempDir(), "items.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		repo := gitRepo(t, tc.commits)
+		src := &config.Source{Name: "sdk", Type: config.SourceAWSSDKGoV2, ModelsURL: repo, ModelsBranch: "main", Fetch: &fetch, Start: "2026-01-01"}
+		p := &Puller{Source: src, Models: &ModelsRepo{Dir: repo, URL: repo, Branch: "main"}, Releases: append(slices.Clone(rels), tc.later...), Store: st,
+			Now: func() time.Time { return tc.now }}
+		res, err := p.Pull(ctx, PullOptions{})
+		st.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		warns := strings.Join(res.Warnings, "\n")
+		switch {
+		case tc.want == "" && res.Releases != 1:
+			t.Errorf("%s: result = %+v", tc.name, res)
+		case tc.want != "" && (res.Releases != 0 || !strings.Contains(warns, tc.want)):
+			t.Errorf("%s: result = %+v", tc.name, res)
+		}
+	}
+}
+
+// TestStoredHead checks that only the pulled services' items give a release's stored models head, and that different
+// heads are an error.
+func TestStoredHead(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	st, err := items.Open(filepath.Join(t.TempDir(), "items.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	rel := github.Release{TagName: "release-2026-01-02", PublishedAt: time.Date(2026, 1, 2, 20, 0, 0, 0, time.UTC)}
+	put := func(service, head string) {
+		t.Helper()
+		data, _ := json.Marshal(Item{Release: Release{Tag: rel.TagName}, Provenance: Provenance{Head: Commit{SHA: head}}})
+		if err := st.Put(ctx, []items.Record{{ID: "sdk/" + service + "/" + rel.TagName, Source: "sdk", Service: service, Release: rel.TagName,
+			PublishedAt: rel.PublishedAt, Status: items.StatusNew, Data: data}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("gadget", "old")
+	put("widget", "new")
+	p := &Puller{Source: &config.Source{Name: "sdk", Services: []string{"widget"}}, Store: st}
+	if h, err := p.storedHead(ctx, rel); err != nil || h.SHA != "new" {
+		t.Errorf("widget only = %+v, %v", h, err)
+	}
+	p.Source.Services = nil
+	if _, err := p.storedHead(ctx, rel); err == nil || !strings.Contains(err.Error(), "re-pull from before release-2026-01-02") {
+		t.Errorf("conflicting heads = %v", err)
+	}
+}
