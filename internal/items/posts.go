@@ -2,8 +2,11 @@ package items
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/YakDriver/avizor/internal/whatsnew"
@@ -75,4 +78,28 @@ func (s *Store) Posts(ctx context.Context) ([]whatsnew.Post, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// Post returns the stored blog post with a URL, or nil if there's none. A URL that differs only by a trailing slash
+// matches.
+func (s *Store) Post(ctx context.Context, url string) (*whatsnew.Post, error) {
+	u := strings.TrimSuffix(url, "/")
+	row := s.db.QueryRowContext(ctx, `SELECT id, url, title, posted_at, excerpt, tags FROM blog_posts WHERE url IN (?, ?)
+ORDER BY posted_at DESC, id LIMIT 1`, u, u+"/")
+	var p whatsnew.Post
+	var posted, tags string
+	switch err := row.Scan(&p.ID, &p.URL, &p.Title, &posted, &p.Excerpt, &tags); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("reading blog post %s: %w", url, err)
+	}
+	var err error
+	if p.PostedAt, err = time.Parse(time.RFC3339, posted); err != nil {
+		return nil, fmt.Errorf("blog post %s: %w", p.ID, err)
+	}
+	if err := json.Unmarshal([]byte(tags), &p.Tags); err != nil {
+		return nil, fmt.Errorf("blog post %s tags: %w", p.ID, err)
+	}
+	return &p, nil
 }

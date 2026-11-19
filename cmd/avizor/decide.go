@@ -35,7 +35,7 @@ func cmdDecide(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		return fmt.Errorf("%w: %v", errUsage, err)
 	}
 	if len(pos) < 2 {
-		return fmt.Errorf("%w: decide takes an item ID, a decision (%s), and for created or duplicate one or more issue numbers",
+		return fmt.Errorf("%w: decide takes an item ID or blog post URL, a decision (%s), and for created or duplicate one or more issue numbers",
 			errUsage, strings.Join(items.Decisions, ", "))
 	}
 	now := time.Now()
@@ -114,6 +114,18 @@ func cmdDecide(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		return err
 	}
 	defer ist.Close()
+	if strings.HasPrefix(d.Item, "https://") {
+		// A blog post. Its state comes from candidates each time posts runs, so no evidence is recorded.
+		p, err := ist.Post(ctx, d.Item)
+		if err != nil {
+			return err
+		}
+		if p == nil {
+			return fmt.Errorf("no blog post %q; list posts with `avizor posts --all`", d.Item)
+		}
+		d.Item = p.URL
+		return recordDecision(ctx, ist, d, c.format, stdout)
+	}
 	rec, err := ist.Get(ctx, d.Item)
 	if err != nil {
 		return err
@@ -141,10 +153,14 @@ func cmdDecide(ctx context.Context, args []string, stdout, stderr io.Writer) err
 			return err
 		}
 	}
+	return recordDecision(ctx, ist, d, c.format, stdout)
+}
+
+func recordDecision(ctx context.Context, ist *items.Store, d items.Disposition, format string, stdout io.Writer) error {
 	if err := ist.Decide(ctx, d); err != nil {
 		return err
 	}
-	if c.format != "text" {
+	if format != "text" {
 		return writeJSON(stdout, d)
 	}
 	fmt.Fprintf(stdout, "%s: %s\n", d.Item, decisionText(d))
