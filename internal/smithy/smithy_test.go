@@ -2,6 +2,7 @@ package smithy
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"testing"
 )
@@ -360,9 +361,7 @@ func TestParseClosureEdges(t *testing.T) {
 				"com.amazonaws.x#M": {"type": "map", "key": ref("smithy.api#String"), "value": ref("com.other#Want")}}},
 	} {
 		svc := map[string]any{"type": "service", "traits": map[string]any{"aws.api#service": map[string]any{"sdkId": "X"}}}
-		for k, v := range tc.svc {
-			svc[k] = v
-		}
+		maps.Copy(svc, tc.svc)
 		shapes := map[string]any{"com.amazonaws.x#Svc": svc, "com.other#Want": map[string]any{"type": "structure"},
 			"com.other#Unreached": map[string]any{"type": "structure"}}
 		for id, s := range tc.local {
