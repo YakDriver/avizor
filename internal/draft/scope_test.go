@@ -75,9 +75,9 @@ func TestScopeChanges(t *testing.T) {
 	field := &enrich.Field{Name: "metric_groups", Member: "metricGroups", Type: "list", Elem: "structure",
 		Fields: []enrich.Field{{Name: "metric_group", Member: "metricGroup", Type: "enum", Required: true, Values: []string{"STATS"}}}}
 	en := implemented("widget",
-		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateClusterInput.metricGroups", UsedBy: []string{cluster}, Member: "metric_groups", Field: field},
-		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "UpdateClusterInput.metricGroups", UsedBy: []string{cluster, peering}, Member: "metric_groups", Field: field},
-		enrich.Work{Kind: enrich.WorkNewAttribute, Subject: "GetClusterOutput.metricGroups", UsedBy: []string{cluster, peering}, Field: field},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateClusterInput.metricGroups", Operations: []string{"CreateCluster"}, UsedBy: []string{cluster}, Member: "metric_groups", Field: field},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "UpdateClusterInput.metricGroups", Operations: []string{"UpdateCluster"}, UsedBy: []string{cluster, peering}, Member: "metric_groups", Field: field},
+		enrich.Work{Kind: enrich.WorkNewAttribute, Subject: "GetClusterOutput.metricGroups", Operations: []string{"GetCluster"}, UsedBy: []string{cluster, peering}, Field: field},
 		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "Vpc.EgressMode", UsedBy: []string{cluster}, Member: "egress_mode",
 			Field:  &enrich.Field{Name: "egress_mode", Member: "EgressMode", Type: "string"},
 			Schema: []enrich.SchemaPlace{{File: cluster, Line: 40, Path: "vpc", Kind: "ListNestedBlock", Framework: "plugin-framework", ForceNew: "vpc"}}},
@@ -90,16 +90,16 @@ func TestScopeChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Title != "r/aws_widget_cluster: Add `metric_groups` and `vpc.egress_mode`" {
+	if d.Title != "r/`aws_widget_cluster`: Add `metric_groups` and `vpc.egress_mode`" {
 		t.Errorf("title = %q", d.Title)
 	}
 	for _, want := range []string{
-		"- `aws_widget_cluster`: new argument `metric_groups` (optional; list of structure), from `CreateClusterInput.metricGroups` and " +
+		"- New argument `metric_groups` (optional; list of structure), from `CreateClusterInput.metricGroups` and " +
 			"`UpdateClusterInput.metricGroups`; returned by `GetClusterOutput.metricGroups`. <!-- decide: set of strings or nested block --> " +
 			"<!-- decide: optional, or optional and computed -->\n  - `metric_group` (required; enum, STATS)\n",
-		"- `aws_widget_cluster`: new argument `vpc.egress_mode` (optional; string), from `Vpc.EgressMode`.\n",
+		"- New argument `vpc.egress_mode` (optional; string), from `Vpc.EgressMode`.\n",
 		"- `RoutingStrategy`: new value `KV_AWARE`. The type is validated with the SDK type in `internal/service/widget/cluster.go:9`.\n",
-		"Notes:\n\n- `vpc` is a ListNestedBlock in `internal/service/widget/cluster.go:40` (plugin-framework); `vpc` forces replacement.\n",
+		"\n- `vpc` is a ListNestedBlock in `internal/service/widget/cluster.go:40` (plugin-framework); `vpc` forces replacement.\n",
 	} {
 		if !strings.Contains(d.Body, want) {
 			t.Errorf("body has no %q:\n%s", want, d.Body)
@@ -107,6 +107,19 @@ func TestScopeChanges(t *testing.T) {
 	}
 	if !slices.Equal(d.Decide, []string{"metric_groups: set of strings or nested block", "metric_groups: optional, or optional and computed"}) {
 		t.Errorf("decide = %q", d.Decide)
+	}
+
+	// Release notes naming the operations replace the API fields; a nested structure's field stays.
+	if d, err = New(item("widget", "Adds metricGroups to CreateCluster, UpdateCluster, and GetCluster."), en, nil, o); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"- New argument `metric_groups` (optional; list of structure). <!-- decide: set of strings or nested block -->",
+		"- New argument `vpc.egress_mode` (optional; string), from `Vpc.EgressMode`.\n",
+	} {
+		if !strings.Contains(d.Body, want) {
+			t.Errorf("body with named operations has no %q:\n%s", want, d.Body)
+		}
 	}
 
 	// Without the checkout, the resource is a judgment call.
@@ -195,6 +208,30 @@ func TestAbbreviates(t *testing.T) {
 	} {
 		if got := abbreviates(tc.name, tc.subject); got != tc.want {
 			t.Errorf("abbreviates(%s, %s) = %t", tc.name, tc.subject, got)
+		}
+	}
+}
+
+func TestNamedOperations(t *testing.T) {
+	t.Parallel()
+
+	notes := []string{"Adds metricGroups to CreateCluster and GetCluster, and Router to Widgets.", "UpdateClusters is new."}
+	work := func(subject string, ops ...string) enrich.Work { return enrich.Work{Subject: subject, Operations: ops} }
+	for _, tc := range []struct {
+		name  string
+		works []enrich.Work
+		want  bool
+	}{
+		{"named", []enrich.Work{work("CreateClusterInput.metricGroups", "CreateCluster"), work("GetClusterOutput.metricGroups", "GetCluster")}, true},
+		{"request and response", []enrich.Work{work("CreateClusterRequest.x", "CreateCluster"), work("GetClusterResponse.x", "GetCluster")}, true},
+		{"not a whole word", []enrich.Work{work("UpdateClusterInput.metricGroups", "UpdateCluster")}, false},
+		{"a structure named like an output", []enrich.Work{work("RouterOutput.Processors", "GetRouter")}, false},
+		{"nested structure", []enrich.Work{work("Cluster.metricGroups", "CreateCluster")}, false},
+		{"returns not named", []enrich.Work{{Subject: "CreateClusterInput.x", Operations: []string{"CreateCluster"}, Returns: []string{"DescribeCluster"}}}, false},
+		{"none", nil, false},
+	} {
+		if got := namedOperations(notes, tc.works); got != tc.want {
+			t.Errorf("%s: namedOperations = %t", tc.name, got)
 		}
 	}
 }

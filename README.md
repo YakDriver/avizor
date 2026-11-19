@@ -241,11 +241,11 @@ avizor draft aws-sdk-go-v2/kinesis/release-2026-08-31 --body | gh issue create -
 
 `avizor draft` renders an issue in the format of the provider's trackers. Avizor prints the `gh` command but doesn't run it. The body has:
 
-- the release notes, quoted, and with `--announcement`, a link to the matched What's New post, and with `--blog <url>`, a `Blog post:` link;
-- `Requires AWS SDK for Go v2 [Release <date>](<commit>) (<module> <version>).`, and the bump PR if the target has merged one. Reconciliation takes an issue citing the release commit as tracking the whole release, so a `partial` item's draft cites the release tag instead;
+- the release notes, quoted, and with `--announcement`, a link to the matched What's New post titled with its headline. With `--blog <url>`, a `([blog post](<url>))` link follows it, or a `[Blog post](<url>)` line when there's no announcement;
+- `` Requires `service/<module>` <version> ([Release <date>](<commit>)). ``, and the bump PR if the target has merged one. Reconciliation takes an issue citing the release commit as tracking the whole release, so a `partial` item's draft cites the release tag instead;
 - a Scope section rendered from the model's spec and the provider's facts:
   - for a new resource or data source, its operations, its arguments (required or optional, forces replacement, type, constraints, and nested fields), and its attributes, then notes: status values to wait on, how update and delete work, how tags are set, documentation sentences that state design facts, and other operations;
-  - for an existing resource, each new argument or attribute with the resource it's in, its type and constraints, the API members it comes from, and the outputs that return it, then notes on the parent block from the schema (its kind, and whether it forces replacement). Members of one noun's create, update, and read shapes are one field; the create input's describes it;
+  - for an existing resource, each new argument or attribute with the resource it's in, its type and constraints, the API members it comes from, and the outputs that return it, then notes on the parent block. When every line is about one resource, the title names it and the lines leave it out. When the release notes name every operation a line's members come from, the line leaves out the members from the schema (its kind, and whether it forces replacement). Members of one noun's create, update, and read shapes are one field; the create input's describes it;
   - new enum values and whether the provider validates with the SDK's type;
 - for a `partial` item, `Relates #N` lines for the issues and PRs that cover the rest.
 
@@ -264,8 +264,9 @@ Guesses go in a reviewer section (text) or under `inferred` (JSON), each with it
 
 - **Title**: one of
   - ``New resource: `aws_<package>_<noun>` ``;
+  - ``New resources: `<a>` and `<b>` ``, or `` `<a>`, `<b>`, and 2 more ``, for several new resources and no new data source;
   - `New data source: ...`;
-  - ``r/<resource>: Add `<argument>` ``, when the new arguments (or, with none, attributes) are in one resource;
+  - ``r/`<resource>`: Add `<argument>` ``, when the new arguments (or, with none, attributes) are in one resource;
   - otherwise the announcement headline, or the first sentence of the notes, with a service prefix if it lacks one.
 - **Labels**: `enhancement` and the service label, plus `new-resource` for an inferred resource and `new-service` for a new SDK module or a service the target doesn't implement. For such a service, the service label is a guess from the module name.
 
