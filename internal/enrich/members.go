@@ -21,7 +21,15 @@ import (
 
 // Snake turns a PascalCase or camelCase name into snake_case: S3AccessPoint -> s3_access_point, KMSKey -> kms_key.
 func Snake(s string) string {
-	rs := []rune(s)
+	rs := []rune(acronymRE.ReplaceAllStringFunc(s, func(m string) string {
+		sm := acronymRE.FindStringSubmatch(m)
+		w := sm[1][:1] + strings.ToLower(sm[1][1:])
+		if sm[2] != "" {
+			// A lowercase letter after the acronym starts a word: MiBps is mib_ps.
+			w += "_" + sm[2]
+		}
+		return w
+	}))
 	var b strings.Builder
 	for i, r := range rs {
 		if unicode.IsUpper(r) && i > 0 {
@@ -35,6 +43,11 @@ func Snake(s string) string {
 	}
 	return b.String()
 }
+
+// acronymRE matches mixed-case acronyms that are one word in Terraform names, and a lowercase letter after one: OAuth
+// (oauth2), IPv4 and IPv6 (ipv6), and MiB and GiB (warm_throughput_mib_ps, memory_gib_per_vcpu). Snake would split
+// them where the case changes.
+var acronymRE = regexp.MustCompile(`(OAuth|IPv|[MG]iB)([a-z]?)`)
 
 // queryVerbs start operations whose input is filters and identifiers, which providers rarely expose as arguments.
 var queryVerbs = []string{"Get", "Describe", "List", "BatchGet", "Search"}

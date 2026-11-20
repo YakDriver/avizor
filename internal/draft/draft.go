@@ -63,14 +63,15 @@ type Relate struct {
 // Data is what the body template sees.
 type Data struct {
 	Item *awssdk.Item
-	// Notes are the item's release notes, in full, without the "New AWS service client module" marker.
+	// Notes are the item's release notes, in full, without the "New AWS service client module" marker, and without
+	// boilerplate notes the SDK adds to many services at once unless every note is one.
 	Notes []string
 	// Headline is the matched announcement's headline, or else the first sentence of the first note. Titles use it.
 	Headline string
 	// Announcement is the matched What's New post, set only when Options.Announcement accepts the match.
 	Announcement *whatsnew.Announcement
-	// BlogPost is the blog post the reviewer chose to link, or nil.
-	BlogPost *whatsnew.Post
+	// BlogPosts are the blog posts to link, in order.
+	BlogPosts []BlogLink
 	// Release is the release name, such as "Release 2025-12-02".
 	Release    string
 	ReleaseURL string
@@ -78,7 +79,8 @@ type Data struct {
 	// release.
 	Module  string
 	Version string
-	// BumpPRURL is the target PR that brought the SDK version in, if it's merged.
+	// BumpPRURL is the target PR that brought the SDK version in, if it's merged. The default template says only that
+	// the provider has the version.
 	BumpPRURL string
 	Service   enrich.ServiceMatch
 	// Work is the work the draft covers: for a partial item, only the uncovered work.
@@ -109,11 +111,33 @@ type Options struct {
 	RelatesLimit int
 	// Announcement puts the matched announcement in the body. The match is an inference, so the reviewer opts in.
 	Announcement bool
-	// BlogPost is a blog post to link in the body, chosen by the reviewer.
-	BlogPost *whatsnew.Post
+	// BlogPosts are blog posts to link in the body, in order: those the reviewer chose, then those that match the
+	// accepted announcement.
+	BlogPosts []BlogPost
 	// Partial is set for a partial item: the work passed to New is only the uncovered work, and Covered are the labels
 	// of that work, as queue reports them.
 	Partial *Partial
+}
+
+// BlogPost is a blog post to link, and why. Basis is empty for a post the reviewer chose, and otherwise says why the
+// post is linked, as an inference.
+type BlogPost struct {
+	Post  whatsnew.Post
+	Basis string
+}
+
+// BlogLink is a blog post link in the body.
+type BlogLink struct {
+	Title string
+	URL   string
+}
+
+// blogTitle is a post's title, or "Blog post" for a post that isn't stored, which is titled with its URL.
+func blogTitle(p whatsnew.Post) string {
+	if p.Title == "" || p.Title == p.URL {
+		return "Blog post"
+	}
+	return p.Title
 }
 
 // Partial describes a partial item's draft: the work it covers, and the candidates that cover the rest.
@@ -146,16 +170,12 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 
 	// The commit URL is the release's citation: reconciliation takes an issue citing it as tracking the whole release.
 	// A partial draft cites the tag, since it tracks only part of the release.
-	data := Data{Item: it, BlogPost: opts.BlogPost, Release: releaseName(it.Release.Tag), ReleaseURL: cmp(it.Release.CommitURL, it.Release.URL),
+	data := Data{Item: it, Release: releaseName(it.Release.Tag), ReleaseURL: cmp(it.Release.CommitURL, it.Release.URL),
 		Module: strings.TrimPrefix(it.Service.ModulePath, sdkPath), Version: it.Service.ModuleVersion, Service: en.Service, Work: en.Work}
 	if opts.Partial != nil {
 		data.ReleaseURL = cmp(it.Release.URL, it.Release.CommitURL)
 	}
-	for _, n := range it.Notes {
-		if n.Text != NewModuleNote {
-			data.Notes = append(data.Notes, n.Text)
-		}
-	}
+	data.Notes = notes(it)
 	switch m := en.Announcement; {
 	case m != nil:
 		data.Headline = m.Announcement.Headline
@@ -168,6 +188,15 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	case len(data.Notes) > 0:
 		data.Headline = firstSentence(data.Notes[0])
 		infer("headline", data.Headline, "first sentence of the release notes, used in the title; no announcement matched")
+	}
+	for _, p := range opts.BlogPosts {
+		if slices.ContainsFunc(data.BlogPosts, func(l BlogLink) bool { return l.URL == p.Post.URL }) {
+			continue
+		}
+		data.BlogPosts = append(data.BlogPosts, BlogLink{Title: blogTitle(p.Post), URL: p.Post.URL})
+		if p.Basis != "" {
+			infer("blog_post", p.Post.Title+" "+p.Post.URL, p.Basis+"; in the body")
+		}
 	}
 	if opts.Announcement && en.Announcement == nil {
 		d.Warnings = append(d.Warnings, "--announcement: no announcement matched, so the body has the release notes instead")
@@ -242,6 +271,25 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 }
 
 const NewModuleNote = awssdk.NewModuleNote
+
+// notes are the release notes the body quotes, and the title's headline comes from: without the new-module marker, and
+// without boilerplate notes unless every note is one.
+func notes(it *awssdk.Item) []string {
+	var all, own []string
+	for _, n := range it.Notes {
+		if n.Text == NewModuleNote {
+			continue
+		}
+		all = append(all, n.Text)
+		if !awssdk.Boilerplate(n.Text) {
+			own = append(own, n.Text)
+		}
+	}
+	if len(own) == 0 {
+		return all
+	}
+	return own
+}
 
 // titleAndLabels infers the title and labels from the work.
 // targets are the existing resources that changes are in, and names the changes' Terraform names.

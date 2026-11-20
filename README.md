@@ -135,7 +135,7 @@ The source reads the undocumented JSON endpoint behind the What's New pages, bec
 
 ### Blog posts
 
-The `aws-blogs` source pulls [AWS blog](https://aws.amazon.com/blogs/) posts from the same endpoint: title, link, creation time, excerpt, and tags. The tags give the post type (`GLOBAL#content-type#launch-announcement`) and product categories (`blog-posts#category-database-amazon-aurora#dsql`). The directory has no post bodies. Like announcements, posts aren't items, and each pull starts a week before the previous one. An issue with a related blog post should link it. `avizor brief` lists the posts near an item's release, and `avizor draft --blog <url>` links the one you pick.
+The `aws-blogs` source pulls [AWS blog](https://aws.amazon.com/blogs/) posts from the same endpoint: title, link, creation time, excerpt, and tags. The tags give the post type (`GLOBAL#content-type#launch-announcement`) and product categories (`blog-posts#category-database-amazon-aurora#dsql`). The directory has no post bodies. Like announcements, posts aren't items, and each pull starts a week before the previous one. An issue with a related blog post should link it. `avizor brief` lists the posts near an item's release, and `avizor draft --blog <url>` links the ones you pick.
 
 A year of posts (4,352 up to 2026-11-18) takes about 8 seconds to pull:
 
@@ -181,7 +181,7 @@ avizor brief aws-sdk-go-v2/dsql/release-2026-11-16 aws-sdk-go-v2/ec2/release-202
 - the work with its spec and provider facts, as `inspect` shows them;
 - the candidates, as `candidates` gives them (in text, up to 5 related);
 - every announcement posted within 7 days of the release, scored against the item, best first (`--announcements`, default 10, 0 for all). The matcher's pick is marked, and so is each post whose text names the service. The ranking is for the reader to pick from: in the 2026-11-18 pass, the matcher's one pick was wrong or missing for 4 of 10 items, and the right post was first in this list for the DSQL and EC2 ones.
-- the blog posts created from 3 days before the release to 45 days after, scored the same way against the item and the matched announcement's headline, best first (`--blog-posts`, default 5, 0 for all). Posts often come days after the release, and one came 28 days after. Each is marked if it's tagged as a launch announcement, and if its product tags name the service, and those raise its rank (1.5 and 1.25 times the score). On the 51 `blog` eval cases, the linked post is first for 90% and in the top 5 for 98%. An issue with a related post should link it; pick one and draft with `--blog <url>`.
+- the blog posts created from 3 days before the release to 45 days after, scored the same way against the item and the matched announcement's headline, best first (`--blog-posts`, default 5, 0 for all). Posts often come days after the release, and one came 28 days after. Each is marked if it's tagged as a launch announcement, and if its product tags name the service, and those raise its rank (1.5 and 1.25 times the score). On the 51 `blog` eval cases, the linked post is first for 90% and in the top 5 for 98%. An issue with a related post should link it: `draft --announcement` links the posts that match the announcement, and `--blog <url>` adds others.
 
 ## Queue
 
@@ -271,8 +271,9 @@ avizor draft aws-sdk-go-v2/kinesis/release-2026-08-31 --body | gh issue create -
 
 `avizor draft` renders an issue in the format of the provider's trackers. Avizor prints the `gh` command but doesn't run it. The body has:
 
-- the release notes, quoted, and with `--announcement`, a link to the matched What's New post titled with its headline. With `--blog <url>`, a `([blog post](<url>))` link follows it, or a `[Blog post](<url>)` line when there's no announcement;
-- `` Requires `service/<module>` <version> ([Release <date>](<commit>)). ``, and the bump PR if the target has merged one. Reconciliation takes an issue citing the release commit as tracking the whole release, so a `partial` item's draft cites the release tag instead;
+- the release notes, quoted;
+- a list of links: with `--announcement`, the matched What's New post titled with its headline; the blog posts given with `--blog <url>` (repeatable), each titled with its stored title; and with `--announcement`, up to 2 blog posts near the release that match the same announcement, leaving out roundups and customer stories. On the 51 `blog` eval cases, 35 with an announcement, an expected post is linked for 30, and 31 of the 40 linked posts are expected;
+- `` Requires `service/<module>` <version> ([Release <date>](<commit>)), which the provider has. ``, the last part when the target has merged the bump. It's the last item of the list, or its own line when there are no links. Reconciliation takes an issue citing the release commit as tracking the whole release, so a `partial` item's draft cites the release tag instead;
 - a Scope section rendered from the model's spec and the provider's facts:
   - for a new resource or data source, its operations, its arguments (required or optional, forces replacement, type, constraints, and nested fields), and its attributes, then notes: status values to wait on, how update and delete work, how tags are set, documentation sentences that state design facts, and other operations;
   - for an existing resource, each new argument or attribute with the resource it's in, its type and constraints, the API members it comes from, and the outputs that return it, then notes on the parent block. When every line is about one resource, the title names it and the lines leave it out. When the release notes name every operation a line's members come from, the line leaves out the members from the schema (its kind, and whether it forces replacement). Members of one noun's create, update, and read shapes are one field; the create input's describes it;

@@ -37,8 +37,7 @@ func implemented(pkg string, work ...enrich.Work) *enrich.Result {
 
 var opts = Options{Repo: "o/r", Prefix: "aws_"}
 
-const requires = "Requires `service/widget` v1.2.0 ([Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc)). " +
-	"The target has it since https://github.com/o/r/pull/10."
+const requires = "Requires `service/widget` v1.2.0 ([Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc)), which the provider has."
 
 func inferred(d *Draft, field string) []string {
 	var out []string
@@ -199,6 +198,8 @@ func TestSnake(t *testing.T) {
 
 	for in, want := range map[string]string{
 		"Channel": "channel", "S3AccessPoint": "s3_access_point", "KMSKey": "kms_key", "KeyLastUsage": "key_last_usage", "VPCEndpoint": "vpc_endpoint",
+		"SaslOAuthBearer": "sasl_oauth_bearer", "OAuth2Config": "oauth2_config", "IPv6Address": "ipv6_address", "Ipv4Pool": "ipv4_pool",
+		"WarmThroughputMiBps": "warm_throughput_mib_ps", "MemoryGiBPerVCpu": "memory_gib_per_v_cpu",
 	} {
 		if got := enrich.Snake(in); got != want {
 			t.Errorf("Snake(%s) = %s, want %s", in, got, want)
@@ -229,32 +230,43 @@ func TestAnnouncement(t *testing.T) {
 	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
 		t.Fatal(err)
 	}
-	want := "> Adds sizes. More.\n\n[Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/)\n\n" + requires + "\n"
+	want := "> Adds sizes. More.\n\n- [Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/)\n- " + requires + "\n"
 	if d.Body != want {
 		t.Errorf("body =\n%s\nwant\n%s", d.Body, want)
 	}
 
-	// A chosen blog post is linked after the announcement, which already has a title.
-	o.BlogPost = &whatsnew.Post{Title: "Widget sizes deep dive", URL: "https://aws.amazon.com/blogs/x/sizes/"}
+	// Blog posts are listed after the announcement, in order and without repeats. A post that isn't stored is titled
+	// with its URL, so it's linked as "Blog post". An inferred post is reported with its basis.
+	o.BlogPosts = []BlogPost{
+		{Post: whatsnew.Post{Title: "Widget sizes deep dive", URL: "https://aws.amazon.com/blogs/x/sizes/"}},
+		{Post: whatsnew.Post{Title: "https://aws.amazon.com/blogs/x/other/", URL: "https://aws.amazon.com/blogs/x/other/"}},
+		{Post: whatsnew.Post{Title: "Widget sizes deep dive", URL: "https://aws.amazon.com/blogs/x/sizes/"}, Basis: "matches"},
+		{Post: whatsnew.Post{Title: "Sizing widgets", URL: "https://aws.amazon.com/blogs/x/sizing/"}, Basis: "matches the announcement"},
+	}
 	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
 		t.Fatal(err)
 	}
-	want = "> Adds sizes. More.\n\n[Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/) " +
-		"([blog post](https://aws.amazon.com/blogs/x/sizes/))\n\n" + requires + "\n"
+	want = "> Adds sizes. More.\n\n- [Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/)\n" +
+		"- [Widget sizes deep dive](https://aws.amazon.com/blogs/x/sizes/)\n- [Blog post](https://aws.amazon.com/blogs/x/other/)\n" +
+		"- [Sizing widgets](https://aws.amazon.com/blogs/x/sizing/)\n- " + requires + "\n"
 	if d.Body != want {
-		t.Errorf("body with a blog post =\n%s\nwant\n%s", d.Body, want)
+		t.Errorf("body with blog posts =\n%s\nwant\n%s", d.Body, want)
+	}
+	if got := inferred(d, "blog_post"); !slices.Equal(got, []string{"Sizing widgets https://aws.amazon.com/blogs/x/sizing/"}) {
+		t.Errorf("inferred blog posts = %q", got)
 	}
 
-	// Without the announcement, the blog post has its own line.
+	// Without the announcement, the blog posts start the list.
 	o.Announcement = false
+	o.BlogPosts = o.BlogPosts[:1]
 	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
 		t.Fatal(err)
 	}
-	want = "> Adds sizes. More.\n\n[Blog post](https://aws.amazon.com/blogs/x/sizes/)\n\n" + requires + "\n"
+	want = "> Adds sizes. More.\n\n- [Widget sizes deep dive](https://aws.amazon.com/blogs/x/sizes/)\n- " + requires + "\n"
 	if d.Body != want {
 		t.Errorf("body with only a blog post =\n%s\nwant\n%s", d.Body, want)
 	}
-	o.Announcement, o.BlogPost = true, nil
+	o.Announcement, o.BlogPosts = true, nil
 
 	// Asking for an announcement when none matched warns, even with no release notes.
 	if d, err = New(item("widget", NewModuleNote), implemented("widget"), nil, o); err != nil {
@@ -292,5 +304,25 @@ func TestNewResources(t *testing.T) {
 	}
 	if want := "New resources: `aws_widget_router` and `aws_widget_policy`"; d.Title != want {
 		t.Errorf("title = %q, want %q", d.Title, want)
+	}
+}
+
+// Boilerplate notes the SDK adds to many services are left out of the quote and the title, unless every note is one.
+func TestBoilerplateNotes(t *testing.T) {
+	t.Parallel()
+
+	const schema = "Enable schema-based (de)serialization for this service."
+	d, err := New(item("widget", schema, "Adds hierarchy filters to dashboards."), implemented("widget"), nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Title != "Widget: Adds hierarchy filters to dashboards" || strings.Contains(d.Body, schema) {
+		t.Errorf("title = %q, body =\n%s", d.Title, d.Body)
+	}
+	if d, err = New(item("widget", schema), implemented("widget"), nil, opts); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(d.Body, "> "+schema+"\n") {
+		t.Errorf("body with only boilerplate =\n%s", d.Body)
 	}
 }

@@ -2,6 +2,7 @@ package awssdk
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -65,4 +66,20 @@ func ModuleName(sdkID string) string {
 		}
 	}
 	return b.String()
+}
+
+// boilerplatePrefixes start release notes the SDK adds to many services at once, which say nothing about a service's
+// API: each of the first four is on 400 or more services' items, and the CBOR notes on 40.
+var boilerplatePrefixes = []string{
+	"Add request serialization snapshot tests.",
+	"Adding new BDD representation of endpoint ruleset",
+	"Documentation update release for AWS service",
+	"Enable schema-based (de)serialization for this service.",
+	"Fix a bug where a recorded clock skew could persist",
+	"This release adds Smithy RPC v2 CBOR as an additional protocol",
+}
+
+// Boilerplate reports whether a release note is one the SDK adds to many services at once.
+func Boilerplate(text string) bool {
+	return slices.ContainsFunc(boilerplatePrefixes, func(p string) bool { return strings.HasPrefix(text, p) })
 }

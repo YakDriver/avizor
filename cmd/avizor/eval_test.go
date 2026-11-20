@@ -49,11 +49,13 @@ func TestRegenArgs(t *testing.T) {
 	c.register(fs)
 	fs.Bool("no-code", false, "")
 	fs.Bool("body", false, "")
-	if err := fs.Parse([]string{"--config", "/x/avizor.hcl", "--state-dir", "/s", "--format", "text", "--no-code"}); err != nil {
+	var blogs repeated
+	fs.Var(&blogs, "blog", "")
+	if err := fs.Parse([]string{"--config", "/x/avizor.hcl", "--state-dir", "/s", "--format", "text", "--no-code", "--blog", "u1", "--blog", "u2"}); err != nil {
 		t.Fatal(err)
 	}
 	got := regenArgs(fs, "sdk/x/release-1", "tf")
-	want := []string{"avizor", "draft", "sdk/x/release-1", "--config=/x/avizor.hcl", "--no-code=true", "--state-dir=/s", "--target=tf", "--body"}
+	want := []string{"avizor", "draft", "sdk/x/release-1", "--blog=u1", "--blog=u2", "--config=/x/avizor.hcl", "--no-code=true", "--state-dir=/s", "--target=tf", "--body"}
 	if !slices.Equal(got, want) {
 		t.Errorf("regenArgs = %q, want %q", got, want)
 	}
