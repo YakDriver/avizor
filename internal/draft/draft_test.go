@@ -198,6 +198,8 @@ func TestSnake(t *testing.T) {
 
 	for in, want := range map[string]string{
 		"Channel": "channel", "S3AccessPoint": "s3_access_point", "KMSKey": "kms_key", "KeyLastUsage": "key_last_usage", "VPCEndpoint": "vpc_endpoint",
+		"SaslOAuthBearer": "sasl_oauth_bearer", "OAuth2Config": "oauth2_config", "IPv6Address": "ipv6_address", "Ipv4Pool": "ipv4_pool",
+		"WarmThroughputMiBps": "warm_throughput_mib_ps", "MemoryGiBPerVCpu": "memory_gib_per_v_cpu",
 	} {
 		if got := enrich.Snake(in); got != want {
 			t.Errorf("Snake(%s) = %s, want %s", in, got, want)
