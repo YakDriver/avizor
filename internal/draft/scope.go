@@ -409,7 +409,8 @@ func changes(in scopeInput, decide decider) scopeChanges {
 		// An attribute named like a new resource with no read of its own is what that resource reads, as
 		// GetAccountResponse.DeliveryAttributes for aws_sesv2_account_delivery_attributes, though an existing resource
 		// calls GetAccount too.
-		if !c.argument && strings.Contains(c.name, "_") {
+		// The attribute must come from reads, and no calling resource may be named exactly for the read's noun.
+		if !c.argument && strings.Contains(c.name, "_") && allVerbs(outputOperations(c.works), queryVerbs...) && !exactlyNamed(rs, outputOperations(c.works), in.prefix) {
 			if i := slices.IndexFunc(in.newTypes, func(n string) bool { return strings.HasSuffix(n, "_"+c.name) }); i >= 0 {
 				t := in.newTypes[i]
 				out.typeNotes[t] = append(out.typeNotes[t], fmt.Sprintf("Read `%s` from %s.", c.name, joinAnd(c.subjects)))
@@ -606,9 +607,13 @@ func groupChanges(works []enrich.Work) []*change {
 			continue
 		}
 		shape, _, _ := strings.Cut(c.works[0].Subject, ".")
+		if shapeNoun(shape) == shape {
+			// Not an operation's input: a nested shape can have no block too.
+			continue
+		}
 		noun := enrich.Snake(shapeNoun(shape))
 		j := slices.IndexFunc(cs, func(o *change) bool {
-			return o != c && o.argument && o.name == c.name && slices.ContainsFunc(o.paths, func(p string) bool {
+			return o != c && o.argument && o.name == c.name && sharedCaller(c.works, o.works) && slices.ContainsFunc(o.paths, func(p string) bool {
 				block := p[strings.LastIndex(p, ".")+1:]
 				return block != "" && (noun == block || strings.HasSuffix(noun, "_"+block))
 			})
@@ -694,6 +699,15 @@ func fromSummary(c *change) bool {
 // sameScalar reports whether two fields are the same scalar type, and for enums, have the same values.
 func sameScalar(a, b *enrich.Field) bool {
 	return a != nil && b != nil && a.Type == b.Type && len(a.Fields) == 0 && len(b.Fields) == 0 && slices.Equal(a.Values, b.Values)
+}
+
+// sharedCaller reports whether a provider file calls operations of both sets of works: the same resource has them.
+func sharedCaller(a, b []enrich.Work) bool {
+	return slices.ContainsFunc(a, func(x enrich.Work) bool {
+		return slices.ContainsFunc(x.UsedBy, func(f string) bool {
+			return slices.ContainsFunc(b, func(y enrich.Work) bool { return slices.Contains(y.UsedBy, f) })
+		})
+	})
 }
 
 // called reports whether a provider file calls one of the works' operations.
@@ -1032,6 +1046,18 @@ func bestNamed(names, ops []string, prefix string) []string {
 		return names
 	}
 	return out
+}
+
+// exactlyNamed reports whether one of the resources is named for one of the operations' nouns with no other words,
+// as aws_widget_account for GetAccount. Such a resource owns what the operation reads.
+func exactlyNamed(rs, ops []string, prefix string) bool {
+	return slices.ContainsFunc(rs, func(r string) bool {
+		words := strings.Split(strings.TrimPrefix(strings.TrimSuffix(r, dataSourceMark), prefix), "_")[1:]
+		return slices.ContainsFunc(ops, func(op string) bool {
+			noun := strings.Split(enrich.Snake(opNoun(op)), "_")
+			return len(words) > 0 && !slices.ContainsFunc(words, func(w string) bool { return !slices.Contains(noun, w) && !slices.Contains(genericWords, w) })
+		})
+	})
 }
 
 // opNoun is an operation's name without its first word: DBCluster for ModifyDBCluster, Get for BatchGetX's X.

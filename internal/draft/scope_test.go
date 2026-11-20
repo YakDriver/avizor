@@ -507,3 +507,50 @@ func TestScopeBlockInputAndNewTypeRead(t *testing.T) {
 		t.Errorf("body repeats a member:\n%s", d.Body)
 	}
 }
+
+// Review cases: a Put input in another resource's file, a nested shape with no block, an attribute from a mutation's
+// response, and an attribute an exactly named resource reads all stay as they are.
+func TestScopeBlockInputLimits(t *testing.T) {
+	t.Parallel()
+
+	foo, bar, account := "internal/service/widget/foo.go", "internal/service/widget/bar.go", "internal/service/widget/account.go"
+	co := writeFiles(t, map[string]string{
+		"foo.go":     "// @SDKResource(\"aws_widget_foo\", name=\"Foo\")\n",
+		"bar.go":     "// @SDKResource(\"aws_widget_bar\", name=\"Bar\")\n",
+		"account.go": "// @SDKResource(\"aws_widget_account\", name=\"Account\")\n",
+	})
+	mode := &enrich.Field{Type: "string"}
+	put := &enrich.Spec{Operations: enrich.SpecOperations{Create: []string{"PutAccountDeliveryAttributes"}}}
+	en := implemented("widget",
+		enrich.Work{Kind: enrich.WorkNewResource, Subject: "AccountDeliveryAttributes", Operations: []string{"PutAccountDeliveryAttributes"}, Spec: put},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "BarDeliveryOptions.Mode", Operations: []string{"CreateBar"}, UsedBy: []string{bar}, Field: mode,
+			Schema: []enrich.SchemaPlace{{File: bar, Line: 5, Path: "delivery_options", Kind: "TypeList"}}},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "PutFooDeliveryOptionsRequest.Mode", Operations: []string{"PutFooDeliveryOptions"}, UsedBy: []string{foo}, Field: mode},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "DeliveryOptions.Mode", Operations: []string{"CreateBar"}, UsedBy: []string{bar}, Field: mode},
+		enrich.Work{Kind: enrich.WorkNewAttribute, Subject: "CreateBarResponse.DeliveryAttributes", Operations: []string{"CreateBar"}, UsedBy: []string{bar},
+			Field: &enrich.Field{Type: "structure"}},
+		enrich.Work{Kind: enrich.WorkNewAttribute, Subject: "GetAccountResponse.DeliveryAttributes", Operations: []string{"GetAccount"}, UsedBy: []string{account},
+			Field: &enrich.Field{Type: "structure"}},
+	)
+	en.CodeSearched = true
+	o := opts
+	o.Checkout = co
+	d, err := New(item("widget", "Adds delivery modes."), en, nil, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"- `aws_widget_bar`: new argument `delivery_options.mode` (optional; string), from `BarDeliveryOptions.Mode`.\n",
+		"- `aws_widget_foo`: new argument `mode` (optional; string), from `PutFooDeliveryOptionsRequest.Mode`.\n",
+		"- `aws_widget_bar`: new argument `mode` (optional; string), from `DeliveryOptions.Mode`.\n",
+		"- `aws_widget_bar`: new attribute `delivery_attributes` (structure), from `CreateBarResponse.DeliveryAttributes`.\n",
+		"- `aws_widget_account`: new attribute `delivery_attributes` (structure), from `GetAccountResponse.DeliveryAttributes`.\n",
+	} {
+		if !strings.Contains(d.Body, want) {
+			t.Errorf("body has no %q:\n%s", want, d.Body)
+		}
+	}
+	if strings.Contains(d.Body, "Read `delivery_attributes`") {
+		t.Errorf("body reassigns an attribute:\n%s", d.Body)
+	}
+}
