@@ -211,6 +211,7 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 		}
 	}
 
+	en = listOnlyLeftOut(en, infer)
 	decide := d.decider()
 	pkg := en.Service.Package
 	if en.Service.Status != enrich.ServiceImplemented {
@@ -218,7 +219,17 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	}
 	data.Resources = resources(en, pkg, opts.Prefix, decide)
 	var targets, names []string
-	data.Changes, data.ChangeNotes, targets, names = changes(en, opts.Checkout, data.Notes, decide)
+	mentions := slices.Concat(data.Notes, []string{data.Headline})
+	for _, p := range data.BlogPosts {
+		mentions = append(mentions, p.Title)
+	}
+	sc := changes(scopeInput{en: en, checkout: opts.Checkout, prefix: opts.Prefix, releaseNotes: data.Notes, mentions: strings.Join(mentions, "\n")}, decide)
+	data.Changes, data.ChangeNotes, targets, names = sc.lines, sc.notes, sc.targets, sc.names
+	for _, in := range sc.leftOut {
+		if !slices.Contains(d.Inferred, in) {
+			d.Inferred = append(d.Inferred, in)
+		}
+	}
 	d.Title, d.Labels = titleAndLabels(it, en, data.Headline, opts, targets, names, infer)
 	if p := opts.Partial; p != nil {
 		for _, c := range p.Covering {
@@ -271,6 +282,28 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 }
 
 const NewModuleNote = awssdk.NewModuleNote
+
+// listOnlyLeftOut returns en without new data sources whose operations only list or search, such as
+// ListHealthChecksBySource: a list of findings or URLs is rarely a data source the provider adds. Each is reported
+// as left out.
+func listOnlyLeftOut(en *enrich.Result, infer func(field, value, basis string)) *enrich.Result {
+	listOnly := func(w enrich.Work) bool {
+		return w.Kind == enrich.WorkNewDataSource && allVerbs(w.Operations, "List", "Search")
+	}
+	if !slices.ContainsFunc(en.Work, listOnly) {
+		return en
+	}
+	out := *en
+	out.Work = nil
+	for _, w := range en.Work {
+		if listOnly(w) {
+			infer("left_out", w.Subject, "a data source for "+joinAnd(quoted(w.Operations))+", which only list")
+			continue
+		}
+		out.Work = append(out.Work, w)
+	}
+	return &out
+}
 
 // notes are the release notes the body quotes, and the title's headline comes from: without the new-module marker, and
 // without boilerplate notes unless every note is one.
@@ -351,6 +384,9 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 		return title, labels
 	case len(newTypes) == 0 && len(newDataSources) == 0 && len(targets) == 1 && len(names) > 0:
 		title := fmt.Sprintf("r/`%s`: Add %s", targets[0], addNames(names))
+		if name, ok := strings.CutSuffix(targets[0], dataSourceMark); ok {
+			title = fmt.Sprintf("d/`%s`: Add %s", name, addNames(names))
+		}
 		infer("title", title, "new members of operations called only by "+targets[0])
 		return title, labels
 	}
@@ -393,11 +429,19 @@ func cmp(ss ...string) string {
 	return ""
 }
 
-var annotationRE = regexp.MustCompile(`(?m)^// @(?:SDK|Framework)Resource\("([a-z0-9_]+)"`)
+var annotationRE = regexp.MustCompile(`^// @(?:SDK|Framework)(Resource|DataSource)\("([a-z0-9_]+)"`)
 
-// resourceNames returns the Terraform resource types registered in files of the checkout.
-func resourceNames(checkout string, files []string) []string {
-	var out []string
+// typeName is a Terraform resource or data source type registered in a file.
+type typeName struct {
+	Name       string
+	DataSource bool
+}
+
+// resourceNames returns the Terraform resource and data source types registered in files of the checkout, sorted.
+// Annotations on consecutive lines register one implementation under several names, as elbv2's aws_alb_listener and
+// aws_lb_listener; the last is kept, since the provider lists the current name after the old one.
+func resourceNames(checkout string, files []string) []typeName {
+	var out []typeName
 	if checkout == "" {
 		return out
 	}
@@ -406,14 +450,27 @@ func resourceNames(checkout string, files []string) []string {
 		if err != nil {
 			continue
 		}
-		for _, m := range annotationRE.FindAllSubmatch(b, -1) {
-			if n := string(m[1]); !slices.Contains(out, n) {
-				out = append(out, n)
+		prev := -1 // the index of the type the previous annotation line registered
+		for line := range strings.Lines(string(b)) {
+			m := annotationRE.FindStringSubmatch(strings.TrimRight(line, "\r\n"))
+			if m == nil {
+				if !strings.HasPrefix(line, "// @") {
+					prev = -1
+				}
+				continue
+			}
+			t := typeName{Name: m[2], DataSource: m[1] == "DataSource"}
+			switch {
+			case prev >= 0 && out[prev].DataSource == t.DataSource:
+				out[prev] = t
+			case !slices.Contains(out, t):
+				out = append(out, t)
+				prev = len(out) - 1
 			}
 		}
 	}
-	slices.Sort(out)
-	return out
+	slices.SortFunc(out, func(a, b typeName) int { return strings.Compare(a.Name, b.Name) })
+	return slices.Compact(out)
 }
 
 // docsPage returns the checkout's docs page for a Terraform type, relative to the checkout, or "".

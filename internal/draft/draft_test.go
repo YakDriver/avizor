@@ -326,3 +326,20 @@ func TestBoilerplateNotes(t *testing.T) {
 		t.Errorf("body with only boilerplate =\n%s", d.Body)
 	}
 }
+
+// A data source whose operations only list is left out, and doesn't title the draft.
+func TestListOnlyDataSource(t *testing.T) {
+	t.Parallel()
+
+	en := implemented("widget", enrich.Work{Kind: enrich.WorkNewDataSource, Subject: "Finding", Operations: []string{"ListFindings"}})
+	d, err := New(item("widget", "Adds findings."), en, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Title != "Widget: Adds findings" || strings.Contains(d.Body, "aws_widget_finding") {
+		t.Errorf("title = %q, body =\n%s", d.Title, d.Body)
+	}
+	if got := inferred(d, "left_out"); !slices.Equal(got, []string{"Finding"}) {
+		t.Errorf("left out = %q", got)
+	}
+}

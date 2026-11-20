@@ -1,7 +1,9 @@
 package draft
 
 import (
+	gocmp "cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -150,8 +152,10 @@ func singleScalar(f enrich.Field) string {
 	return ""
 }
 
+// collection reports whether a field is a list, set, or map, but not a list of at most one, which is a single block.
 func collection(f enrich.Field) bool {
-	return f.Type == "list" || f.Type == "set" || f.Type == "map"
+	single := f.Constraints.LengthMax != nil && *f.Constraints.LengthMax == 1
+	return f.Type == "list" && !single || f.Type == "set" && !single || f.Type == "map"
 }
 
 // abbreviates reports whether a field's name, without a trailing "_id" or "_arn", is made of the subject's words and at
@@ -291,7 +295,7 @@ var shapeVerbs = []string{"Create", "Update", "Modify", "Put", "Get", "Describe"
 // shapeNoun is the noun of an operation's input or output shape (CreateClusterInput → Cluster), or the shape.
 func shapeNoun(shape string) string {
 	n := shape
-	for _, suffix := range []string{"Input", "Output", "Request", "Response", "Result"} {
+	for _, suffix := range []string{"Input", "Output", "Request", "Response", "Result", "Message"} {
 		if rest, ok := strings.CutSuffix(n, suffix); ok && rest != "" {
 			n = rest
 			break
@@ -313,23 +317,251 @@ func createInput(subject string) bool {
 	return strings.HasPrefix(subject, "Create") || strings.HasPrefix(subject, "Put")
 }
 
-// changes renders new arguments, attributes, enum values, and other work on existing resources, with notes. It also
-// returns the resources the arguments and attributes are in, and the names for a title: the arguments' in a known
-// resource, or with none, the attributes'.
+// scopeInput is what changes renders from.
+type scopeInput struct {
+	en       *enrich.Result
+	checkout string
+	prefix   string
+	// releaseNotes are the notes the body quotes; mentions is text that says what the launch is about (the notes, the
+	// announcement's headline, and blog post titles), whose members are listed first.
+	releaseNotes []string
+	mentions     string
+}
+
+// scopeChanges are the rendered changes of existing resources.
+type scopeChanges struct {
+	lines, notes []string
+	// targets are the resources the lines are in, and names the Terraform names for a title: the arguments' in a
+	// known resource, or with none, the attributes'.
+	targets, names []string
+	// leftOut are members the lines leave out, with why, for the reviewer.
+	leftOut []Inferred
+}
+
+// changes renders new arguments, attributes, enum values, and other work on existing resources, with notes.
 //
 // When every line is about one resource and there's no new resource or data source, the title names the resource, so
-// lines leave out its name. Lines leave out the API fields
-// when the release notes name all of their operations.
-func changes(en *enrich.Result, checkout string, releaseNotes []string, decide decider) (lines, notes, targets []string, names []string) {
+// lines leave out its name. Lines leave out the API fields when the release notes name all of their operations.
+//
+// With the code searched in an implemented service, some members are left out: an attribute of operations no provider
+// file calls, a request member of query operations only (unless a data source calls them), a Reset flag, and an
+// update's Add and Remove members, which a note covers. An argument of operations no provider file calls is in a
+// note naming the operations, since its resource doesn't exist yet.
+func changes(in scopeInput, decide decider) scopeChanges {
+	en := in.en
+	var out scopeChanges
 	var attrNames []string
-	defer func() {
-		if len(names) == 0 {
-			names = attrNames
+	cs := groupChanges(en.Work)
+	slices.SortStableFunc(cs, func(a, b *change) int {
+		return gocmp.Compare(boolInt(!mentioned(a, in.mentions)), boolInt(!mentioned(b, in.mentions)))
+	})
+	searched := en.CodeSearched && en.Service.Status == enrich.ServiceImplemented
+	leaveOut := func(c *change, why string) {
+		out.leftOut = append(out.leftOut, Inferred{Field: "left_out", Value: c.name, Basis: why})
+	}
+	unwritten := map[string][]string{} // operations → arguments no resource writes
+	var unwrittenOps []string
+	addRemove := map[string][]string{} // update operations → their Add and Remove members
+
+	seenPlace := map[string]bool{}
+	var headed []int // lines that start with their one resource
+	for _, c := range cs {
+		// An argument is in the resources that write it; the outputs that return it may be other resources'.
+		ws := slices.DeleteFunc(slices.Clone(c.works), func(w enrich.Work) bool {
+			return c.argument && w.Kind != enrich.WorkNewArgument
+		})
+		// A request member of query operations is a data source's argument, if any.
+		query := c.argument && allVerbs(inputOperations(ws), queryVerbs...)
+		rs := changeResources(ws, in.checkout, in.prefix, query)
+		// Called means some provider file calls the operations, even one that registers no resource, such as a helper.
+		called := slices.ContainsFunc(ws, func(w enrich.Work) bool { return len(w.UsedBy) > 0 })
+		member := memberName(c.works[0])
+		if searched && c.argument {
+			ops := inputOperations(ws)
+			switch {
+			case strings.HasPrefix(member, "Reset") && c.field != nil && c.field.Type == "boolean":
+				leaveOut(c, "a flag that resets the value, which removing the argument does")
+				continue
+			case (strings.HasPrefix(member, "Add") || strings.HasPrefix(member, "Remove")) && allVerbs(ops, "Update", "Modify"):
+				k := strings.Join(ops, ", ")
+				addRemove[k] = append(addRemove[k], member)
+				leaveOut(c, "an update's list of values to add or remove; a note covers it")
+				continue
+			case query && len(rs) == 0:
+				leaveOut(c, "a request member of "+joinAnd(quoted(ops))+", which no data source calls")
+				continue
+			case !called:
+				k := strings.Join(ops, ", ")
+				if _, ok := unwritten[k]; !ok {
+					unwrittenOps = append(unwrittenOps, k)
+				}
+				unwritten[k] = append(unwritten[k], c.name)
+				continue
+			}
 		}
-	}()
+		if searched && !c.argument && !called {
+			leaveOut(c, "no resource or data source calls "+joinAnd(quoted(outputOperations(c.works))))
+			continue
+		}
+
+		var bare []string
+		for _, r := range rs {
+			bare = append(bare, strings.TrimSuffix(r, dataSourceMark))
+		}
+		files := resourceFiles(ws, in.checkout, bare)
+		paths := c.pathsIn(files)
+		var wheres []string
+		for _, p := range paths {
+			wheres = append(wheres, strings.TrimPrefix(p+"."+c.name, "."))
+		}
+		if len(wheres) == 0 {
+			wheres = []string{c.name}
+		}
+		where := wheres[0]
+		var head string
+		switch len(rs) {
+		case 0:
+			head = "`" + where + "`"
+		default:
+			head = "`" + strings.Join(rs, "`, `") + "`"
+			head = strings.ReplaceAll(head, dataSourceMark+"`", "` data source")
+		}
+		kind := "attribute"
+		if c.argument {
+			kind = "argument"
+		}
+		if len(wheres) > 1 {
+			kind += "s"
+		}
+		line := fmt.Sprintf("- %s: new %s %s", head, kind, joinAnd(quoted(wheres)))
+		if len(rs) == 1 {
+			headed = append(headed, len(out.lines))
+		}
+		if c.field != nil {
+			line += " (" + fieldText(*c.field, c.argument) + ")"
+		}
+		if !namedOperations(in.releaseNotes, c.works) {
+			line += ", from " + joinAnd(c.subjects)
+			if len(c.returned) > 0 {
+				line += "; returned by " + joinAnd(c.returned)
+			}
+		}
+		line += "."
+		switch {
+		case len(rs) == 0:
+			line += decide(where, "which resource")
+		case len(rs) > 1:
+			line += decide(where, "which of these resources")
+		}
+		if c.field != nil {
+			if single := singleScalar(*c.field); single != "" {
+				line += decide(where, fmt.Sprintf(decideSetOrBlock, single))
+			}
+			if c.argument && c.returns && !c.field.Required && (c.field.Default != "" || collection(*c.field)) {
+				line += decide(where, decideComputed)
+			}
+		}
+		out.lines = append(out.lines, line)
+		if c.field != nil {
+			out.lines = append(out.lines, fieldLines(c.field.Fields, 1, c.argument, where, "", decide)...)
+		}
+		for _, r := range rs {
+			if !slices.Contains(out.targets, r) {
+				out.targets = append(out.targets, r)
+			}
+		}
+		switch {
+		case len(rs) == 0:
+		case c.argument:
+			out.names = append(out.names, wheres...)
+		default:
+			attrNames = append(attrNames, wheres...)
+		}
+
+		for _, w := range c.works {
+			for _, p := range w.Schema {
+				k := fmt.Sprintf("%s:%d", p.File, p.Line)
+				if seenPlace[k] || len(files) > 0 && !slices.Contains(files, p.File) {
+					continue
+				}
+				seenPlace[k] = true
+				n := fmt.Sprintf("`%s` is a %s in `%s:%d` (%s)", p.Path, p.Kind, p.File, p.Line, p.Framework)
+				switch {
+				case p.ForceNew != "":
+					n += "; `" + p.ForceNew + "` forces replacement"
+				case p.ForceNewIf != "":
+					n += "; `" + p.ForceNewIf + "` forces replacement on a condition"
+				}
+				out.notes = append(out.notes, n+".")
+			}
+			// A member another shape already had may be implemented: say where its name is used.
+			if w.SharedName && w.Kind == enrich.WorkNewArgument && len(w.FoundIn) > 0 {
+				out.notes = append(out.notes, fmt.Sprintf("`%s` is already used in %s, so the argument may exist.", w.Member, joinAnd(quoted(w.FoundIn))))
+			}
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(addRemove)) {
+		out.notes = append(out.notes, fmt.Sprintf("Update (%s) takes %s, so it applies the difference between the configured and current lists.",
+			quotedList(k), joinAnd(quoted(addRemove[k]))))
+	}
+	for _, k := range unwrittenOps {
+		verb := "is"
+		if len(unwritten[k]) > 1 {
+			verb = "are"
+		}
+		out.notes = append(out.notes, fmt.Sprintf("%s %s in %s, which no resource calls yet.", joinAnd(quoted(unwritten[k])), verb, quotedList(k)))
+	}
+
+	newType := slices.ContainsFunc(en.Work, func(w enrich.Work) bool {
+		return w.Kind == enrich.WorkNewResource || w.Kind == enrich.WorkNewDataSource
+	})
+	if len(out.targets) == 1 && len(headed) == len(out.lines)-nestedLines(out.lines) && !newType {
+		for _, i := range headed {
+			rest := strings.TrimPrefix(out.lines[i], "- `"+out.targets[0]+"`: new ")
+			out.lines[i] = "- New " + rest
+		}
+	}
+
+	for _, w := range en.Work {
+		switch w.Kind {
+		case enrich.WorkNewEnumValue:
+			values := "values"
+			if len(w.Values) == 1 {
+				values = "value"
+			}
+			line := fmt.Sprintf("- `%s`: new %s %s.", w.Subject, values, joinAnd(quoted(w.Values)))
+			if w.EnumSearched {
+				line += " " + enumFacts(w.EnumUses)
+			}
+			out.lines = append(out.lines, line)
+		case enrich.WorkNewOperation:
+			ops := "operation"
+			if len(w.Operations) > 1 {
+				ops = "operations"
+			}
+			out.lines = append(out.lines, "- New "+ops+" "+joinAnd(quoted(w.Operations))+"."+decide(w.Subject, "resource, argument, or none"))
+		case enrich.WorkTagging:
+			if !slices.ContainsFunc(en.Work, func(w enrich.Work) bool { return w.Kind == enrich.WorkNewResource }) {
+				out.lines = append(out.lines, "- New tagging operations "+joinAnd(quoted(w.Operations))+".")
+			}
+		case enrich.WorkTypeChange, enrich.WorkRemoval:
+			out.lines = append(out.lines, "- `"+w.Subject+"`: "+w.Basis+".")
+		}
+	}
+	if len(out.names) == 0 {
+		out.names = attrNames
+	}
+	return out
+}
+
+// groupChanges groups new members into changes: the create, update, and read members of one noun's shapes, with the
+// same name and parent blocks. An attribute with the name and blocks of another change joins it: an export's
+// ExportDescription.FilterSpecification is what read returns for the export input's FilterSpecification, and a
+// CertificateSummary member repeats the CertificateDetail one.
+func groupChanges(works []enrich.Work) []*change {
 	var cs []*change
 	byKey := map[string]*change{}
-	for _, w := range en.Work {
+	for _, w := range works {
 		if w.Kind != enrich.WorkNewArgument && w.Kind != enrich.WorkNewAttribute {
 			continue
 		}
@@ -349,22 +581,45 @@ func changes(en *enrich.Result, checkout string, releaseNotes []string, decide d
 			byKey[key] = c
 			cs = append(cs, c)
 		}
-		c.works = append(c.works, w)
-		if w.Kind == enrich.WorkNewArgument {
-			// The argument's field is the create input's, then any input's, never an output's.
-			if w.Field != nil && (!c.argument || c.field == nil || createInput(w.Subject) && !createInput(c.fieldFrom)) {
-				c.field, c.fieldFrom = w.Field, w.Subject
+		c.add(w)
+	}
+
+	// An attribute-only change joins an argument of the same name and blocks: the argument's value as read returns it,
+	// when its operations return the argument or the fields have the same shape. Attribute-only changes of the same
+	// name and blocks join when one is from a summary shape, which repeats the full shape's members.
+	for i := 0; i < len(cs); i++ {
+		c := cs[i]
+		if c.argument {
+			continue
+		}
+		ops := outputOperations(c.works)
+		j := slices.IndexFunc(cs, func(o *change) bool {
+			if o == c || !o.argument || o.name != c.name || !slices.Equal(o.paths, c.paths) {
+				return false
 			}
-			c.argument = true
-			if len(w.Returns) > 0 {
-				c.returns = true
-			}
-		} else {
-			c.attribute = true
-			if c.field == nil {
-				c.field, c.fieldFrom = w.Field, w.Subject
+			returns := outputOperations(o.works)
+			return !slices.ContainsFunc(ops, func(op string) bool { return !slices.Contains(returns, op) }) || sameShape(o.field, c.field) ||
+				sameScalar(o.field, c.field) && readBy(c.works, o.works)
+		})
+		if j < 0 && fromSummary(c) {
+			// A summary repeats the members of the full shape, the argument's or an attribute's.
+			j = slices.IndexFunc(cs, func(o *change) bool {
+				return o != c && o.argument && o.name == c.name && slices.Equal(o.paths, c.paths)
+			})
+			if j < 0 {
+				j = slices.IndexFunc(cs, func(o *change) bool {
+					return o != c && !o.argument && o.name == c.name && slices.Equal(o.paths, c.paths) && !fromSummary(o)
+				})
 			}
 		}
+		if j < 0 {
+			continue
+		}
+		for _, w := range c.works {
+			cs[j].add(w)
+		}
+		cs = slices.Delete(cs, i, i+1)
+		i--
 	}
 
 	for _, c := range cs {
@@ -384,140 +639,192 @@ func changes(en *enrich.Result, checkout string, releaseNotes []string, decide d
 		c.returned = append(c.returned, outputs...)
 		c.returns = c.returns || c.argument && c.attribute
 	}
+	return cs
+}
 
-	seenPlace := map[string]bool{}
-	var headed []int // lines that start with their one resource
-	for _, c := range cs {
-		where := c.name
-		if len(c.paths) == 1 && c.paths[0] != "" {
-			where = c.paths[0] + "." + c.name
-		}
-		// An argument is in the resources that write it; the outputs that return it may be other resources'.
-		rs := changeResources(slices.DeleteFunc(slices.Clone(c.works), func(w enrich.Work) bool {
-			return c.argument && w.Kind != enrich.WorkNewArgument
-		}), checkout)
-		var head string
-		switch len(rs) {
-		case 0:
-			head = "`" + where + "`"
-		default:
-			head = "`" + strings.Join(rs, "`, `") + "`"
-		}
-		kind := "attribute"
-		if c.argument {
-			kind = "argument"
-		}
-		line := fmt.Sprintf("- %s: new %s `%s`", head, kind, where)
-		if len(rs) == 1 {
-			headed = append(headed, len(lines))
-		}
-		if c.field != nil {
-			line += " (" + fieldText(*c.field, c.argument) + ")"
-		}
-		if !namedOperations(releaseNotes, c.works) {
-			line += ", from " + joinAnd(c.subjects)
-			if len(c.returned) > 0 {
-				line += "; returned by " + joinAnd(c.returned)
-			}
-		}
-		line += "."
-		switch {
-		case len(rs) == 0:
-			line += decide(where, "which resource")
-		case len(rs) > 1:
-			line += decide(where, "which of these resources")
-		}
-		if len(c.paths) > 1 {
-			var ps []string
-			for _, p := range c.paths {
-				ps = append(ps, "`"+p+"."+c.name+"`")
-			}
-			line += decide(where, "which block: "+joinOr(ps))
-		}
-		if c.field != nil {
-			if single := singleScalar(*c.field); single != "" {
-				line += decide(where, fmt.Sprintf(decideSetOrBlock, single))
-			}
-			if c.argument && c.returns && !c.field.Required && (c.field.Default != "" || collection(*c.field)) {
-				line += decide(where, decideComputed)
-			}
-		}
-		lines = append(lines, line)
-		if c.field != nil {
-			lines = append(lines, fieldLines(c.field.Fields, 1, c.argument, where, "", decide)...)
-		}
-		for _, r := range rs {
-			if !slices.Contains(targets, r) {
-				targets = append(targets, r)
-			}
-		}
-		switch {
-		case len(rs) == 0:
-		case c.argument:
-			names = append(names, where)
-		default:
-			attrNames = append(attrNames, where)
-		}
-
-		for _, w := range c.works {
-			for _, p := range w.Schema {
-				k := fmt.Sprintf("%s:%d", p.File, p.Line)
-				if seenPlace[k] {
-					continue
-				}
-				seenPlace[k] = true
-				n := fmt.Sprintf("`%s` is a %s in `%s:%d` (%s)", p.Path, p.Kind, p.File, p.Line, p.Framework)
-				switch {
-				case p.ForceNew != "":
-					n += "; `" + p.ForceNew + "` forces replacement"
-				case p.ForceNewIf != "":
-					n += "; `" + p.ForceNewIf + "` forces replacement on a condition"
-				}
-				notes = append(notes, n+".")
-			}
-			if w.SharedName && w.Kind == enrich.WorkNewArgument {
-				notes = append(notes, fmt.Sprintf("Another shape already had `%s`, as when an update operation gains a member create has, so the argument may exist.", w.Subject[strings.Index(w.Subject, ".")+1:]))
-			}
-		}
-	}
-
-	newType := slices.ContainsFunc(en.Work, func(w enrich.Work) bool {
-		return w.Kind == enrich.WorkNewResource || w.Kind == enrich.WorkNewDataSource
+// fromSummary reports whether a change's members are all from summary shapes, such as CertificateSummary, or from
+// list results, which only List and Search operations return.
+func fromSummary(c *change) bool {
+	return !slices.ContainsFunc(c.works, func(w enrich.Work) bool {
+		shape, _, _ := strings.Cut(w.Subject, ".")
+		return !strings.HasSuffix(shape, "Summary") && !allVerbs(w.Operations, "List", "Search")
 	})
-	if len(targets) == 1 && len(headed) == len(cs) && !newType {
-		for _, i := range headed {
-			rest := strings.TrimPrefix(lines[i], "- `"+targets[0]+"`: new ")
-			lines[i] = "- New " + rest
-		}
-	}
+}
 
-	for _, w := range en.Work {
-		switch w.Kind {
-		case enrich.WorkNewEnumValue:
-			values := "values"
-			if len(w.Values) == 1 {
-				values = "value"
+// sameScalar reports whether two fields are the same scalar type, and for enums, have the same values.
+func sameScalar(a, b *enrich.Field) bool {
+	return a != nil && b != nil && a.Type == b.Type && len(a.Fields) == 0 && len(b.Fields) == 0 && slices.Equal(a.Values, b.Values)
+}
+
+// readBy reports whether every file that calls the attributes' operations also calls the arguments': the same
+// resource reads the value it writes.
+func readBy(attrs, args []enrich.Work) bool {
+	var argFiles []string
+	for _, w := range args {
+		argFiles = append(argFiles, w.UsedBy...)
+	}
+	n := 0
+	for _, w := range attrs {
+		for _, f := range w.UsedBy {
+			if !slices.Contains(argFiles, f) {
+				return false
 			}
-			line := fmt.Sprintf("- `%s`: new %s %s.", w.Subject, values, joinAnd(quoted(w.Values)))
-			if w.EnumSearched {
-				line += " " + enumFacts(w.EnumUses)
-			}
-			lines = append(lines, line)
-		case enrich.WorkNewOperation:
-			ops := "operation"
-			if len(w.Operations) > 1 {
-				ops = "operations"
-			}
-			lines = append(lines, "- New "+ops+" "+joinAnd(quoted(w.Operations))+"."+decide(w.Subject, "resource, argument, or none"))
-		case enrich.WorkTagging:
-			if !slices.ContainsFunc(en.Work, func(w enrich.Work) bool { return w.Kind == enrich.WorkNewResource }) {
-				lines = append(lines, "- New tagging operations "+joinAnd(quoted(w.Operations))+".")
-			}
-		case enrich.WorkTypeChange, enrich.WorkRemoval:
-			lines = append(lines, "- `"+w.Subject+"`: "+w.Basis+".")
+			n++
 		}
 	}
-	return lines, notes, targets, names
+	return n > 0
+}
+
+// sameShape reports whether two fields are the same structure, list, or map: the same type and nested field names.
+// Scalars of the same type are often unrelated, so they aren't the same shape.
+func sameShape(a, b *enrich.Field) bool {
+	if a == nil || b == nil || a.Type != b.Type || a.Elem != b.Elem || len(a.Fields) == 0 || len(a.Fields) != len(b.Fields) {
+		return false
+	}
+	for i := range a.Fields {
+		if a.Fields[i].Name != b.Fields[i].Name || a.Fields[i].Type != b.Fields[i].Type {
+			return false
+		}
+	}
+	return true
+}
+
+// add adds a work to a change.
+func (c *change) add(w enrich.Work) {
+	c.works = append(c.works, w)
+	if w.Kind == enrich.WorkNewArgument {
+		// The argument's field is the create input's, then any input's, never an output's.
+		if w.Field != nil && (!c.argument || c.field == nil || createInput(w.Subject) && !createInput(c.fieldFrom)) {
+			c.field, c.fieldFrom = w.Field, w.Subject
+		}
+		c.argument = true
+		if len(w.Returns) > 0 {
+			c.returns = true
+		}
+		return
+	}
+	c.attribute = true
+	if c.field == nil {
+		c.field, c.fieldFrom = w.Field, w.Subject
+	}
+}
+
+// pathsIn returns the change's parent block paths in files, or all of them when files have none. Several paths in
+// one resource's files are blocks of the same shape, so the member goes in each: SageMaker's production_variants and
+// shadow_production_variants.
+func (c *change) pathsIn(files []string) []string {
+	var out []string
+	for _, w := range c.works {
+		for _, p := range w.Schema {
+			if p.Path != "" && slices.Contains(files, p.File) && !slices.Contains(out, p.Path) {
+				out = append(out, p.Path)
+			}
+		}
+	}
+	if len(out) == 0 {
+		out = slices.DeleteFunc(slices.Clone(c.paths), func(p string) bool { return p == "" })
+	}
+	slices.Sort(out)
+	return out
+}
+
+// mentioned reports whether text names a change's member: as written (HierarchyFilter) or as words (hierarchy
+// filter), in any case.
+func mentioned(c *change, text string) bool {
+	if text == "" {
+		return false
+	}
+	text = strings.ToLower(text)
+	m := strings.ToLower(memberName(c.works[0]))
+	words := strings.ReplaceAll(c.name, "_", " ")
+	return wordIn(text, m) || strings.Contains(words, " ") && wordIn(text, words)
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// memberName is a member work's API member name.
+func memberName(w enrich.Work) string {
+	_, m, _ := strings.Cut(w.Subject, ".")
+	return m
+}
+
+// queryVerbs start operations whose input is filters and identifiers.
+var queryVerbs = []string{"Get", "Describe", "List", "BatchGet", "Search"}
+
+// allVerbs reports whether every operation starts with one of verbs.
+func allVerbs(ops []string, verbs ...string) bool {
+	return len(ops) > 0 && !slices.ContainsFunc(ops, func(op string) bool {
+		return !slices.ContainsFunc(verbs, func(v string) bool { return strings.HasPrefix(op, v) })
+	})
+}
+
+// inputOperations are the operations whose input reaches the works' members, sorted.
+func inputOperations(ws []enrich.Work) []string {
+	var ops []string
+	for _, w := range ws {
+		for _, op := range w.Operations {
+			if !slices.Contains(ops, op) {
+				ops = append(ops, op)
+			}
+		}
+	}
+	slices.Sort(ops)
+	return ops
+}
+
+// outputOperations are the operations whose output reaches the works' members, sorted.
+func outputOperations(ws []enrich.Work) []string {
+	var ops []string
+	for _, w := range ws {
+		src := w.Operations
+		if w.Kind == enrich.WorkNewArgument {
+			src = w.Returns
+		}
+		for _, op := range src {
+			if !slices.Contains(ops, op) {
+				ops = append(ops, op)
+			}
+		}
+	}
+	slices.Sort(ops)
+	return ops
+}
+
+// resourceFiles are the files of the works' callers that register one of names.
+func resourceFiles(ws []enrich.Work, checkout string, names []string) []string {
+	var out []string
+	for _, w := range ws {
+		for _, f := range w.UsedBy {
+			if slices.Contains(out, f) {
+				continue
+			}
+			if slices.ContainsFunc(resourceNames(checkout, []string{f}), func(t typeName) bool { return slices.Contains(names, t.Name) }) {
+				out = append(out, f)
+			}
+		}
+	}
+	return out
+}
+
+// nestedLines counts the lines that are a field's nested fields, which start with spaces.
+func nestedLines(lines []string) int {
+	n := 0
+	for _, l := range lines {
+		if strings.HasPrefix(l, " ") {
+			n++
+		}
+	}
+	return n
+}
+
+// quotedList quotes the items of a ", "-joined list and joins them with "and".
+func quotedList(s string) string {
+	return joinAnd(quoted(strings.Split(s, ", ")))
 }
 
 // namedOperations reports whether the release notes name, as whole words, every operation the works' members come
@@ -561,12 +868,17 @@ func alnum(b byte) bool {
 	return 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z' || '0' <= b && b <= '9'
 }
 
-// changeResources returns the Terraform resources in the files that call all of the works' operations, or, if no file
-// calls them all, in any of the files.
-func changeResources(ws []enrich.Work, checkout string) []string {
-	var common, all []string
+// changeResources returns the Terraform types in the files that call all of the works' operations, or, if no file
+// calls them all, in any of the files. Resources are preferred to data sources, or with dataSourcesOnly, only data
+// sources are kept. Of several, those whose names best
+// match the operations' nouns are kept: aws_rds_cluster, not aws_rds_global_cluster, for ModifyDBCluster, whose
+// file also calls it.
+func changeResources(ws []enrich.Work, checkout, prefix string, dataSourcesOnly bool) []string {
+	var common, all []typeName
 	first := true
+	var ops []string
 	for _, w := range ws {
+		ops = append(ops, w.Operations...)
 		if len(w.UsedBy) == 0 {
 			continue
 		}
@@ -580,13 +892,96 @@ func changeResources(ws []enrich.Work, checkout string) []string {
 			common, first = rs, false
 			continue
 		}
-		common = slices.DeleteFunc(common, func(r string) bool { return !slices.Contains(rs, r) })
+		common = slices.DeleteFunc(common, func(r typeName) bool { return !slices.Contains(rs, r) })
 	}
-	if len(common) > 0 {
-		return common
+	ts := common
+	if len(ts) == 0 {
+		ts = all
 	}
-	slices.Sort(all)
-	return all
+	switch {
+	case dataSourcesOnly:
+		ts = slices.DeleteFunc(slices.Clone(ts), func(t typeName) bool { return !t.DataSource })
+	case slices.ContainsFunc(ts, func(t typeName) bool { return !t.DataSource }):
+		ts = slices.DeleteFunc(slices.Clone(ts), func(t typeName) bool { return t.DataSource })
+	}
+	var names []string
+	for _, t := range ts {
+		n := t.Name
+		if t.DataSource {
+			// A data source can share its resource's name, so it's marked.
+			n += dataSourceMark
+		}
+		if !slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	slices.Sort(names)
+	return bestNamed(names, ops, prefix)
+}
+
+// dataSourceMark follows a data source's name among a change's resources.
+const dataSourceMark = " data source"
+
+// genericWords are resource name words that don't name the noun: aws_s3_bucket_replication_configuration is about
+// BucketReplication.
+var genericWords = []string{"configuration", "config", "settings", "attributes", "options"}
+
+// bestNamed keeps the names that best match one of the operations' nouns: the fewest words the noun doesn't have,
+// then the most it has. A name's first word after the prefix is the service's, so it isn't counted. With no word
+// matched, all are kept. For CreateWebACL and CreateRuleGroup, aws_wafv2_web_acl and aws_wafv2_rule_group match
+// exactly; aws_wafv2_web_acl_rule_group_association has words of both nouns, but more than either has.
+func bestNamed(names, ops []string, prefix string) []string {
+	if len(names) < 2 {
+		return names
+	}
+	type score struct{ extra, matched int }
+	better := func(a, b score) int {
+		return gocmp.Or(gocmp.Compare(a.extra, b.extra), gocmp.Compare(b.matched, a.matched))
+	}
+	scores := make([]score, len(names))
+	for i, n := range names {
+		words := strings.Split(strings.TrimPrefix(strings.TrimSuffix(n, dataSourceMark), prefix), "_")[1:]
+		scores[i] = score{extra: len(words) + 1}
+		for _, op := range ops {
+			noun := strings.Split(enrich.Snake(opNoun(op)), "_")
+			var s score
+			for _, w := range words {
+				switch {
+				case slices.Contains(noun, w):
+					s.matched++
+				case !slices.Contains(genericWords, w):
+					s.extra++
+				}
+			}
+			if s.matched > 0 && better(s, scores[i]) < 0 {
+				scores[i] = s
+			}
+		}
+	}
+	best := slices.MinFunc(scores, better)
+	if best.matched == 0 {
+		return names
+	}
+	var out []string
+	for i, n := range names {
+		if scores[i] == best {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// opNoun is an operation's name without its first word: DBCluster for ModifyDBCluster, Get for BatchGetX's X.
+func opNoun(op string) string {
+	if rest, ok := strings.CutPrefix(op, "BatchGet"); ok {
+		return rest
+	}
+	for i, r := range op {
+		if i > 0 && 'A' <= r && r <= 'Z' {
+			return op[i:]
+		}
+	}
+	return op
 }
 
 func enumFacts(uses []enrich.EnumUse) string {
