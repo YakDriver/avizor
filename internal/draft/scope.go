@@ -374,15 +374,15 @@ func changes(in scopeInput, decide decider) scopeChanges {
 		query := c.argument && allVerbs(inputOperations(ws), queryVerbs...)
 		rs := changeResources(ws, in.checkout, in.prefix, query)
 		// Called means some provider file calls the operations, even one that registers no resource, such as a helper.
-		called := slices.ContainsFunc(ws, func(w enrich.Work) bool { return len(w.UsedBy) > 0 })
+		isCalled := called(ws)
 		member := memberName(c.works[0])
 		if searched && c.argument {
 			ops := inputOperations(ws)
 			switch {
-			case strings.HasPrefix(member, "Reset") && c.field != nil && c.field.Type == "boolean":
+			case strings.HasPrefix(c.name, "reset_") && c.field != nil && c.field.Type == "boolean":
 				leaveOut(c, "a flag that resets the value, which removing the argument does")
 				continue
-			case (strings.HasPrefix(member, "Add") || strings.HasPrefix(member, "Remove")) && allVerbs(ops, "Update", "Modify"):
+			case (strings.HasPrefix(c.name, "add_") || strings.HasPrefix(c.name, "remove_")) && allVerbs(ops, "Update", "Modify"):
 				k := strings.Join(ops, ", ")
 				addRemove[k] = append(addRemove[k], member)
 				leaveOut(c, "an update's list of values to add or remove; a note covers it")
@@ -390,7 +390,7 @@ func changes(in scopeInput, decide decider) scopeChanges {
 			case query && len(rs) == 0:
 				leaveOut(c, "a request member of "+joinAnd(quoted(ops))+", which no data source calls")
 				continue
-			case !called:
+			case !isCalled:
 				k := strings.Join(ops, ", ")
 				if _, ok := unwritten[k]; !ok {
 					unwrittenOps = append(unwrittenOps, k)
@@ -399,7 +399,7 @@ func changes(in scopeInput, decide decider) scopeChanges {
 				continue
 			}
 		}
-		if searched && !c.argument && !called {
+		if searched && !c.argument && !isCalled {
 			leaveOut(c, "no resource or data source calls "+joinAnd(quoted(outputOperations(c.works))))
 			continue
 		}
@@ -408,8 +408,8 @@ func changes(in scopeInput, decide decider) scopeChanges {
 		for _, r := range rs {
 			bare = append(bare, strings.TrimSuffix(r, dataSourceMark))
 		}
-		files := resourceFiles(ws, in.checkout, bare)
-		paths := c.pathsIn(files)
+		keep := ownedBy(in.checkout, bare)
+		paths := c.pathsIn(keep)
 		var wheres []string
 		for _, p := range paths {
 			wheres = append(wheres, strings.TrimPrefix(p+"."+c.name, "."))
@@ -418,13 +418,9 @@ func changes(in scopeInput, decide decider) scopeChanges {
 			wheres = []string{c.name}
 		}
 		where := wheres[0]
-		var head string
-		switch len(rs) {
-		case 0:
-			head = "`" + where + "`"
-		default:
-			head = "`" + strings.Join(rs, "`, `") + "`"
-			head = strings.ReplaceAll(head, dataSourceMark+"`", "` data source")
+		head := "`" + where + "`"
+		if len(rs) > 0 {
+			head = heads(rs)
 		}
 		kind := "attribute"
 		if c.argument {
@@ -481,7 +477,7 @@ func changes(in scopeInput, decide decider) scopeChanges {
 		for _, w := range c.works {
 			for _, p := range w.Schema {
 				k := fmt.Sprintf("%s:%d", p.File, p.Line)
-				if seenPlace[k] || len(files) > 0 && !slices.Contains(files, p.File) {
+				if seenPlace[k] || !keep(p.File) {
 					continue
 				}
 				seenPlace[k] = true
@@ -517,7 +513,7 @@ func changes(in scopeInput, decide decider) scopeChanges {
 	})
 	if len(out.targets) == 1 && len(headed) == len(out.lines)-nestedLines(out.lines) && !newType {
 		for _, i := range headed {
-			rest := strings.TrimPrefix(out.lines[i], "- `"+out.targets[0]+"`: new ")
+			rest := strings.TrimPrefix(out.lines[i], "- "+heads(out.targets[:1])+": new ")
 			out.lines[i] = "- New " + rest
 		}
 	}
@@ -598,18 +594,19 @@ func groupChanges(works []enrich.Work) []*change {
 				return false
 			}
 			returns := outputOperations(o.works)
-			return !slices.ContainsFunc(ops, func(op string) bool { return !slices.Contains(returns, op) }) || sameShape(o.field, c.field) ||
-				sameScalar(o.field, c.field) && readBy(c.works, o.works)
+			return !slices.ContainsFunc(ops, func(op string) bool { return !slices.Contains(returns, op) }) ||
+				(sameShape(o.field, c.field) || sameScalar(o.field, c.field)) && readBy(c.works, o.works)
 		})
 		if j < 0 && fromSummary(c) {
-			// A summary repeats the members of the full shape, the argument's or an attribute's.
-			j = slices.IndexFunc(cs, func(o *change) bool {
-				return o != c && o.argument && o.name == c.name && slices.Equal(o.paths, c.paths)
-			})
+			// A summary repeats the members of the full shape, the argument's or an attribute's, of the same resource:
+			// the summary's callers, if any, also call the full shape's operations.
+			related := func(o *change) bool {
+				return o != c && o.name == c.name && slices.Equal(o.paths, c.paths) && (sameScalar(o.field, c.field) || sameShape(o.field, c.field)) &&
+					(!called(c.works) || readBy(c.works, o.works))
+			}
+			j = slices.IndexFunc(cs, func(o *change) bool { return related(o) && o.argument })
 			if j < 0 {
-				j = slices.IndexFunc(cs, func(o *change) bool {
-					return o != c && !o.argument && o.name == c.name && slices.Equal(o.paths, c.paths) && !fromSummary(o)
-				})
+				j = slices.IndexFunc(cs, func(o *change) bool { return related(o) && !o.argument && !fromSummary(o) })
 			}
 		}
 		if j < 0 {
@@ -654,6 +651,11 @@ func fromSummary(c *change) bool {
 // sameScalar reports whether two fields are the same scalar type, and for enums, have the same values.
 func sameScalar(a, b *enrich.Field) bool {
 	return a != nil && b != nil && a.Type == b.Type && len(a.Fields) == 0 && len(b.Fields) == 0 && slices.Equal(a.Values, b.Values)
+}
+
+// called reports whether a provider file calls one of the works' operations.
+func called(ws []enrich.Work) bool {
+	return slices.ContainsFunc(ws, func(w enrich.Work) bool { return len(w.UsedBy) > 0 })
 }
 
 // readBy reports whether every file that calls the attributes' operations also calls the arguments': the same
@@ -709,20 +711,17 @@ func (c *change) add(w enrich.Work) {
 	}
 }
 
-// pathsIn returns the change's parent block paths in files, or all of them when files have none. Several paths in
-// one resource's files are blocks of the same shape, so the member goes in each: SageMaker's production_variants and
+// pathsIn returns the change's parent block paths in the files keep accepts. Several paths in one resource's files
+// are blocks of the same shape, so the member goes in each: SageMaker's production_variants and
 // shadow_production_variants.
-func (c *change) pathsIn(files []string) []string {
+func (c *change) pathsIn(keep func(file string) bool) []string {
 	var out []string
 	for _, w := range c.works {
 		for _, p := range w.Schema {
-			if p.Path != "" && slices.Contains(files, p.File) && !slices.Contains(out, p.Path) {
+			if p.Path != "" && keep(p.File) && !slices.Contains(out, p.Path) {
 				out = append(out, p.Path)
 			}
 		}
-	}
-	if len(out) == 0 {
-		out = slices.DeleteFunc(slices.Clone(c.paths), func(p string) bool { return p == "" })
 	}
 	slices.Sort(out)
 	return out
@@ -795,20 +794,17 @@ func outputOperations(ws []enrich.Work) []string {
 	return ops
 }
 
-// resourceFiles are the files of the works' callers that register one of names.
-func resourceFiles(ws []enrich.Work, checkout string, names []string) []string {
-	var out []string
-	for _, w := range ws {
-		for _, f := range w.UsedBy {
-			if slices.Contains(out, f) {
-				continue
-			}
-			if slices.ContainsFunc(resourceNames(checkout, []string{f}), func(t typeName) bool { return slices.Contains(names, t.Name) }) {
-				out = append(out, f)
-			}
-		}
+// ownedBy returns whether a file belongs to one of the resources names: it registers one of them, or no type at all,
+// as a schema helper does. A file registering only other types is another resource's. Without a checkout or names,
+// every file is kept.
+func ownedBy(checkout string, names []string) func(file string) bool {
+	if checkout == "" || len(names) == 0 {
+		return func(string) bool { return true }
 	}
-	return out
+	return func(file string) bool {
+		ts := resourceNames(checkout, []string{file})
+		return len(ts) == 0 || slices.ContainsFunc(ts, func(t typeName) bool { return slices.Contains(names, t.Name) })
+	}
 }
 
 // nestedLines counts the lines that are a field's nested fields, which start with spaces.
@@ -883,6 +879,9 @@ func changeResources(ws []enrich.Work, checkout, prefix string, dataSourcesOnly 
 			continue
 		}
 		rs := resourceNames(checkout, w.UsedBy)
+		if dataSourcesOnly {
+			rs = slices.DeleteFunc(rs, func(t typeName) bool { return !t.DataSource })
+		}
 		for _, r := range rs {
 			if !slices.Contains(all, r) {
 				all = append(all, r)
@@ -900,7 +899,6 @@ func changeResources(ws []enrich.Work, checkout, prefix string, dataSourcesOnly 
 	}
 	switch {
 	case dataSourcesOnly:
-		ts = slices.DeleteFunc(slices.Clone(ts), func(t typeName) bool { return !t.DataSource })
 	case slices.ContainsFunc(ts, func(t typeName) bool { return !t.DataSource }):
 		ts = slices.DeleteFunc(slices.Clone(ts), func(t typeName) bool { return t.DataSource })
 	}
@@ -919,6 +917,19 @@ func changeResources(ws []enrich.Work, checkout, prefix string, dataSourcesOnly 
 	return bestNamed(names, ops, prefix)
 }
 
+// heads formats a line's resources: "`aws_x`, `aws_y` data source".
+func heads(rs []string) string {
+	var qs []string
+	for _, r := range rs {
+		if name, ok := strings.CutSuffix(r, dataSourceMark); ok {
+			qs = append(qs, "`"+name+"`"+dataSourceMark)
+			continue
+		}
+		qs = append(qs, "`"+r+"`")
+	}
+	return strings.Join(qs, ", ")
+}
+
 // dataSourceMark follows a data source's name among a change's resources.
 const dataSourceMark = " data source"
 
@@ -926,10 +937,11 @@ const dataSourceMark = " data source"
 // BucketReplication.
 var genericWords = []string{"configuration", "config", "settings", "attributes", "options"}
 
-// bestNamed keeps the names that best match one of the operations' nouns: the fewest words the noun doesn't have,
-// then the most it has. A name's first word after the prefix is the service's, so it isn't counted. With no word
-// matched, all are kept. For CreateWebACL and CreateRuleGroup, aws_wafv2_web_acl and aws_wafv2_rule_group match
-// exactly; aws_wafv2_web_acl_rule_group_association has words of both nouns, but more than either has.
+// bestNamed keeps, for each operation, the names that best match its noun: the fewest words the noun doesn't have,
+// then the most it has. A name's first word after the prefix is the service's, so it isn't counted. The names kept
+// for any operation are returned in order; with none matched, all are. For ModifyDBCluster, aws_rds_cluster matches
+// and aws_rds_global_cluster has a word more. For CreateWebACL and CreateRuleGroup, aws_wafv2_web_acl and
+// aws_wafv2_rule_group match exactly, and aws_wafv2_web_acl_rule_group_association has more words than either noun.
 func bestNamed(names, ops []string, prefix string) []string {
 	if len(names) < 2 {
 		return names
@@ -938,35 +950,43 @@ func bestNamed(names, ops []string, prefix string) []string {
 	better := func(a, b score) int {
 		return gocmp.Or(gocmp.Compare(a.extra, b.extra), gocmp.Compare(b.matched, a.matched))
 	}
-	scores := make([]score, len(names))
+	words := make([][]string, len(names))
 	for i, n := range names {
-		words := strings.Split(strings.TrimPrefix(strings.TrimSuffix(n, dataSourceMark), prefix), "_")[1:]
-		scores[i] = score{extra: len(words) + 1}
-		for _, op := range ops {
-			noun := strings.Split(enrich.Snake(opNoun(op)), "_")
-			var s score
-			for _, w := range words {
+		words[i] = strings.Split(strings.TrimPrefix(strings.TrimSuffix(n, dataSourceMark), prefix), "_")[1:]
+	}
+	won := make([]bool, len(names))
+	for _, op := range slices.Compact(slices.Sorted(slices.Values(ops))) {
+		noun := strings.Split(enrich.Snake(opNoun(op)), "_")
+		scores := make([]score, len(names))
+		for i := range names {
+			for _, w := range words[i] {
 				switch {
 				case slices.Contains(noun, w):
-					s.matched++
+					scores[i].matched++
 				case !slices.Contains(genericWords, w):
-					s.extra++
+					scores[i].extra++
 				}
 			}
-			if s.matched > 0 && better(s, scores[i]) < 0 {
-				scores[i] = s
+		}
+		matched := slices.DeleteFunc(slices.Clone(scores), func(s score) bool { return s.matched == 0 })
+		if len(matched) == 0 {
+			continue
+		}
+		best := slices.MinFunc(matched, better)
+		for i := range names {
+			if scores[i] == best {
+				won[i] = true
 			}
 		}
-	}
-	best := slices.MinFunc(scores, better)
-	if best.matched == 0 {
-		return names
 	}
 	var out []string
 	for i, n := range names {
-		if scores[i] == best {
+		if won[i] {
 			out = append(out, n)
 		}
+	}
+	if len(out) == 0 {
+		return names
 	}
 	return out
 }

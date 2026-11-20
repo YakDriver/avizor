@@ -285,7 +285,8 @@ const NewModuleNote = awssdk.NewModuleNote
 
 // listOnlyLeftOut returns en without new data sources whose operations only list or search, such as
 // ListHealthChecksBySource: a list of findings or URLs is rarely a data source the provider adds. Each is reported
-// as left out.
+// as left out. Unlike the members changes leaves out, this depends only on the API, so it doesn't need the code
+// search.
 func listOnlyLeftOut(en *enrich.Result, infer func(field, value, basis string)) *enrich.Result {
 	listOnly := func(w enrich.Work) bool {
 		return w.Kind == enrich.WorkNewDataSource && allVerbs(w.Operations, "List", "Search")

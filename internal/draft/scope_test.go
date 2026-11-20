@@ -281,6 +281,9 @@ func TestBestNamed(t *testing.T) {
 		// Each name matches one noun exactly; the association has words of both, but more than either.
 		{[]string{"aws_wafv2_rule_group", "aws_wafv2_web_acl", "aws_wafv2_web_acl_rule_group_association"}, []string{"CreateRuleGroup", "CreateWebACL"},
 			[]string{"aws_wafv2_rule_group", "aws_wafv2_web_acl"}},
+		// Each operation keeps its own best match.
+		{[]string{"aws_widget_cluster", "aws_widget_cluster_endpoint"}, []string{"CreateCluster", "CreateClusterEndpoint"},
+			[]string{"aws_widget_cluster", "aws_widget_cluster_endpoint"}},
 		// No word matched: all are kept.
 		{[]string{"aws_sesv2_account_vdm_attributes", "aws_sesv2_account_suppression_attributes"}, []string{"GetDomain"},
 			[]string{"aws_sesv2_account_vdm_attributes", "aws_sesv2_account_suppression_attributes"}},
@@ -364,8 +367,9 @@ func TestGroupChanges(t *testing.T) {
 		{Kind: enrich.WorkNewArgument, Subject: "RequestCertificateRequest.Usage", Operations: []string{"RequestCertificate"}, UsedBy: []string{cert}, Field: usage},
 		{Kind: enrich.WorkNewAttribute, Subject: "CertificateDetail.Usage", Operations: []string{"DescribeCertificate"}, UsedBy: []string{cert}, Field: usage},
 		{Kind: enrich.WorkNewAttribute, Subject: "CertificateSummary.Usage", Operations: []string{"ListCertificates"}, Field: usage},
-		// The same name in another resource's shape stays apart.
+		// The same name in another resource's shapes stays apart, the summary too.
 		{Kind: enrich.WorkNewAttribute, Subject: "Peering.Usage", Operations: []string{"DescribePeering"}, UsedBy: []string{"internal/service/widget/peering.go"}, Field: usage},
+		{Kind: enrich.WorkNewAttribute, Subject: "PeeringSummary.Usage", Operations: []string{"ListPeerings"}, UsedBy: []string{"internal/service/widget/peering.go"}, Field: usage},
 	})
 	var got []string
 	for _, c := range cs {
@@ -374,7 +378,7 @@ func TestGroupChanges(t *testing.T) {
 	want := []string{
 		"filter_specification: `ExportTableInput.FilterSpecification` returned by `ExportDescription.FilterSpecification`",
 		"usage: `RequestCertificateRequest.Usage` returned by `CertificateDetail.Usage`, `CertificateSummary.Usage`",
-		"usage: `Peering.Usage` returned by ",
+		"usage: `Peering.Usage`, `PeeringSummary.Usage` returned by ",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("changes =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -395,5 +399,66 @@ func TestMentionedFirst(t *testing.T) {
 	}
 	if i, j := strings.Index(d.Body, "`hierarchy_filter`"), strings.Index(d.Body, "`authentication_type`"); i < 0 || j < 0 || i > j {
 		t.Errorf("hierarchy_filter isn't first:\n%s", d.Body)
+	}
+}
+
+// Review cases: whole Add and Remove verbs, schema helper files, notes-only scopes, a data source's lines, and a data
+// source among a grouped query's callers.
+func TestScopeOwnership(t *testing.T) {
+	t.Parallel()
+
+	co := writeFiles(t, map[string]string{
+		"queue.go":        "// @FrameworkResource(\"aws_widget_queue\", name=\"Queue\")\n",
+		"queue_schema.go": "",
+		"other.go":        "// @FrameworkResource(\"aws_widget_other\", name=\"Other\")\n",
+		"queues.go":       "// @FrameworkDataSource(\"aws_widget_queues\", name=\"Queues\")\n",
+	})
+	queue, schema, other, queues := "internal/service/widget/queue.go", "internal/service/widget/queue_schema.go", "internal/service/widget/other.go", "internal/service/widget/queues.go"
+	str := &enrich.Field{Type: "string"}
+	en := implemented("widget",
+		// Address starts with Add but isn't an add list.
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "UpdateQueueInput.Address", Operations: []string{"UpdateQueue"}, UsedBy: []string{queue}, Field: str},
+		// The parent block is in the queue's schema helper and in another resource's file.
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "Retention.Days", Operations: []string{"CreateQueue"}, UsedBy: []string{queue}, Field: str,
+			Schema: []enrich.SchemaPlace{{File: schema, Line: 5, Path: "retention", Kind: "ListNestedBlock"}, {File: other, Line: 9, Path: "other_retention", Kind: "ListNestedBlock"}}},
+	)
+	en.CodeSearched = true
+	o := opts
+	o.Checkout = co
+	d, err := New(item("widget", "Adds things."), en, nil, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"- New argument `address` (optional; string)", "- New argument `retention.days` (optional; string)", "`retention` is a ListNestedBlock in `" + schema + ":5`"} {
+		if !strings.Contains(d.Body, want) {
+			t.Errorf("body has no %q:\n%s", want, d.Body)
+		}
+	}
+	if strings.Contains(d.Body, "other_retention") {
+		t.Errorf("body has another resource's block:\n%s", d.Body)
+	}
+
+	// Only a note: the scope still has it.
+	en = implemented("widget", enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateRecordInput.Metadata", Operations: []string{"CreateRecord"}, Field: str})
+	en.CodeSearched = true
+	if d, err = New(item("widget", "Adds records."), en, nil, o); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(d.Body, "## Scope\n\n- `metadata` is in `CreateRecord`, which no resource calls yet.\n") {
+		t.Errorf("notes-only body:\n%s", d.Body)
+	}
+
+	// A data source's lines lose its name, and the title names it. A query member is a data source's though the
+	// operations' callers have a resource in common.
+	en = implemented("widget",
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "ListQueuesInput.QueueType", Operations: []string{"ListQueues"}, UsedBy: []string{queue, queues}, Field: str},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "DescribeQueuesInput.QueueType", Operations: []string{"DescribeQueues"}, UsedBy: []string{queue}, Field: str},
+	)
+	en.CodeSearched = true
+	if d, err = New(item("widget", "Adds queue types."), en, nil, o); err != nil {
+		t.Fatal(err)
+	}
+	if d.Title != "d/`aws_widget_queues`: Add `queue_type`" || !strings.Contains(d.Body, "- New argument `queue_type` (optional; string), from `ListQueuesInput.QueueType` and `DescribeQueuesInput.QueueType`.") {
+		t.Errorf("title = %q, body:\n%s", d.Title, d.Body)
 	}
 }
