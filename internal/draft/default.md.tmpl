@@ -1,12 +1,9 @@
 {{- /* Body of a new issue for an SDK item. Data: see draft.Data. */ -}}
 {{range .Notes}}> {{.}}
 
-{{end}}{{if .Announcement}}[{{.Announcement.Headline}}]({{.Announcement.URL}}){{if .BlogPost}} ([blog post]({{.BlogPost.URL}})){{end}}
-
-{{else if .BlogPost}}[Blog post]({{.BlogPost.URL}})
-
-{{end -}}
-Requires {{if .Module}}`{{.Module}}` {{.Version}} ([{{.Release}}]({{.ReleaseURL}})){{else}}AWS SDK for Go v2 [{{.Release}}]({{.ReleaseURL}}){{end}}.{{if .BumpPRURL}} The target has it since {{.BumpPRURL}}.{{end}}
+{{end}}{{if .Announcement}}- [{{.Announcement.Headline}}]({{.Announcement.URL}})
+{{end}}{{range .BlogPosts}}- [{{.Title}}]({{.URL}})
+{{end}}{{if or .Announcement .BlogPosts}}- {{end}}Requires {{if .Module}}`{{.Module}}` {{.Version}} ([{{.Release}}]({{.ReleaseURL}})){{else}}AWS SDK for Go v2 [{{.Release}}]({{.ReleaseURL}}){{end}}{{if .BumpPRURL}}, which the provider has{{end}}.
 {{if or .Resources .Changes}}
 ## Scope
 {{range .Resources}}

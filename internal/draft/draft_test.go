@@ -37,8 +37,7 @@ func implemented(pkg string, work ...enrich.Work) *enrich.Result {
 
 var opts = Options{Repo: "o/r", Prefix: "aws_"}
 
-const requires = "Requires `service/widget` v1.2.0 ([Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc)). " +
-	"The target has it since https://github.com/o/r/pull/10."
+const requires = "Requires `service/widget` v1.2.0 ([Release 2026-01-02](https://github.com/aws/aws-sdk-go-v2/commit/abc)), which the provider has."
 
 func inferred(d *Draft, field string) []string {
 	var out []string
@@ -229,32 +228,43 @@ func TestAnnouncement(t *testing.T) {
 	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
 		t.Fatal(err)
 	}
-	want := "> Adds sizes. More.\n\n[Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/)\n\n" + requires + "\n"
+	want := "> Adds sizes. More.\n\n- [Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/)\n- " + requires + "\n"
 	if d.Body != want {
 		t.Errorf("body =\n%s\nwant\n%s", d.Body, want)
 	}
 
-	// A chosen blog post is linked after the announcement, which already has a title.
-	o.BlogPost = &whatsnew.Post{Title: "Widget sizes deep dive", URL: "https://aws.amazon.com/blogs/x/sizes/"}
+	// Blog posts are listed after the announcement, in order and without repeats. A post that isn't stored is titled
+	// with its URL, so it's linked as "Blog post". An inferred post is reported with its basis.
+	o.BlogPosts = []BlogPost{
+		{Post: whatsnew.Post{Title: "Widget sizes deep dive", URL: "https://aws.amazon.com/blogs/x/sizes/"}},
+		{Post: whatsnew.Post{Title: "https://aws.amazon.com/blogs/x/other/", URL: "https://aws.amazon.com/blogs/x/other/"}},
+		{Post: whatsnew.Post{Title: "Widget sizes deep dive", URL: "https://aws.amazon.com/blogs/x/sizes/"}, Basis: "matches"},
+		{Post: whatsnew.Post{Title: "Sizing widgets", URL: "https://aws.amazon.com/blogs/x/sizing/"}, Basis: "matches the announcement"},
+	}
 	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
 		t.Fatal(err)
 	}
-	want = "> Adds sizes. More.\n\n[Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/) " +
-		"([blog post](https://aws.amazon.com/blogs/x/sizes/))\n\n" + requires + "\n"
+	want = "> Adds sizes. More.\n\n- [Amazon Widget now supports sizes](https://aws.amazon.com/wn/sizes/)\n" +
+		"- [Widget sizes deep dive](https://aws.amazon.com/blogs/x/sizes/)\n- [Blog post](https://aws.amazon.com/blogs/x/other/)\n" +
+		"- [Sizing widgets](https://aws.amazon.com/blogs/x/sizing/)\n- " + requires + "\n"
 	if d.Body != want {
-		t.Errorf("body with a blog post =\n%s\nwant\n%s", d.Body, want)
+		t.Errorf("body with blog posts =\n%s\nwant\n%s", d.Body, want)
+	}
+	if got := inferred(d, "blog_post"); !slices.Equal(got, []string{"Sizing widgets https://aws.amazon.com/blogs/x/sizing/"}) {
+		t.Errorf("inferred blog posts = %q", got)
 	}
 
-	// Without the announcement, the blog post has its own line.
+	// Without the announcement, the blog posts start the list.
 	o.Announcement = false
+	o.BlogPosts = o.BlogPosts[:1]
 	if d, err = New(item("widget", "Adds sizes. More."), en, nil, o); err != nil {
 		t.Fatal(err)
 	}
-	want = "> Adds sizes. More.\n\n[Blog post](https://aws.amazon.com/blogs/x/sizes/)\n\n" + requires + "\n"
+	want = "> Adds sizes. More.\n\n- [Widget sizes deep dive](https://aws.amazon.com/blogs/x/sizes/)\n- " + requires + "\n"
 	if d.Body != want {
 		t.Errorf("body with only a blog post =\n%s\nwant\n%s", d.Body, want)
 	}
-	o.Announcement, o.BlogPost = true, nil
+	o.Announcement, o.BlogPosts = true, nil
 
 	// Asking for an announcement when none matched warns, even with no release notes.
 	if d, err = New(item("widget", NewModuleNote), implemented("widget"), nil, o); err != nil {

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/YakDriver/avizor/internal/awssdk"
 	"github.com/YakDriver/avizor/internal/draft"
 	"github.com/YakDriver/avizor/internal/enrich"
 	"github.com/YakDriver/avizor/internal/queue"
@@ -22,8 +23,10 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	c.register(fs)
 	noCode := fs.Bool("no-code", false, "don't search the target checkout")
 	relates := fs.Int("relates", 3, "maximum related issues and PRs to suggest")
-	useAnn := fs.Bool("announcement", false, "link the matched What's New announcement in the body, below the release notes")
-	blog := fs.String("blog", "", "link this blog post in the body, by URL; `avizor brief` lists the posts near the release")
+	useAnn := fs.Bool("announcement", false, "link the matched What's New announcement in the body, below the release notes, "+
+		"with the blog posts that match it")
+	var blogs repeated
+	fs.Var(&blogs, "blog", "link this blog post in the body, by URL (repeatable); `avizor brief` lists the posts near the release")
 	bodyOnly := fs.Bool("body", false, "print only the issue body, for piping to `gh issue create --body-file -`")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -55,11 +58,20 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if err != nil {
 		return err
 	}
-	var post *whatsnew.Post
-	if *blog != "" {
-		if post, err = blogPost(ctx, c.dir, *blog); err != nil {
+	var posts []draft.BlogPost
+	for _, u := range blogs {
+		p, err := blogPost(ctx, c.dir, u)
+		if err != nil {
 			return err
 		}
+		posts = append(posts, draft.BlogPost{Post: *p})
+	}
+	if *useAnn && en.Announcement != nil {
+		ps, err := announcedPosts(ctx, c.dir, it, en, stderr)
+		if err != nil {
+			return err
+		}
+		posts = append(posts, ps...)
 	}
 	texts, err := candidateTexts(ctx, st, rec)
 	if err != nil {
@@ -67,7 +79,7 @@ func cmdDraft(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	}
 	d, err := queue.Draft(it, en, rec, texts, draft.Options{
 		Repo: t.Repo, Checkout: t.Checkout, Prefix: t.TypePrefix, LabelPrefix: t.ServiceLabelPrefix, Template: t.DraftTemplate,
-		RelatesLimit: *relates, Announcement: *useAnn, BlogPost: post,
+		RelatesLimit: *relates, Announcement: *useAnn, BlogPosts: posts,
 	})
 	if err != nil {
 		return err
@@ -105,6 +117,75 @@ func blogPost(ctx context.Context, dir, u string) (*whatsnew.Post, error) {
 	return &whatsnew.Post{URL: u, Title: u}, nil
 }
 
+// announcedPostsMax caps the blog posts linked for a matched announcement. On the 51 blog eval cases, 35 with an
+// announcement, linking the best 2 links an expected post for 30 cases, and 31 of 40 links are expected. Linking only
+// the best hits 28 cases. Labels list the posts that issues linked, so some unexpected links are on topic.
+const announcedPostsMax = 2
+
+// announcedPostsCandidates is how many of the posts near the release, best first, are checked against the
+// announcement. Checking a post ranks the announcements for it, about 2ms, and a window holds 400 to 700 posts. On the
+// blog eval cases, checking 5, 10, 20, or all links the same posts; 10 takes 0.60s per draft and all 1.13s.
+const announcedPostsCandidates = 10
+
+// unlinkedKinds are the kinds of post not linked for a matched announcement. Event and developer tools posts are
+// linked: News Blog launch posts during re:Invent have the event tag, and posts about CloudFormation and CDK features
+// the developer tools tag, and issues link both.
+var unlinkedKinds = []string{KindRoundup, KindCustomerStory}
+
+// announcedPosts returns the blog posts near the item's release that match its announcement, best first: of the best
+// posts brief lists, those whose own matched announcements, as posts finds them, include the item's.
+func announcedPosts(ctx context.Context, dir string, it *awssdk.Item, en *enrich.Result, stderr io.Writer) ([]draft.BlogPost, error) {
+	m, anns := blogPosts(dir, stderr), announcements(dir, stderr)
+	if m == nil || anns == nil {
+		return nil, nil
+	}
+	st, err := openItems(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer st.Close()
+	var lookupErr error
+	out := linkPosts(m, anns, it, en.Announcement, func(u string) *whatsnew.Post {
+		p, err := st.Post(ctx, u)
+		if err != nil && lookupErr == nil {
+			lookupErr = err
+		}
+		return p
+	})
+	return out, lookupErr
+}
+
+// linkPosts is announcedPosts over posts and announcements, with post looking up a stored post by URL.
+func linkPosts(posts, anns *whatsnew.Matcher, it *awssdk.Item, ann *whatsnew.Match, post func(string) *whatsnew.Post) []draft.BlogPost {
+	want := ann.Announcement.URL
+	var out []draft.BlogPost
+	for _, bp := range enrich.BlogPosts(posts, it, ann, announcedPostsCandidates) {
+		p := post(bp.URL)
+		if p == nil {
+			continue
+		}
+		pa := postAnnouncements(anns, *p)
+		if !slices.ContainsFunc(pa, func(a PostAnnouncement) bool { return a.URL == want }) || slices.Contains(unlinkedKinds, postKind(*p)) {
+			continue
+		}
+		out = append(out, draft.BlogPost{Post: *p, Basis: "matches the item's announcement, " + want})
+		if len(out) == announcedPostsMax {
+			break
+		}
+	}
+	return out
+}
+
+// repeated is a flag that can be given more than once, collecting its values in order.
+type repeated []string
+
+func (r *repeated) String() string { return strings.Join(*r, ",") }
+
+func (r *repeated) Set(v string) error {
+	*r = append(*r, v)
+	return nil
+}
+
 // regenArgs is the command that prints this draft's body again: the same item, with the flags that were set (config,
 // state directory, target, and options) and the target it resolved to.
 func regenArgs(fs *flag.FlagSet, item, target string) []string {
@@ -116,6 +197,12 @@ func regenArgs(fs *flag.FlagSet, item, target string) []string {
 			return
 		case "target":
 			hasTarget = true
+		}
+		if r, ok := f.Value.(*repeated); ok {
+			for _, v := range *r {
+				args = append(args, "--"+f.Name+"="+v)
+			}
+			return
 		}
 		args = append(args, "--"+f.Name+"="+f.Value.String())
 	})

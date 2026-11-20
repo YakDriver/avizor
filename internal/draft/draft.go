@@ -69,8 +69,8 @@ type Data struct {
 	Headline string
 	// Announcement is the matched What's New post, set only when Options.Announcement accepts the match.
 	Announcement *whatsnew.Announcement
-	// BlogPost is the blog post the reviewer chose to link, or nil.
-	BlogPost *whatsnew.Post
+	// BlogPosts are the blog posts to link, in order.
+	BlogPosts []BlogLink
 	// Release is the release name, such as "Release 2025-12-02".
 	Release    string
 	ReleaseURL string
@@ -78,7 +78,8 @@ type Data struct {
 	// release.
 	Module  string
 	Version string
-	// BumpPRURL is the target PR that brought the SDK version in, if it's merged.
+	// BumpPRURL is the target PR that brought the SDK version in, if it's merged. The default template says only that
+	// the provider has the version.
 	BumpPRURL string
 	Service   enrich.ServiceMatch
 	// Work is the work the draft covers: for a partial item, only the uncovered work.
@@ -109,11 +110,33 @@ type Options struct {
 	RelatesLimit int
 	// Announcement puts the matched announcement in the body. The match is an inference, so the reviewer opts in.
 	Announcement bool
-	// BlogPost is a blog post to link in the body, chosen by the reviewer.
-	BlogPost *whatsnew.Post
+	// BlogPosts are blog posts to link in the body, in order: those the reviewer chose, then those that match the
+	// accepted announcement.
+	BlogPosts []BlogPost
 	// Partial is set for a partial item: the work passed to New is only the uncovered work, and Covered are the labels
 	// of that work, as queue reports them.
 	Partial *Partial
+}
+
+// BlogPost is a blog post to link, and why. Basis is empty for a post the reviewer chose, and otherwise says why the
+// post is linked, as an inference.
+type BlogPost struct {
+	Post  whatsnew.Post
+	Basis string
+}
+
+// BlogLink is a blog post link in the body.
+type BlogLink struct {
+	Title string
+	URL   string
+}
+
+// blogTitle is a post's title, or "Blog post" for a post that isn't stored, which is titled with its URL.
+func blogTitle(p whatsnew.Post) string {
+	if p.Title == "" || p.Title == p.URL {
+		return "Blog post"
+	}
+	return p.Title
 }
 
 // Partial describes a partial item's draft: the work it covers, and the candidates that cover the rest.
@@ -146,7 +169,7 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 
 	// The commit URL is the release's citation: reconciliation takes an issue citing it as tracking the whole release.
 	// A partial draft cites the tag, since it tracks only part of the release.
-	data := Data{Item: it, BlogPost: opts.BlogPost, Release: releaseName(it.Release.Tag), ReleaseURL: cmp(it.Release.CommitURL, it.Release.URL),
+	data := Data{Item: it, Release: releaseName(it.Release.Tag), ReleaseURL: cmp(it.Release.CommitURL, it.Release.URL),
 		Module: strings.TrimPrefix(it.Service.ModulePath, sdkPath), Version: it.Service.ModuleVersion, Service: en.Service, Work: en.Work}
 	if opts.Partial != nil {
 		data.ReleaseURL = cmp(it.Release.URL, it.Release.CommitURL)
@@ -168,6 +191,15 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	case len(data.Notes) > 0:
 		data.Headline = firstSentence(data.Notes[0])
 		infer("headline", data.Headline, "first sentence of the release notes, used in the title; no announcement matched")
+	}
+	for _, p := range opts.BlogPosts {
+		if slices.ContainsFunc(data.BlogPosts, func(l BlogLink) bool { return l.URL == p.Post.URL }) {
+			continue
+		}
+		data.BlogPosts = append(data.BlogPosts, BlogLink{Title: blogTitle(p.Post), URL: p.Post.URL})
+		if p.Basis != "" {
+			infer("blog_post", p.Post.Title+" "+p.Post.URL, p.Basis+"; in the body")
+		}
 	}
 	if opts.Announcement && en.Announcement == nil {
 		d.Warnings = append(d.Warnings, "--announcement: no announcement matched, so the body has the release notes instead")
