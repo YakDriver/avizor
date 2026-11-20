@@ -304,3 +304,23 @@ func TestNewResources(t *testing.T) {
 		t.Errorf("title = %q, want %q", d.Title, want)
 	}
 }
+
+// Boilerplate notes the SDK adds to many services are left out of the quote and the title, unless every note is one.
+func TestBoilerplateNotes(t *testing.T) {
+	t.Parallel()
+
+	const schema = "Enable schema-based (de)serialization for this service."
+	d, err := New(item("widget", schema, "Adds hierarchy filters to dashboards."), implemented("widget"), nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Title != "Widget: Adds hierarchy filters to dashboards" || strings.Contains(d.Body, schema) {
+		t.Errorf("title = %q, body =\n%s", d.Title, d.Body)
+	}
+	if d, err = New(item("widget", schema), implemented("widget"), nil, opts); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(d.Body, "> "+schema+"\n") {
+		t.Errorf("body with only boilerplate =\n%s", d.Body)
+	}
+}

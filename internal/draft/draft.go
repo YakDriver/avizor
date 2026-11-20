@@ -63,7 +63,8 @@ type Relate struct {
 // Data is what the body template sees.
 type Data struct {
 	Item *awssdk.Item
-	// Notes are the item's release notes, in full, without the "New AWS service client module" marker.
+	// Notes are the item's release notes, in full, without the "New AWS service client module" marker, and without
+	// boilerplate notes the SDK adds to many services at once unless every note is one.
 	Notes []string
 	// Headline is the matched announcement's headline, or else the first sentence of the first note. Titles use it.
 	Headline string
@@ -174,11 +175,7 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	if opts.Partial != nil {
 		data.ReleaseURL = cmp(it.Release.URL, it.Release.CommitURL)
 	}
-	for _, n := range it.Notes {
-		if n.Text != NewModuleNote {
-			data.Notes = append(data.Notes, n.Text)
-		}
-	}
+	data.Notes = notes(it)
 	switch m := en.Announcement; {
 	case m != nil:
 		data.Headline = m.Announcement.Headline
@@ -274,6 +271,25 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 }
 
 const NewModuleNote = awssdk.NewModuleNote
+
+// notes are the release notes the body quotes, and the title's headline comes from: without the new-module marker, and
+// without boilerplate notes unless every note is one.
+func notes(it *awssdk.Item) []string {
+	var all, own []string
+	for _, n := range it.Notes {
+		if n.Text == NewModuleNote {
+			continue
+		}
+		all = append(all, n.Text)
+		if !awssdk.Boilerplate(n.Text) {
+			own = append(own, n.Text)
+		}
+	}
+	if len(own) == 0 {
+		return all
+	}
+	return own
+}
 
 // titleAndLabels infers the title and labels from the work.
 // targets are the existing resources that changes are in, and names the changes' Terraform names.
