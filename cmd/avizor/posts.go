@@ -74,6 +74,10 @@ type PostEntry struct {
 	// Items are the pulled SDK items that best match the post, for drafting its issue with brief and draft.
 	Items []enrich.PostItem `json:"items"`
 
+	// CoveredBy is the SDK item whose created or duplicate decision covers the post: one of Items that matches one
+	// of the post's announcements. It's set only for a post with no decision of its own.
+	CoveredBy string `json:"covered_by,omitempty"`
+
 	// byDecision is set when the decision sets the state.
 	byDecision bool
 }
@@ -252,6 +256,7 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		}
 		e := postEntry(p, matched[i], results[i], d, *related, now)
 		e.Items = postItems[i]
+		coverByItem(&e, p, decisions, now)
 		if early[p.URL] && e.State != PostOpen {
 			continue
 		}
@@ -370,6 +375,34 @@ func revisitDue(d items.Disposition, now time.Time) bool {
 // postEntry decides a post's state. A decision comes first: created and duplicate cover it, skipped means no work, and
 // deferred holds it. Once a decision's revisit date passes, it no longer sets the state. Without one, a confident
 // issue or PR candidate covers the post.
+// coverByItemMin is the score the announcement a post shares with an item needs for the item's decision to cover the
+// post. A weaker match is often another launch of the same service: "Rapid game server iteration on Amazon GameLift
+// Servers" matched GameLift's DDoS protection announcement at 0.45. See coverByItem.
+const coverByItemMin = 0.5
+
+// coverByItem covers an open post with no decision of its own by a created or duplicate decision on one of its items,
+// so filing from the item doesn't need a second decision on the post. The item must match one of the post's
+// announcements, scoring at least coverByItemMin against the post, and the post can't be a roundup or a customer
+// story, which share a launch's announcement without being about it. The first such item, in the post's order,
+// covers it.
+func coverByItem(e *PostEntry, p whatsnew.Post, decisions map[string]items.Disposition, now time.Time) {
+	// A post can be of several kinds, and Kind is only the first, so each kind is checked.
+	if e.State != PostOpen || e.Decision != nil && !revisitDue(*e.Decision, now) || isKind(p, KindRoundup) || isKind(p, KindCustomerStory) {
+		return
+	}
+	for _, it := range e.Items {
+		d, ok := decisions[it.ID]
+		if !it.Announcement || !ok || revisitDue(d, now) || d.Decision != items.DecisionCreated && d.Decision != items.DecisionDuplicate {
+			continue
+		}
+		if !slices.ContainsFunc(e.Announcements, func(a PostAnnouncement) bool { return a.URL == it.AnnouncementURL && a.Score >= coverByItemMin }) {
+			continue
+		}
+		e.State, e.Numbers, e.CoveredBy, e.Revisit = PostCovered, d.Numbers(), it.ID, false
+		return
+	}
+}
+
 func postEntry(p whatsnew.Post, anns []PostAnnouncement, res *reconcile.Result, d *items.Disposition, relatedLimit int, now time.Time) PostEntry {
 	e := PostEntry{URL: p.URL, Title: p.Title, Posted: p.PostedAt.Format(time.DateOnly), Launch: slices.Contains(p.Tags, whatsnew.LaunchTag),
 		NewsBlog: strings.HasPrefix(p.URL, newsBlogPrefix), PostSignificance: postSignificance(p, anns), Decision: d,
@@ -439,6 +472,8 @@ func writePostsText(w io.Writer, res PostsResult, shownState func(string) bool, 
 			note = decisionText(*e.Decision) + "; revisit due"
 		case e.byDecision:
 			note = decisionText(*e.Decision)
+		case e.CoveredBy != "":
+			note = "covered by " + issueList(e.Numbers) + " (item " + e.CoveredBy + ")"
 		case e.State == PostCovered:
 			note = "covered by " + issueList(e.Numbers)
 		case len(e.Related) > 0:

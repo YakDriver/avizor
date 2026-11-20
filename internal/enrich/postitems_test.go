@@ -69,8 +69,8 @@ func TestItemIndexRank(t *testing.T) {
 
 	// An item matching one of the post's announcements comes first, even below the text floor.
 	q := whatsnew.Post{Title: "Deliver Kafka data to Amazon S3 with MSK Express broker channels", PostedAt: post}
-	got = x.Rank(q, []string{ann.URL}, "", 0)
-	if len(got) == 0 || got[0].ID != "linked" || !got[0].Announcement || got[0].Score >= PostItemsMin {
+	got = x.Rank(q, []string{"https://aws.amazon.com/about-aws/whats-new/other/", ann.URL}, "", 0)
+	if len(got) == 0 || got[0].ID != "linked" || !got[0].Announcement || got[0].AnnouncementURL != ann.URL || got[0].Score >= PostItemsMin {
 		t.Errorf("linked = %+v", got)
 	}
 
