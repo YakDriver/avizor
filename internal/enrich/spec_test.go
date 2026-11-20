@@ -2,6 +2,7 @@ package enrich
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/YakDriver/avizor/internal/smithy"
@@ -208,5 +209,65 @@ func TestSentences(t *testing.T) {
 	want := []string{"Use v1.2 here, e.g. the default.", "The name can't change.", "3 targets max."}
 	if !slices.Equal(got, want) {
 		t.Errorf("sentences = %q, want %q", got, want)
+	}
+}
+
+// fieldModel has a recursive union, a list of at most one, and two Puts on a service with TagResource: one returns an
+// ARN, one doesn't.
+const fieldModel = `{
+  "smithy": "2.0",
+  "shapes": {
+    "com.amazonaws.x#Svc": {"type": "service", "traits": {"aws.api#service": {"sdkId": "X"}}},
+    "com.amazonaws.x#TagResource": {"type": "operation"},
+    "com.amazonaws.x#Export": {"type": "structure", "members": {
+      "Values": {"target": "com.amazonaws.x#ValueMap"},
+      "Configs": {"target": "com.amazonaws.x#ConfigList"}}},
+    "com.amazonaws.x#ValueMap": {"type": "map", "key": {"target": "smithy.api#String"}, "value": {"target": "com.amazonaws.x#AttributeValue"}},
+    "com.amazonaws.x#AttributeValue": {"type": "union", "members": {
+      "S": {"target": "smithy.api#String"},
+      "L": {"target": "com.amazonaws.x#ValueList"}}},
+    "com.amazonaws.x#ValueList": {"type": "list", "member": {"target": "com.amazonaws.x#AttributeValue"}},
+    "com.amazonaws.x#ConfigList": {"type": "list", "member": {"target": "com.amazonaws.x#Config"}, "traits": {"smithy.api#length": {"min": 1, "max": 1}}},
+    "com.amazonaws.x#Config": {"type": "union", "members": {"A": {"target": "smithy.api#String"}}},
+
+    "com.amazonaws.x#PutAccountSettings": {"type": "operation", "input": {"target": "com.amazonaws.x#PutAccountSettingsRequest"},
+      "output": {"target": "com.amazonaws.x#PutAccountSettingsResponse"}},
+    "com.amazonaws.x#PutAccountSettingsRequest": {"type": "structure", "members": {"Mode": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#PutAccountSettingsResponse": {"type": "structure", "members": {}},
+    "com.amazonaws.x#CreateWidget": {"type": "operation", "input": {"target": "com.amazonaws.x#CreateWidgetRequest"},
+      "output": {"target": "com.amazonaws.x#CreateWidgetResponse"}},
+    "com.amazonaws.x#DeleteWidget": {"type": "operation", "input": {"target": "com.amazonaws.x#PutAccountSettingsRequest"}},
+    "com.amazonaws.x#CreateWidgetRequest": {"type": "structure", "members": {"Name": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#CreateWidgetResponse": {"type": "structure", "members": {"Widget": {"target": "com.amazonaws.x#Widget"}}},
+    "com.amazonaws.x#Widget": {"type": "structure", "members": {"WidgetArn": {"target": "smithy.api#String"}}}
+  }
+}`
+
+func TestFieldShapes(t *testing.T) {
+	t.Parallel()
+
+	m, err := smithy.Parse([]byte(fieldModel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh := m.Shapes["Export"]
+	values := fieldOf(m, sh, "Values", 1)
+	if values.Recursive != "AttributeValue" || len(values.Fields) != 0 {
+		t.Errorf("Values = %+v; want AttributeValue, recursive, without its members", values)
+	}
+	if got := FieldText(values, false); got != "map of union `AttributeValue`, recursive" {
+		t.Errorf("Values text = %q", got)
+	}
+	configs := fieldOf(m, sh, "Configs", 1)
+	if got := FieldText(configs, true); got != "optional; single union" {
+		t.Errorf("Configs text = %q; want a single block, without the 1 to 1 items constraint", got)
+	}
+
+	// Tags are set with TagResource only for a resource whose output has an ARN.
+	for op, want := range map[string]string{"PutAccountSettings": "none", "CreateWidget": "tag_resource"} {
+		s := buildSpec(m, Work{Kind: WorkNewResource, Subject: strings.TrimPrefix(strings.TrimPrefix(op, "Put"), "Create"), Operations: []string{op}}, nil)
+		if s.Tagging == nil || s.Tagging.Kind != want {
+			t.Errorf("%s tagging = %+v, want %s", op, s.Tagging, want)
+		}
 	}
 }
