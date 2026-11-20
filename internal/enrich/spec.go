@@ -65,6 +65,9 @@ type Field struct {
 	Returned bool `json:"returned,omitempty"`
 	// Fields are a structure's, union's, or list or map element structure's members.
 	Fields []Field `json:"fields,omitempty"`
+	// Single is set for a list or set whose documentation says it has exactly one entry, as Kinesis's
+	// StreamConfigurationList does without a length trait. It's a single block, like a list of at most one.
+	Single bool `json:"single,omitempty"`
 	// Recursive is the structure or union, or the list or map element, when one of its members refers back to it, as
 	// DynamoDB's AttributeValue does. Its members aren't listed.
 	Recursive string `json:"recursive,omitempty"`
@@ -331,6 +334,9 @@ func fieldOf(m *smithy.Model, sh smithy.Shape, name string, depth int) Field {
 		f.Ignored = true
 	}
 	ts := m.Shapes[target]
+	if (f.Type == "list" || f.Type == "set") && singleRE.MatchString(text(sh.Docs[name])) {
+		f.Single = true
+	}
 	switch f.Type {
 	case smithy.TypeEnum, smithy.TypeIntEnum:
 		f.Values = enumValues(ts)
@@ -358,6 +364,10 @@ func fieldOf(m *smithy.Model, sh smithy.Shape, name string, depth int) Field {
 	}
 	return f
 }
+
+// singleRE finds documentation saying a list has exactly one entry: "The list must contain exactly one entry". "Exactly
+// one of" is a choice among members, so it isn't matched.
+var singleRE = regexp.MustCompile(`(?i)\bcontains? (?:only )?exactly one (?:entry|element|item|value)\b`)
 
 // recursive reports whether a structure or union has a member that targets it, directly or as a list or map element.
 func recursive(m *smithy.Model, shape string) bool {
@@ -701,7 +711,7 @@ func FieldText(f Field, argument bool) string {
 		flags = append(flags, "deprecated")
 	}
 	typ := f.Type
-	single := (f.Type == "list" || f.Type == "set") && f.Constraints.LengthMax != nil && *f.Constraints.LengthMax == 1
+	single := (f.Type == "list" || f.Type == "set") && (f.Single || f.Constraints.LengthMax != nil && *f.Constraints.LengthMax == 1)
 	switch {
 	case single:
 		// A list of at most one is a single block.

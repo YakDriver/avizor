@@ -223,7 +223,17 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 	for _, p := range data.BlogPosts {
 		mentions = append(mentions, p.Title)
 	}
-	sc := changes(scopeInput{en: en, checkout: opts.Checkout, prefix: opts.Prefix, releaseNotes: data.Notes, mentions: strings.Join(mentions, "\n")}, decide)
+	var newTypes []string
+	for _, r := range data.Resources {
+		if r.NoRead {
+			newTypes = append(newTypes, r.Name)
+		}
+	}
+	sc := changes(scopeInput{en: en, checkout: opts.Checkout, prefix: opts.Prefix, releaseNotes: data.Notes, mentions: strings.Join(mentions, "\n"),
+		newTypes: newTypes}, decide)
+	for i, r := range data.Resources {
+		data.Resources[i].Notes = append(data.Resources[i].Notes, sc.typeNotes[r.Name]...)
+	}
 	data.Changes, data.ChangeNotes, targets, names = sc.lines, sc.notes, sc.targets, sc.names
 	for _, in := range sc.leftOut {
 		if !slices.Contains(d.Inferred, in) {

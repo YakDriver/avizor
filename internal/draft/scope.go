@@ -22,6 +22,8 @@ type Resource struct {
 	// Lines are the arguments and attributes, as Markdown list items.
 	Lines []string
 	Notes []string
+	// NoRead is set when the model has no read operation for the resource, as for a Put-only account setting.
+	NoRead bool
 }
 
 // decider records a judgment call and returns its marker for the body.
@@ -62,6 +64,7 @@ func resources(en *enrich.Result, pkg, prefix string, decide decider) []Resource
 			ops = append(ops, "`"+op+"`")
 		}
 		r.Operations = strings.Join(ops, ", ")
+		r.NoRead = w.Spec != nil && len(s.Operations.Read) == 0 && len(s.Operations.List) == 0
 
 		// A data source's arguments are its read input, required or optional too.
 		argument := true
@@ -154,7 +157,7 @@ func singleScalar(f enrich.Field) string {
 
 // collection reports whether a field is a list, set, or map, but not a list of at most one, which is a single block.
 func collection(f enrich.Field) bool {
-	single := f.Constraints.LengthMax != nil && *f.Constraints.LengthMax == 1
+	single := f.Single || f.Constraints.LengthMax != nil && *f.Constraints.LengthMax == 1
 	return f.Type == "list" && !single || f.Type == "set" && !single || f.Type == "map"
 }
 
@@ -326,6 +329,8 @@ type scopeInput struct {
 	// announcement's headline, and blog post titles), whose members are listed first.
 	releaseNotes []string
 	mentions     string
+	// newTypes are the draft's new resources with no read operation of their own.
+	newTypes []string
 }
 
 // scopeChanges are the rendered changes of existing resources.
@@ -336,6 +341,8 @@ type scopeChanges struct {
 	targets, names []string
 	// leftOut are members the lines leave out, with why, for the reviewer.
 	leftOut []Inferred
+	// typeNotes are notes for the new resources and data sources, by name.
+	typeNotes map[string][]string
 }
 
 // changes renders new arguments, attributes, enum values, and other work on existing resources, with notes.
@@ -349,7 +356,7 @@ type scopeChanges struct {
 // note naming the operations, since its resource doesn't exist yet.
 func changes(in scopeInput, decide decider) scopeChanges {
 	en := in.en
-	var out scopeChanges
+	out := scopeChanges{typeNotes: map[string][]string{}}
 	var attrNames []string
 	cs := groupChanges(en.Work)
 	slices.SortStableFunc(cs, func(a, b *change) int {
@@ -396,6 +403,17 @@ func changes(in scopeInput, decide decider) scopeChanges {
 					unwrittenOps = append(unwrittenOps, k)
 				}
 				unwritten[k] = append(unwritten[k], c.name)
+				continue
+			}
+		}
+		// An attribute named like a new resource with no read of its own is what that resource reads, as
+		// GetAccountResponse.DeliveryAttributes for aws_sesv2_account_delivery_attributes, though an existing resource
+		// calls GetAccount too.
+		// The attribute must come from reads, and no calling resource may be named exactly for the read's noun.
+		if !c.argument && strings.Contains(c.name, "_") && allVerbs(outputOperations(c.works), queryVerbs...) && !exactlyNamed(rs, outputOperations(c.works), in.prefix) {
+			if i := slices.IndexFunc(in.newTypes, func(n string) bool { return strings.HasSuffix(n, "_"+c.name) }); i >= 0 {
+				t := in.newTypes[i]
+				out.typeNotes[t] = append(out.typeNotes[t], fmt.Sprintf("Read `%s` from %s.", c.name, joinAnd(c.subjects)))
 				continue
 			}
 		}
@@ -580,6 +598,36 @@ func groupChanges(works []enrich.Work) []*change {
 		c.add(w)
 	}
 
+	// An argument of an operation input with no block joins the argument of the same name in a block the input's noun
+	// names: PutConfigurationSetDeliveryOptionsRequest.SharedPoolDeliveryMode is
+	// delivery_options.shared_pool_delivery_mode, since the Put sets the block's members.
+	for i := 0; i < len(cs); i++ {
+		c := cs[i]
+		if !c.argument || len(c.paths) > 0 {
+			continue
+		}
+		shape, _, _ := strings.Cut(c.works[0].Subject, ".")
+		if shapeNoun(shape) == shape {
+			// Not an operation's input: a nested shape can have no block too.
+			continue
+		}
+		noun := enrich.Snake(shapeNoun(shape))
+		j := slices.IndexFunc(cs, func(o *change) bool {
+			return o != c && o.argument && o.name == c.name && sharedCaller(c.works, o.works) && slices.ContainsFunc(o.paths, func(p string) bool {
+				block := p[strings.LastIndex(p, ".")+1:]
+				return block != "" && (noun == block || strings.HasSuffix(noun, "_"+block))
+			})
+		})
+		if j < 0 {
+			continue
+		}
+		for _, w := range c.works {
+			cs[j].add(w)
+		}
+		cs = slices.Delete(cs, i, i+1)
+		i--
+	}
+
 	// An attribute-only change joins an argument of the same name and blocks: the argument's value as read returns it,
 	// when its operations return the argument or the fields have the same shape. Attribute-only changes of the same
 	// name and blocks join when one is from a summary shape, which repeats the full shape's members.
@@ -651,6 +699,15 @@ func fromSummary(c *change) bool {
 // sameScalar reports whether two fields are the same scalar type, and for enums, have the same values.
 func sameScalar(a, b *enrich.Field) bool {
 	return a != nil && b != nil && a.Type == b.Type && len(a.Fields) == 0 && len(b.Fields) == 0 && slices.Equal(a.Values, b.Values)
+}
+
+// sharedCaller reports whether a provider file calls operations of both sets of works: the same resource has them.
+func sharedCaller(a, b []enrich.Work) bool {
+	return slices.ContainsFunc(a, func(x enrich.Work) bool {
+		return slices.ContainsFunc(x.UsedBy, func(f string) bool {
+			return slices.ContainsFunc(b, func(y enrich.Work) bool { return slices.Contains(y.UsedBy, f) })
+		})
+	})
 }
 
 // called reports whether a provider file calls one of the works' operations.
@@ -989,6 +1046,18 @@ func bestNamed(names, ops []string, prefix string) []string {
 		return names
 	}
 	return out
+}
+
+// exactlyNamed reports whether one of the resources is named for one of the operations' nouns with no other words,
+// as aws_widget_account for GetAccount. Such a resource owns what the operation reads.
+func exactlyNamed(rs, ops []string, prefix string) bool {
+	return slices.ContainsFunc(rs, func(r string) bool {
+		words := strings.Split(strings.TrimPrefix(strings.TrimSuffix(r, dataSourceMark), prefix), "_")[1:]
+		return slices.ContainsFunc(ops, func(op string) bool {
+			noun := strings.Split(enrich.Snake(opNoun(op)), "_")
+			return len(words) > 0 && !slices.ContainsFunc(words, func(w string) bool { return !slices.Contains(noun, w) && !slices.Contains(genericWords, w) })
+		})
+	})
 }
 
 // opNoun is an operation's name without its first word: DBCluster for ModifyDBCluster, Get for BatchGetX's X.

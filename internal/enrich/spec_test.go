@@ -221,7 +221,10 @@ const fieldModel = `{
     "com.amazonaws.x#TagResource": {"type": "operation"},
     "com.amazonaws.x#Export": {"type": "structure", "members": {
       "Values": {"target": "com.amazonaws.x#ValueMap"},
-      "Configs": {"target": "com.amazonaws.x#ConfigList"}}},
+      "Configs": {"target": "com.amazonaws.x#ConfigList"},
+      "Streams": {"target": "com.amazonaws.x#StreamList", "traits": {"smithy.api#documentation": "<p>The list must contain exactly one entry.</p>"}},
+      "Choices": {"target": "com.amazonaws.x#StreamList", "traits": {"smithy.api#documentation": "<p>Contains exactly one of the streams.</p>"}}}},
+    "com.amazonaws.x#StreamList": {"type": "list", "member": {"target": "smithy.api#String"}, "traits": {"smithy.api#length": {"min": 1, "max": 10000}}},
     "com.amazonaws.x#ValueMap": {"type": "map", "key": {"target": "smithy.api#String"}, "value": {"target": "com.amazonaws.x#AttributeValue"}},
     "com.amazonaws.x#AttributeValue": {"type": "union", "members": {
       "S": {"target": "smithy.api#String"},
@@ -261,6 +264,14 @@ func TestFieldShapes(t *testing.T) {
 	configs := fieldOf(m, sh, "Configs", 1)
 	if got := FieldText(configs, true); got != "optional; single union" {
 		t.Errorf("Configs text = %q; want a single block, without the 1 to 1 items constraint", got)
+	}
+
+	// A list documented as having exactly one entry is a single block; "exactly one of" isn't.
+	if got := FieldText(fieldOf(m, sh, "Streams", 1), true); got != "optional; single string" {
+		t.Errorf("Streams text = %q", got)
+	}
+	if got := FieldText(fieldOf(m, sh, "Choices", 1), true); got != "optional; list of string, 1 to 10000 items" {
+		t.Errorf("Choices text = %q", got)
 	}
 
 	// Tags are set with TagResource only for a resource whose output has an ARN.
