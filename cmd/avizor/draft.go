@@ -165,7 +165,7 @@ func linkPosts(posts, anns *whatsnew.Matcher, it *awssdk.Item, ann *whatsnew.Mat
 			continue
 		}
 		pa := postAnnouncements(anns, *p)
-		if !slices.ContainsFunc(pa, func(a PostAnnouncement) bool { return a.URL == want }) || slices.Contains(unlinkedKinds, postKind(*p)) {
+		if !slices.ContainsFunc(pa, func(a PostAnnouncement) bool { return a.URL == want }) || slices.ContainsFunc(unlinkedKinds, func(k string) bool { return isKind(*p, k) }) {
 			continue
 		}
 		out = append(out, draft.BlogPost{Post: *p, Basis: "matches the item's announcement, " + want})

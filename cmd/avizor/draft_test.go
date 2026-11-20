@@ -20,9 +20,9 @@ func TestLinkPosts(t *testing.T) {
 		{URL: "wn-streams", Headline: "Amazon GameLift Streams adds instant play demos", PostedAt: rel}})
 	ps := []whatsnew.Post{
 		{URL: "b-troubleshoot", Title: "Troubleshoot game session placement with Amazon GameLift Servers insights", PostedAt: rel.Add(2 * day)},
-		// A customer story about the same launch isn't linked.
+		// A customer story about the same launch isn't linked, even with the event tag, which postKind reports first.
 		{URL: "b-story", Title: "Studio X on Amazon GameLift Servers game session placement insights support", PostedAt: rel.Add(day),
-			Tags: []string{tagCustomerSolution}},
+			Tags: []string{tagEvents, tagCustomerSolution}},
 		{URL: "b-queues", Title: "Game session placement insights for Amazon GameLift Servers queues", PostedAt: rel.Add(4 * day)},
 		{URL: "b-deep", Title: "Deep dive: Amazon GameLift Servers game session placement insights", PostedAt: rel.Add(5 * day)},
 		// A post about another announcement isn't linked.

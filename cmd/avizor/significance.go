@@ -68,21 +68,35 @@ func postSignificance(p whatsnew.Post, anns []PostAnnouncement) PostSignificance
 	return s
 }
 
-// postKind returns the kind of a post that is not significant whatever its signals, or "".
+// postKind returns the kind of a post that is not significant whatever its signals, or "". A post can be of more than
+// one kind; the first in postKinds is returned.
 func postKind(p whatsnew.Post) string {
+	for _, k := range postKinds {
+		if isKind(p, k) {
+			return k
+		}
+	}
+	return ""
+}
+
+// postKinds are the kinds of post that are not significant, in the order postKind checks them.
+var postKinds = []string{KindRoundup, KindEvent, KindDeveloperTools, KindCustomerStory}
+
+// isKind reports whether a post is of a kind.
+func isKind(p whatsnew.Post, kind string) bool {
 	title := strings.ToLower(p.Title)
 	has := func(tags ...string) bool {
 		return slices.ContainsFunc(tags, func(t string) bool { return slices.Contains(p.Tags, t) })
 	}
-	switch {
-	case strings.Contains(title, "weekly roundup") || strings.Contains(title, "monthly roundup") || strings.HasPrefix(title, "icymi"):
-		return KindRoundup
-	case has(tagEvents) || strings.Contains(title, "re:invent"):
-		return KindEvent
-	case has(tagDevTools, tagDeveloperTools) || strings.HasPrefix(p.URL, developerBlogPrefix):
-		return KindDeveloperTools
-	case has(tagCustomerSolution, tagPartnerSolution) || strings.HasPrefix(p.URL, partnerBlogPrefix):
-		return KindCustomerStory
+	switch kind {
+	case KindRoundup:
+		return strings.Contains(title, "weekly roundup") || strings.Contains(title, "monthly roundup") || strings.HasPrefix(title, "icymi")
+	case KindEvent:
+		return has(tagEvents) || strings.Contains(title, "re:invent")
+	case KindDeveloperTools:
+		return has(tagDevTools, tagDeveloperTools) || strings.HasPrefix(p.URL, developerBlogPrefix)
+	case KindCustomerStory:
+		return has(tagCustomerSolution, tagPartnerSolution) || strings.HasPrefix(p.URL, partnerBlogPrefix)
 	}
-	return ""
+	return false
 }
