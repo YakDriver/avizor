@@ -256,7 +256,7 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		}
 		e := postEntry(p, matched[i], results[i], d, *related, now)
 		e.Items = postItems[i]
-		coverByItem(&e, decisions, now)
+		coverByItem(&e, p, decisions, now)
 		if early[p.URL] && e.State != PostOpen {
 			continue
 		}
@@ -385,8 +385,9 @@ const coverByItemMin = 0.5
 // announcements, scoring at least coverByItemMin against the post, and the post can't be a roundup or a customer
 // story, which share a launch's announcement without being about it. The first such item, in the post's order,
 // covers it.
-func coverByItem(e *PostEntry, decisions map[string]items.Disposition, now time.Time) {
-	if e.State != PostOpen || e.Decision != nil && !revisitDue(*e.Decision, now) || e.Kind == KindRoundup || e.Kind == KindCustomerStory {
+func coverByItem(e *PostEntry, p whatsnew.Post, decisions map[string]items.Disposition, now time.Time) {
+	// A post can be of several kinds, and Kind is only the first, so each kind is checked.
+	if e.State != PostOpen || e.Decision != nil && !revisitDue(*e.Decision, now) || isKind(p, KindRoundup) || isKind(p, KindCustomerStory) {
 		return
 	}
 	for _, it := range e.Items {

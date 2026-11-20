@@ -199,19 +199,25 @@ func TestCoverByItem(t *testing.T) {
 		{"undecided item", open(enrich.PostItem{ID: "sdk/x/release-9", Announcement: true, AnnouncementURL: "wn-strong"}), PostOpen, "", nil},
 	} {
 		e := tc.e
-		coverByItem(&e, decisions, now)
+		coverByItem(&e, whatsnew.Post{}, decisions, now)
 		if e.State != tc.state || e.CoveredBy != tc.coveredBy || !slices.Equal(e.Numbers, tc.numbers) {
 			t.Errorf("%s: state %s, covered by %q, numbers %v", tc.name, e.State, e.CoveredBy, e.Numbers)
 		}
 	}
 
-	// A customer story, or a post with its own decision, isn't covered by an item.
-	story := open(strong)
-	story.Kind = KindCustomerStory
+	// A customer story, even one whose first kind is another, or a post with its own decision, isn't covered by an item.
 	decided := open(strong)
 	decided.State, decided.Decision = PostNoWork, &items.Disposition{Decision: items.DecisionSkipped}
-	for name, e := range map[string]PostEntry{"customer story": story, "decided": decided} {
-		coverByItem(&e, decisions, now)
+	for name, tc := range map[string]struct {
+		e PostEntry
+		p whatsnew.Post
+	}{
+		"customer story":        {open(strong), whatsnew.Post{Tags: []string{tagCustomerSolution}}},
+		"customer story, event": {open(strong), whatsnew.Post{Tags: []string{tagEvents, tagCustomerSolution}}},
+		"decided":               {decided, whatsnew.Post{}},
+	} {
+		e := tc.e
+		coverByItem(&e, tc.p, decisions, now)
 		if e.CoveredBy != "" {
 			t.Errorf("%s: covered by %q", name, e.CoveredBy)
 		}
