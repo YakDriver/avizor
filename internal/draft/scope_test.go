@@ -132,7 +132,7 @@ func TestScopeChanges(t *testing.T) {
 }
 
 // Fields are grouped per noun and path; the create input's field describes the argument; an output reaching the
-// argument's own shape counts as read returning it; several schema paths are a judgment call; new operations are named.
+// argument's own shape counts as read returning it; a member in several blocks is in each; new operations are named.
 func TestScopeChangeGroups(t *testing.T) {
 	t.Parallel()
 
@@ -171,8 +171,9 @@ func TestScopeChangeGroups(t *testing.T) {
 		"- `aws_widget_cluster`: new argument `size` (optional; list of string), from `UpdateClusterInput.Size` and `CreateClusterInput.Size`; returned by `GetClusterOutput.Size`. <!-- decide: optional, or optional and computed -->\n",
 		"- `aws_widget_cluster`: new argument `color` (required; string), from `CreateClusterInput.Color`.\n",
 		"- `aws_widget_peering`: new argument `color` (optional; list of string), from `CreatePeeringInput.Color`.\n",
-		"- `aws_widget_cluster`: new argument `mode` (optional; list of string), from `Settings.Mode`; returned by `GetCluster`. " +
-			"<!-- decide: which block: `primary.settings.mode` or `secondary.settings.mode` --> <!-- decide: optional, or optional and computed -->\n",
+		// A shape in two blocks of one resource is in both.
+		"- `aws_widget_cluster`: new arguments `primary.settings.mode` and `secondary.settings.mode` (optional; list of string), from `Settings.Mode`; " +
+			"returned by `GetCluster`. <!-- decide: optional, or optional and computed -->\n",
 		"- New operations `StartJob` and `StopJob`. <!-- decide: resource, argument, or none -->\n",
 	} {
 		if !strings.Contains(d.Body, want) {
@@ -233,5 +234,231 @@ func TestNamedOperations(t *testing.T) {
 		if got := namedOperations(notes, tc.works); got != tc.want {
 			t.Errorf("%s: namedOperations = %t", tc.name, got)
 		}
+	}
+}
+
+// writeFiles writes provider files with annotations into a checkout, by path under internal/service/widget.
+func writeFiles(t *testing.T, files map[string]string) string {
+	t.Helper()
+	co := t.TempDir()
+	src := filepath.Join(co, "internal", "service", "widget")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for f, body := range files {
+		if err := os.WriteFile(filepath.Join(src, f), []byte("package widget\n\n"+body+"func f() {}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return co
+}
+
+func TestResourceNames(t *testing.T) {
+	t.Parallel()
+
+	co := writeFiles(t, map[string]string{
+		// Consecutive annotations are one implementation under two names; the last is the current one.
+		"listener.go": "// @SDKResource(\"aws_alb_listener\", name=\"Listener\")\n// @SDKResource(\"aws_lb_listener\", name=\"Listener\")\n// @Tags(identifierAttribute=\"arn\")\n",
+		"voices.go":   "// @FrameworkDataSource(\"aws_widget_voices\", name=\"Voices\")\n",
+	})
+	got := resourceNames(co, []string{"internal/service/widget/listener.go", "internal/service/widget/voices.go"})
+	want := []typeName{{Name: "aws_lb_listener"}, {Name: "aws_widget_voices", DataSource: true}}
+	if !slices.Equal(got, want) {
+		t.Errorf("resourceNames = %+v, want %+v", got, want)
+	}
+}
+
+func TestBestNamed(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		names, ops, want []string
+	}{
+		{[]string{"aws_rds_cluster", "aws_rds_global_cluster"}, []string{"CreateDBCluster", "ModifyDBCluster"}, []string{"aws_rds_cluster"}},
+		{[]string{"aws_iam_role", "aws_iam_service_linked_role"}, []string{"UpdateRole"}, []string{"aws_iam_role"}},
+		// Generic words don't count against a name.
+		{[]string{"aws_s3_bucket", "aws_s3_bucket_replication_configuration"}, []string{"PutBucketReplication"}, []string{"aws_s3_bucket_replication_configuration"}},
+		// Each name matches one noun exactly; the association has words of both, but more than either.
+		{[]string{"aws_wafv2_rule_group", "aws_wafv2_web_acl", "aws_wafv2_web_acl_rule_group_association"}, []string{"CreateRuleGroup", "CreateWebACL"},
+			[]string{"aws_wafv2_rule_group", "aws_wafv2_web_acl"}},
+		// Each operation keeps its own best match.
+		{[]string{"aws_widget_cluster", "aws_widget_cluster_endpoint"}, []string{"CreateCluster", "CreateClusterEndpoint"},
+			[]string{"aws_widget_cluster", "aws_widget_cluster_endpoint"}},
+		// No word matched: all are kept.
+		{[]string{"aws_sesv2_account_vdm_attributes", "aws_sesv2_account_suppression_attributes"}, []string{"GetDomain"},
+			[]string{"aws_sesv2_account_vdm_attributes", "aws_sesv2_account_suppression_attributes"}},
+	} {
+		if got := bestNamed(tc.names, tc.ops, "aws_"); !slices.Equal(got, tc.want) {
+			t.Errorf("bestNamed(%q, %q) = %q, want %q", tc.names, tc.ops, got, tc.want)
+		}
+	}
+}
+
+// Members that aren't arguments are left out, with why; an argument of operations no file calls is in a note.
+func TestScopeLeftOut(t *testing.T) {
+	t.Parallel()
+
+	co := writeFiles(t, map[string]string{
+		"queue.go":   "// @FrameworkResource(\"aws_widget_queue\", name=\"Queue\")\n",
+		"queues.go":  "// @FrameworkDataSource(\"aws_widget_queues\", name=\"Queues\")\n",
+		"cluster.go": "// @FrameworkResource(\"aws_widget_cluster\", name=\"Cluster\")\n",
+	})
+	queue, queues := "internal/service/widget/queue.go", "internal/service/widget/queues.go"
+	boolean := &enrich.Field{Type: "boolean"}
+	list := &enrich.Field{Type: "list", Elem: "structure"}
+	en := implemented("widget",
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateQueueInput.LogConfiguration", Operations: []string{"CreateQueue"}, UsedBy: []string{queue}, Field: list},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "UpdateQueueInput.AddLogDestinations", Operations: []string{"UpdateQueue"}, UsedBy: []string{queue}, Field: list},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "UpdateQueueInput.RemoveLogDestinations", Operations: []string{"UpdateQueue"}, UsedBy: []string{queue}, Field: list},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "UpdateQueueInput.ResetRetention", Operations: []string{"UpdateQueue"}, UsedBy: []string{queue}, Field: boolean},
+		// A List request member is a data source's argument, if a data source calls the List.
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "ListQueuesInput.QueueType", Operations: []string{"ListQueues"}, UsedBy: []string{queues}, Field: &enrich.Field{Type: "string"}},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "SearchQueuesInput.Owner", Operations: []string{"SearchQueues"}, UsedBy: []string{queue}, Field: &enrich.Field{Type: "string"}},
+		// Operations no file calls: the argument waits for a resource, and the attribute is left out.
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateRecordInput.Metadata", Operations: []string{"CreateRecord", "UpdateRecord"}, Field: &enrich.Field{Type: "document"}},
+		enrich.Work{Kind: enrich.WorkNewAttribute, Subject: "Session.GatewayStatus", Operations: []string{"DescribeSessions"}, Field: &enrich.Field{Type: "enum"}},
+	)
+	en.CodeSearched = true
+	o := opts
+	o.Checkout = co
+	d, err := New(item("widget", "Adds logging."), en, nil, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"- `aws_widget_queue`: new argument `log_configuration` (optional; list of structure), from `CreateQueueInput.LogConfiguration`.",
+		"- `aws_widget_queues` data source: new argument `queue_type` (optional; string), from `ListQueuesInput.QueueType`.",
+		"- Update (`UpdateQueue`) takes `AddLogDestinations` and `RemoveLogDestinations`, so it applies the difference between the configured and current lists.",
+		"- `metadata` is in `CreateRecord` and `UpdateRecord`, which no resource calls yet.",
+	} {
+		if !strings.Contains(d.Body, want) {
+			t.Errorf("body has no %q:\n%s", want, d.Body)
+		}
+	}
+	for _, unwanted := range []string{"reset_retention", "add_log_destinations", "owner", "gateway_status", "decide: which resource"} {
+		if strings.Contains(d.Body, unwanted) {
+			t.Errorf("body has %q:\n%s", unwanted, d.Body)
+		}
+	}
+	if got := inferred(d, "left_out"); !slices.Equal(got, []string{"add_log_destinations", "remove_log_destinations", "reset_retention", "owner", "gateway_status"}) {
+		t.Errorf("left out = %q", got)
+	}
+
+	// Without the code search, nothing is left out.
+	en.CodeSearched = false
+	if d, err = New(item("widget", "Adds logging."), en, nil, o); err != nil {
+		t.Fatal(err)
+	}
+	if got := inferred(d, "left_out"); len(got) != 0 || !strings.Contains(d.Body, "reset_retention") {
+		t.Errorf("left out without a code search = %q:\n%s", got, d.Body)
+	}
+}
+
+// An attribute joins the argument read returns it as, and a summary shape's attribute joins the full shape's.
+func TestGroupChanges(t *testing.T) {
+	t.Parallel()
+
+	export, cert := "internal/service/widget/export.go", "internal/service/widget/certificate.go"
+	spec := &enrich.Field{Type: "structure", Fields: []enrich.Field{{Name: "filter_expression", Type: "string"}}}
+	usage := &enrich.Field{Type: "enum", Values: []string{"CLIENT", "SERVER"}}
+	cs := groupChanges([]enrich.Work{
+		{Kind: enrich.WorkNewArgument, Subject: "ExportTableInput.FilterSpecification", Operations: []string{"ExportTable"}, UsedBy: []string{export}, Field: spec},
+		{Kind: enrich.WorkNewAttribute, Subject: "ExportDescription.FilterSpecification", Operations: []string{"DescribeExport"}, UsedBy: []string{export}, Field: spec},
+		{Kind: enrich.WorkNewArgument, Subject: "RequestCertificateRequest.Usage", Operations: []string{"RequestCertificate"}, UsedBy: []string{cert}, Field: usage},
+		{Kind: enrich.WorkNewAttribute, Subject: "CertificateDetail.Usage", Operations: []string{"DescribeCertificate"}, UsedBy: []string{cert}, Field: usage},
+		{Kind: enrich.WorkNewAttribute, Subject: "CertificateSummary.Usage", Operations: []string{"ListCertificates"}, Field: usage},
+		// The same name in another resource's shapes stays apart, the summary too.
+		{Kind: enrich.WorkNewAttribute, Subject: "Peering.Usage", Operations: []string{"DescribePeering"}, UsedBy: []string{"internal/service/widget/peering.go"}, Field: usage},
+		{Kind: enrich.WorkNewAttribute, Subject: "PeeringSummary.Usage", Operations: []string{"ListPeerings"}, UsedBy: []string{"internal/service/widget/peering.go"}, Field: usage},
+	})
+	var got []string
+	for _, c := range cs {
+		got = append(got, c.name+": "+strings.Join(c.subjects, ", ")+" returned by "+strings.Join(c.returned, ", "))
+	}
+	want := []string{
+		"filter_specification: `ExportTableInput.FilterSpecification` returned by `ExportDescription.FilterSpecification`",
+		"usage: `RequestCertificateRequest.Usage` returned by `CertificateDetail.Usage`, `CertificateSummary.Usage`",
+		"usage: `Peering.Usage`, `PeeringSummary.Usage` returned by ",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("changes =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// Members the launch text names are listed first.
+func TestMentionedFirst(t *testing.T) {
+	t.Parallel()
+
+	en := implemented("widget",
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "DataSourceParameters.AuthenticationType", Member: "authentication_type", Field: &enrich.Field{Type: "string"}},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "Filter.HierarchyFilter", Member: "hierarchy_filter", Field: &enrich.Field{Type: "structure"}},
+	)
+	d, err := New(item("widget", "This release adds HierarchyFilter support."), en, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i, j := strings.Index(d.Body, "`hierarchy_filter`"), strings.Index(d.Body, "`authentication_type`"); i < 0 || j < 0 || i > j {
+		t.Errorf("hierarchy_filter isn't first:\n%s", d.Body)
+	}
+}
+
+// Review cases: whole Add and Remove verbs, schema helper files, notes-only scopes, a data source's lines, and a data
+// source among a grouped query's callers.
+func TestScopeOwnership(t *testing.T) {
+	t.Parallel()
+
+	co := writeFiles(t, map[string]string{
+		"queue.go":        "// @FrameworkResource(\"aws_widget_queue\", name=\"Queue\")\n",
+		"queue_schema.go": "",
+		"other.go":        "// @FrameworkResource(\"aws_widget_other\", name=\"Other\")\n",
+		"queues.go":       "// @FrameworkDataSource(\"aws_widget_queues\", name=\"Queues\")\n",
+	})
+	queue, schema, other, queues := "internal/service/widget/queue.go", "internal/service/widget/queue_schema.go", "internal/service/widget/other.go", "internal/service/widget/queues.go"
+	str := &enrich.Field{Type: "string"}
+	en := implemented("widget",
+		// Address starts with Add but isn't an add list.
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "UpdateQueueInput.Address", Operations: []string{"UpdateQueue"}, UsedBy: []string{queue}, Field: str},
+		// The parent block is in the queue's schema helper and in another resource's file.
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "Retention.Days", Operations: []string{"CreateQueue"}, UsedBy: []string{queue}, Field: str,
+			Schema: []enrich.SchemaPlace{{File: schema, Line: 5, Path: "retention", Kind: "ListNestedBlock"}, {File: other, Line: 9, Path: "other_retention", Kind: "ListNestedBlock"}}},
+	)
+	en.CodeSearched = true
+	o := opts
+	o.Checkout = co
+	d, err := New(item("widget", "Adds things."), en, nil, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"- New argument `address` (optional; string)", "- New argument `retention.days` (optional; string)", "`retention` is a ListNestedBlock in `" + schema + ":5`"} {
+		if !strings.Contains(d.Body, want) {
+			t.Errorf("body has no %q:\n%s", want, d.Body)
+		}
+	}
+	if strings.Contains(d.Body, "other_retention") {
+		t.Errorf("body has another resource's block:\n%s", d.Body)
+	}
+
+	// Only a note: the scope still has it.
+	en = implemented("widget", enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateRecordInput.Metadata", Operations: []string{"CreateRecord"}, Field: str})
+	en.CodeSearched = true
+	if d, err = New(item("widget", "Adds records."), en, nil, o); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(d.Body, "## Scope\n\n- `metadata` is in `CreateRecord`, which no resource calls yet.\n") {
+		t.Errorf("notes-only body:\n%s", d.Body)
+	}
+
+	// A data source's lines lose its name, and the title names it. A query member is a data source's though the
+	// operations' callers have a resource in common.
+	en = implemented("widget",
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "ListQueuesInput.QueueType", Operations: []string{"ListQueues"}, UsedBy: []string{queue, queues}, Field: str},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "DescribeQueuesInput.QueueType", Operations: []string{"DescribeQueues"}, UsedBy: []string{queue}, Field: str},
+	)
+	en.CodeSearched = true
+	if d, err = New(item("widget", "Adds queue types."), en, nil, o); err != nil {
+		t.Fatal(err)
+	}
+	if d.Title != "d/`aws_widget_queues`: Add `queue_type`" || !strings.Contains(d.Body, "- New argument `queue_type` (optional; string), from `ListQueuesInput.QueueType` and `DescribeQueuesInput.QueueType`.") {
+		t.Errorf("title = %q, body:\n%s", d.Title, d.Body)
 	}
 }

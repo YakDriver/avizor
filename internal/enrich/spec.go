@@ -65,6 +65,9 @@ type Field struct {
 	Returned bool `json:"returned,omitempty"`
 	// Fields are a structure's, union's, or list or map element structure's members.
 	Fields []Field `json:"fields,omitempty"`
+	// Recursive is the structure or union, or the list or map element, when one of its members refers back to it, as
+	// DynamoDB's AttributeValue does. Its members aren't listed.
+	Recursive string `json:"recursive,omitempty"`
 }
 
 // SpecStatus is the read result's status member and its values, grouped.
@@ -221,7 +224,11 @@ func buildSpec(m *smithy.Model, w Work, resourceTypes []string) *Spec {
 		if putCreates && s.Update.Kind == "none" {
 			s.Update = &SpecUpdate{Kind: "put"}
 		}
-		s.Tagging = tagging(m, m.Shapes[create].Input, resourceTypes)
+		outputs := []string{m.Shapes[create].Output}
+		if read != "" {
+			outputs = append(outputs, readResult(m, m.Shapes[read].Output))
+		}
+		s.Tagging = tagging(m, m.Shapes[create].Input, resourceTypes, slices.ContainsFunc(outputs, func(o string) bool { return hasARN(m, o) }))
 	}
 	noteOps, noteInputs := slices.Concat(ops.Create, ops.Update, ops.Delete, ops.Read), slices.Concat(argInputs(m, ops.Create), argInputs(m, ops.Update))
 	if create == "" && read != "" {
@@ -328,7 +335,10 @@ func fieldOf(m *smithy.Model, sh smithy.Shape, name string, depth int) Field {
 	case smithy.TypeEnum, smithy.TypeIntEnum:
 		f.Values = enumValues(ts)
 	case smithy.TypeStructure, smithy.TypeUnion:
-		if depth < specDepth {
+		switch {
+		case recursive(m, target):
+			f.Recursive = target
+		case depth < specDepth:
 			f.Fields = fields(m, target, depth+1)
 		}
 	case "list", "set", "map":
@@ -338,12 +348,25 @@ func fieldOf(m *smithy.Model, sh smithy.Shape, name string, depth int) Field {
 		case smithy.TypeEnum, smithy.TypeIntEnum:
 			f.Values = enumValues(m.Shapes[elem])
 		case smithy.TypeStructure, smithy.TypeUnion:
-			if depth < specDepth {
+			switch {
+			case recursive(m, elem):
+				f.Recursive = elem
+			case depth < specDepth:
 				f.Fields = fields(m, elem, depth+1)
 			}
 		}
 	}
 	return f
+}
+
+// recursive reports whether a structure or union has a member that targets it, directly or as a list or map element.
+func recursive(m *smithy.Model, shape string) bool {
+	for _, t := range m.Shapes[shape].Members {
+		if t == shape || slices.Contains(m.Shapes[t].Elems, shape) {
+			return true
+		}
+	}
+	return false
 }
 
 func enumValues(sh smithy.Shape) []string {
@@ -496,8 +519,9 @@ func updateShape(m *smithy.Model, ops []string) *SpecUpdate {
 
 var replacesRE = regexp.MustCompile(`(?i)\breplaces? (?:all|the|any|its|their|your|current|existing)\b|\breplaces? [^.]{0,40}\bcurrent\b`)
 
-// tagging says how the resource is tagged.
-func tagging(m *smithy.Model, input string, resourceTypes []string) *SpecTags {
+// tagging says how the resource is tagged. TagResource takes an ARN, so a resource is tagged with it only when its
+// create or read output has an ARN: account settings set with a Put have none.
+func tagging(m *smithy.Model, input string, resourceTypes []string, arn bool) *SpecTags {
 	in := m.Shapes[input]
 	switch {
 	case in.Members["Tags"] != "":
@@ -506,10 +530,24 @@ func tagging(m *smithy.Model, input string, resourceTypes []string) *SpecTags {
 		return &SpecTags{Kind: "tags", Member: "tags"}
 	case in.Members["TagSpecifications"] != "":
 		return &SpecTags{Kind: "tag_specifications", Member: "TagSpecifications", ResourceTypes: resourceTypes}
-	case m.Shapes["TagResource"].Type == smithy.TypeOperation:
+	case arn && m.Shapes["TagResource"].Type == smithy.TypeOperation:
 		return &SpecTags{Kind: "tag_resource"}
 	}
 	return &SpecTags{Kind: "none"}
+}
+
+// hasARN reports whether a shape, or a structure it holds, has a member named for an ARN.
+func hasARN(m *smithy.Model, shape string) bool {
+	isARN := func(name string) bool { return strings.HasSuffix(strings.ToLower(name), "arn") }
+	for name, t := range m.Shapes[shape].Members {
+		if isARN(name) {
+			return true
+		}
+		if m.TypeOf(t) == smithy.TypeStructure && slices.ContainsFunc(sortedNames(m.Shapes[t].Members), isARN) {
+			return true
+		}
+	}
+	return false
 }
 
 // argInputs returns the input shapes of operations.
@@ -663,12 +701,24 @@ func FieldText(f Field, argument bool) string {
 		flags = append(flags, "deprecated")
 	}
 	typ := f.Type
-	if f.Elem != "" {
+	single := (f.Type == "list" || f.Type == "set") && f.Constraints.LengthMax != nil && *f.Constraints.LengthMax == 1
+	switch {
+	case single:
+		// A list of at most one is a single block.
+		typ = "single " + f.Elem
+	case f.Elem != "":
 		typ += " of " + f.Elem
 	}
+	if f.Recursive != "" {
+		typ += " `" + f.Recursive + "`, recursive"
+	}
 	desc := []string{typ}
-	if c := constraintText(f); c != "" {
-		desc = append(desc, c)
+	c := f
+	if single {
+		c.Constraints.LengthMin, c.Constraints.LengthMax = nil, nil
+	}
+	if ct := constraintText(c); ct != "" {
+		desc = append(desc, ct)
 	}
 	switch {
 	case len(f.Values) > maxValues:

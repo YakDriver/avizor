@@ -4,7 +4,7 @@
 {{end}}{{if .Announcement}}- [{{.Announcement.Headline}}]({{.Announcement.URL}})
 {{end}}{{range .BlogPosts}}- [{{.Title}}]({{.URL}})
 {{end}}{{if or .Announcement .BlogPosts}}- {{end}}Requires {{if .Module}}`{{.Module}}` {{.Version}} ([{{.Release}}]({{.ReleaseURL}})){{else}}AWS SDK for Go v2 [{{.Release}}]({{.ReleaseURL}}){{end}}{{if .BumpPRURL}}, which the provider has{{end}}.
-{{if or .Resources .Changes}}
+{{if or .Resources .Changes .ChangeNotes}}
 ## Scope
 {{range .Resources}}
 New {{.Kind}} `{{.Name}}`{{if .Operations}}: {{.Operations}}{{end}}.{{.Decide}}
@@ -14,7 +14,7 @@ New {{.Kind}} `{{.Name}}`{{if .Operations}}: {{.Operations}}{{end}}.{{.Decide}}
 Notes:
 
 {{range .Notes}}- {{.}}
-{{end}}{{end}}{{end}}{{if .Changes}}
+{{end}}{{end}}{{end}}{{if or .Changes .ChangeNotes}}
 {{range .Changes}}{{.}}
 {{end}}{{range .ChangeNotes}}- {{.}}
 {{end}}{{end}}{{end}}{{if .Relates}}
