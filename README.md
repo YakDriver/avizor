@@ -224,7 +224,7 @@ avizor posts --significant --format text
 | State | Shown | Meaning |
 |---|---|---|
 | `open` | yes | Nothing covers the post, and it has no decision. |
-| `covered` | no | A decision names the covering issues, or a confident issue or PR covers it. |
+| `covered` | no | A decision names the covering issues, a confident issue or PR covers it, or a decision on one of its items covers it. |
 | `no_work` | no | Decided as having no Terraform work (`skipped`). |
 | `deferred` | no | Deferred, and the revisit date hasn't passed. |
 
@@ -234,7 +234,9 @@ A post is significant when it's likely to have Terraform work. It needs one of t
 
 Each post lists up to 3 pulled SDK items to draft its issue from (`items` in JSON; in text, for open posts). Items that match one of the post's announcements come first. The rest are ranked by text similarity between the post's title, excerpt, and announcement headlines and the item's release notes and the names of the operations, shapes, and members it adds. There's no blog window: any item released up to a year before the post, or a week after, can match, since one post came 109 days after its release. An item released more than 45 days before the post counts half, and one whose service the post's tags name counts 1.25 times. On the 32 labeled posts with an item, the right one is first for 23 and listed for 25. Draft from it with `avizor brief <item>` and `avizor draft --blog <post-url> <item>`. With no item listed, or no right one, write the issue by hand.
 
-An issue that doesn't link the post or its announcement isn't found, so record it on the post: `avizor decide <post-url> duplicate 51064`. Record a post with no Terraform work as `skipped`, with a reason.
+A `created` or `duplicate` decision on an item also covers a post with no decision of its own, when the item matches one of the post's announcements and that announcement scores at least 0.5 against the post, and the post isn't a roundup or customer story. The text output says `covered by #N (item <id>)`, and the JSON has `covered_by`. Filing from an item then needs one `decide`. With the 24 post decisions that repeat an item's issue removed, from a copy of the 2026-11-20 state, 15 of the posts are covered again, 5 by their items, against 10 without this; no other post is covered by an item. A weaker announcement match is often another launch of the service, which covered two posts wrongly at 0.43 and 0.45.
+
+An issue that doesn't link the post or its announcement, and isn't on a matching item, isn't found, so record it on the post: `avizor decide <post-url> duplicate 51064`. Record a post with no Terraform work as `skipped`, with a reason.
 
 ## Decide
 

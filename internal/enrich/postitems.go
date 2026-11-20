@@ -15,12 +15,14 @@ import (
 // came after the release. Announcement is set when the item and the post match the same What's New announcement, and
 // TaggedService when the post's product tags name the item's service.
 type PostItem struct {
-	ID            string  `json:"id"`
-	Released      string  `json:"released"`
-	Days          float64 `json:"days"`
-	Score         float64 `json:"score"`
-	Announcement  bool    `json:"announcement,omitempty"`
-	TaggedService bool    `json:"tagged_service,omitempty"`
+	ID           string  `json:"id"`
+	Released     string  `json:"released"`
+	Days         float64 `json:"days"`
+	Score        float64 `json:"score"`
+	Announcement bool    `json:"announcement,omitempty"`
+	// AnnouncementURL is the first of the post's announcements the item matches, when Announcement is set.
+	AnnouncementURL string `json:"announcement_url,omitempty"`
+	TaggedService   bool   `json:"tagged_service,omitempty"`
 }
 
 // A post can come months after its release: MSK channels shipped in the SDK 109 days before their post. So items are
@@ -93,13 +95,17 @@ func (x *ItemIndex) Rank(p whatsnew.Post, annURLs []string, extra string, n int)
 	text := strings.Join([]string{p.Title, p.Excerpt, extra}, "\n")
 	for _, r := range x.m.Rank(text, "", p.PostedAt, PostItemsBefore, PostItemsAfter, 0) {
 		it := x.items[r.Announcement.ID]
-		linked := slices.ContainsFunc(x.anns[it.ID], func(u string) bool { return slices.Contains(annURLs, u) })
+		shared := ""
+		if i := slices.IndexFunc(annURLs, func(u string) bool { return slices.Contains(x.anns[it.ID], u) }); i >= 0 {
+			shared = annURLs[i]
+		}
+		linked := shared != ""
 		if r.Score < PostItemsMin && !linked {
 			continue
 		}
 		_, service := AnnouncementQuery(it)
 		out = append(out, PostItem{ID: it.ID, Released: it.Release.PublishedAt.Format(time.DateOnly), Days: -r.Days,
-			Score: r.Score, Announcement: linked, TaggedService: taggedService(p.Tags, strings.Join(ServiceWords(service), ""))})
+			Score: r.Score, Announcement: linked, AnnouncementURL: shared, TaggedService: taggedService(p.Tags, strings.Join(ServiceWords(service), ""))})
 	}
 	// Stable, so equal keys keep Rank's order.
 	slices.SortStableFunc(out, func(a, b PostItem) int {

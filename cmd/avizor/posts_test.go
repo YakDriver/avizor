@@ -169,3 +169,51 @@ func TestWritePostsText(t *testing.T) {
 		}
 	}
 }
+
+func TestCoverByItem(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+	decisions := map[string]items.Disposition{
+		"sdk/x/release-1": {Decision: items.DecisionCreated, Number: 51176},
+		"sdk/x/release-2": {Decision: items.DecisionSkipped, Reason: "no API"},
+		"sdk/x/release-3": {Decision: items.DecisionDuplicate, Number: 7, Also: []int{8}},
+	}
+	anns := []PostAnnouncement{{URL: "wn-strong", Score: 0.79}, {URL: "wn-weak", Score: 0.45}}
+	open := func(its ...enrich.PostItem) PostEntry {
+		return PostEntry{State: PostOpen, Announcements: anns, Items: its}
+	}
+	strong := enrich.PostItem{ID: "sdk/x/release-1", Announcement: true, AnnouncementURL: "wn-strong"}
+	for _, tc := range []struct {
+		name      string
+		e         PostEntry
+		state     string
+		coveredBy string
+		numbers   []int
+	}{
+		{"created item sharing a strong announcement", open(strong), PostCovered, "sdk/x/release-1", []int{51176}},
+		{"skipped item first, duplicate next", open(enrich.PostItem{ID: "sdk/x/release-2", Announcement: true, AnnouncementURL: "wn-strong"},
+			enrich.PostItem{ID: "sdk/x/release-3", Announcement: true, AnnouncementURL: "wn-strong"}), PostCovered, "sdk/x/release-3", []int{7, 8}},
+		{"weak shared announcement", open(enrich.PostItem{ID: "sdk/x/release-1", Announcement: true, AnnouncementURL: "wn-weak"}), PostOpen, "", nil},
+		{"no shared announcement", open(enrich.PostItem{ID: "sdk/x/release-1"}), PostOpen, "", nil},
+		{"undecided item", open(enrich.PostItem{ID: "sdk/x/release-9", Announcement: true, AnnouncementURL: "wn-strong"}), PostOpen, "", nil},
+	} {
+		e := tc.e
+		coverByItem(&e, decisions, now)
+		if e.State != tc.state || e.CoveredBy != tc.coveredBy || !slices.Equal(e.Numbers, tc.numbers) {
+			t.Errorf("%s: state %s, covered by %q, numbers %v", tc.name, e.State, e.CoveredBy, e.Numbers)
+		}
+	}
+
+	// A customer story, or a post with its own decision, isn't covered by an item.
+	story := open(strong)
+	story.Kind = KindCustomerStory
+	decided := open(strong)
+	decided.State, decided.Decision = PostNoWork, &items.Disposition{Decision: items.DecisionSkipped}
+	for name, e := range map[string]PostEntry{"customer story": story, "decided": decided} {
+		coverByItem(&e, decisions, now)
+		if e.CoveredBy != "" {
+			t.Errorf("%s: covered by %q", name, e.CoveredBy)
+		}
+	}
+}
