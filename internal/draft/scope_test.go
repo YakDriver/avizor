@@ -462,3 +462,48 @@ func TestScopeOwnership(t *testing.T) {
 		t.Errorf("title = %q, body:\n%s", d.Title, d.Body)
 	}
 }
+
+// A Put input's member joins the block the input's noun names, and an attribute named like a new resource is that
+// resource's read.
+func TestScopeBlockInputAndNewTypeRead(t *testing.T) {
+	t.Parallel()
+
+	set := "internal/service/widget/configuration_set.go"
+	co := writeFiles(t, map[string]string{"configuration_set.go": "// @SDKResource(\"aws_widget_configuration_set\", name=\"Configuration Set\")\n"})
+	mode := &enrich.Field{Type: "enum", Values: []string{"GLOBAL", "REGIONAL"}}
+	en := implemented("widget",
+		enrich.Work{Kind: enrich.WorkNewResource, Subject: "AccountDeliveryAttributes", Operations: []string{"PutAccountDeliveryAttributes"},
+			Spec: &enrich.Spec{Operations: enrich.SpecOperations{Create: []string{"PutAccountDeliveryAttributes"}}}},
+		// A new type with its own read doesn't take an existing resource's attribute.
+		enrich.Work{Kind: enrich.WorkNewDataSource, Subject: "PlatformVersion", Operations: []string{"DescribePlatformVersions"},
+			Spec: &enrich.Spec{Operations: enrich.SpecOperations{Read: []string{"DescribePlatformVersions"}}}},
+		enrich.Work{Kind: enrich.WorkNewAttribute, Subject: "ConfigurationSet.PlatformVersion", Operations: []string{"GetConfigurationSet"}, UsedBy: []string{set},
+			Field: &enrich.Field{Type: "string"}},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "DeliveryOptions.SharedPoolDeliveryMode", Operations: []string{"CreateConfigurationSet"}, UsedBy: []string{set}, Field: mode,
+			Schema: []enrich.SchemaPlace{{File: set, Line: 58, Path: "delivery_options", Kind: "TypeList"}}},
+		enrich.Work{Kind: enrich.WorkNewArgument, Subject: "PutConfigurationSetDeliveryOptionsRequest.SharedPoolDeliveryMode",
+			Operations: []string{"PutConfigurationSetDeliveryOptions"}, UsedBy: []string{set}, Field: mode},
+		enrich.Work{Kind: enrich.WorkNewAttribute, Subject: "GetAccountResponse.DeliveryAttributes", Operations: []string{"GetAccount"}, UsedBy: []string{set},
+			Field: &enrich.Field{Type: "structure"}},
+	)
+	en.CodeSearched = true
+	o := opts
+	o.Checkout = co
+	d, err := New(item("widget", "Adds delivery modes."), en, nil, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"- `aws_widget_configuration_set`: new argument `delivery_options.shared_pool_delivery_mode` (optional; enum, GLOBAL | REGIONAL), " +
+			"from `DeliveryOptions.SharedPoolDeliveryMode` and `PutConfigurationSetDeliveryOptionsRequest.SharedPoolDeliveryMode`.\n",
+		"- Read `delivery_attributes` from `GetAccountResponse.DeliveryAttributes`.\n",
+		"- `aws_widget_configuration_set`: new attribute `platform_version` (string), from `ConfigurationSet.PlatformVersion`.\n",
+	} {
+		if !strings.Contains(d.Body, want) {
+			t.Errorf("body has no %q:\n%s", want, d.Body)
+		}
+	}
+	if strings.Count(d.Body, "shared_pool_delivery_mode") != 1 || strings.Contains(d.Body, "new attribute `delivery_attributes`") {
+		t.Errorf("body repeats a member:\n%s", d.Body)
+	}
+}
