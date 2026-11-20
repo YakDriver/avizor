@@ -232,6 +232,8 @@ A post is significant when it's likely to have Terraform work. It needs one of t
 
 `--launch` keeps only posts tagged as launch announcements. Each post is marked if it's on the AWS News Blog (`news`), a launch (`launch`), or significant (`sig`), and the text output has its URL for `avizor decide`. A post older than `--since` is checked too when its decision's revisit date has passed, and listed if it reopens. A revisit date on any decision ends it: the post is reconciled again. `--all` shows every state, `--state open,covered` picks some, and `--as-of` reads the index as it was at a date. The summary lines report coverage: covered posts as a share of covered and open ones. The 104 launch posts from 2026-11-02 to 2026-11-19 take about 4 seconds.
 
+Each post lists up to 3 pulled SDK items to draft its issue from (`items` in JSON; in text, for open posts). Items that match one of the post's announcements come first. The rest are ranked by text similarity between the post's title, excerpt, and announcement headlines and the item's release notes and the names of the operations, shapes, and members it adds. There's no blog window: any item released up to a year before the post, or a week after, can match, since one post came 109 days after its release. An item released more than 45 days before the post counts half, and one whose service the post's tags name counts 1.25 times. On the 32 labeled posts with an item, the right one is first for 23 and listed for 25. Draft from it with `avizor brief <item>` and `avizor draft --blog <post-url> <item>`. With no item listed, or no right one, write the issue by hand.
+
 An issue that doesn't link the post or its announcement isn't found, so record it on the post: `avizor decide <post-url> duplicate 51064`. Record a post with no Terraform work as `skipped`, with a reason.
 
 ## Decide
@@ -307,7 +309,7 @@ The reviewer section also lists warnings and possibly related issues and PRs:
 
 ## Evaluate
 
-`avizor eval` scores reconciliation and queue states against 207 cases labeled from provider history, blog post ranking against 51 more, and blog post coverage and significance against 112 posts. See [eval/README.md](eval/README.md).
+`avizor eval` scores reconciliation and queue states against 207 cases labeled from provider history, blog post ranking against 51 more, and blog post coverage, significance, and items against 112 posts. See [eval/README.md](eval/README.md).
 
 ## Develop
 

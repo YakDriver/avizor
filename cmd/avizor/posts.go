@@ -12,6 +12,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/YakDriver/avizor/internal/awssdk"
+	"github.com/YakDriver/avizor/internal/enrich"
 	"github.com/YakDriver/avizor/internal/items"
 	"github.com/YakDriver/avizor/internal/reconcile"
 	"github.com/YakDriver/avizor/internal/whatsnew"
@@ -69,6 +71,8 @@ type PostEntry struct {
 	Related  []PostCandidate `json:"related"`
 	// Services are the provider services reconciliation inferred from the post.
 	Services []string `json:"services,omitempty"`
+	// Items are the pulled SDK items that best match the post, for drafting its issue with brief and draft.
+	Items []enrich.PostItem `json:"items"`
 
 	// byDecision is set when the decision sets the state.
 	byDecision bool
@@ -184,23 +188,28 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	decisions, err := ist.Current(ctx, t.Name)
-	ist.Close()
 	if err != nil {
+		ist.Close()
 		return err
 	}
 	now := time.Now()
 	ps, early := postsInWindow(ps, decisions, since, *launch, now)
+	anns := announcements(c.dir, stderr)
+	idx, err := loadItemIndex(ctx, ist, anns)
+	ist.Close()
+	if err != nil {
+		return err
+	}
 	if len(ps) == 0 {
 		fmt.Fprintln(stderr, "avizor: warning: no blog posts in the window; pull them with `avizor pull aws-blogs`")
 	}
-	anns := announcements(c.dir, stderr)
-
 	svcs := loadServices(t, stderr)
 	var ops reconcile.Reconciler
 	c.operations(ctx, t, &ops, stderr)
 	results := make([]*reconcile.Result, len(ps))
 	errs := make([]error, len(ps))
 	matched := make([][]PostAnnouncement, len(ps))
+	postItems := make([][]enrich.PostItem, len(ps))
 	next := make(chan int)
 	var wg sync.WaitGroup
 	for range *jobs {
@@ -212,6 +221,7 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 					RelatedLimit: -1}}
 			for i := range next {
 				matched[i] = postAnnouncements(anns, ps[i])
+				postItems[i] = rankPostItems(idx, ps[i], matched[i])
 				results[i], errs[i] = r.Run(ctx, "", postText(ps[i], matched[i]))
 			}
 		})
@@ -241,6 +251,7 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 			d = &dd
 		}
 		e := postEntry(p, matched[i], results[i], d, *related, now)
+		e.Items = postItems[i]
 		if early[p.URL] && e.State != PostOpen {
 			continue
 		}
@@ -279,6 +290,40 @@ func postAnnouncements(m *whatsnew.Matcher, p whatsnew.Post) []PostAnnouncement 
 		}
 	}
 	return out
+}
+
+// postItemsMax is how many SDK items are listed for a post.
+const postItemsMax = 3
+
+// loadItemIndex indexes every pulled item, matched to announcements. Term weights come from the whole set, so a post's
+// items don't depend on the posts listed with it, and posts and eval rank the same way; Rank applies the release
+// window. Skipped items have no API change, so they aren't loaded.
+func loadItemIndex(ctx context.Context, ist *items.Store, anns *whatsnew.Matcher) (*enrich.ItemIndex, error) {
+	recs, err := ist.List(ctx, items.Filter{Status: items.StatusNew})
+	if err != nil {
+		return nil, err
+	}
+	its := make([]*awssdk.Item, 0, len(recs))
+	for _, r := range recs {
+		it, err := decodeItem(r)
+		if err != nil {
+			return nil, err
+		}
+		its = append(its, it)
+	}
+	return enrich.NewItemIndex(its, anns), nil
+}
+
+// rankPostItems ranks the SDK items for a post. The query adds its matched announcements' headlines, which name the
+// launch the way release notes do.
+func rankPostItems(idx *enrich.ItemIndex, p whatsnew.Post, anns []PostAnnouncement) []enrich.PostItem {
+	heads := make([]string, len(anns))
+	urls := make([]string, len(anns))
+	for i, a := range anns {
+		heads[i] = a.Headline
+		urls[i] = a.URL
+	}
+	return idx.Rank(p, urls, strings.Join(heads, "\n"), postItemsMax)
 }
 
 // postText is what a post is reconciled from: its title and excerpt, its URL, and its announcements' URLs. An issue
@@ -328,7 +373,7 @@ func revisitDue(d items.Disposition, now time.Time) bool {
 func postEntry(p whatsnew.Post, anns []PostAnnouncement, res *reconcile.Result, d *items.Disposition, relatedLimit int, now time.Time) PostEntry {
 	e := PostEntry{URL: p.URL, Title: p.Title, Posted: p.PostedAt.Format(time.DateOnly), Launch: slices.Contains(p.Tags, whatsnew.LaunchTag),
 		NewsBlog: strings.HasPrefix(p.URL, newsBlogPrefix), PostSignificance: postSignificance(p, anns), Decision: d,
-		Announcements: anns, Covering: []PostCandidate{}, Related: []PostCandidate{}}
+		Announcements: anns, Covering: []PostCandidate{}, Related: []PostCandidate{}, Items: []enrich.PostItem{}}
 	for _, in := range res.Inferences {
 		if in.Type == "service" && !slices.Contains(e.Services, in.Value) {
 			e.Services = append(e.Services, in.Value)
@@ -402,6 +447,13 @@ func writePostsText(w io.Writer, res PostsResult, shownState func(string) bool, 
 				rel = append(rel, fmt.Sprintf("#%d%s", r.Number, prTag(r.Kind)))
 			}
 			note = "related " + strings.Join(rel, ", ")
+		}
+		if e.State == PostOpen && len(e.Items) > 0 {
+			ids := make([]string, len(e.Items))
+			for i, it := range e.Items {
+				ids[i] = it.ID
+			}
+			note = strings.TrimPrefix(note+"; items "+strings.Join(ids, ", "), "; ")
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Posted, e.State, cmp.Or(strings.Join(flags, ","), "-"), truncate(e.Title, 60), e.URL, note)
 	}

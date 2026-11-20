@@ -72,6 +72,7 @@ case "post-introducing-device-posture-assessment-for-aws-c" {
   kind  = "post-gap"
   state = "open"               # post cases: "covered" or "open", ignoring decisions
   work  = true                 # whether the post has Terraform work
+  items = ["aws-sdk-go-v2/ec2/release-2026-09-28"]  # any of these among the post's listed items passes
 }
 
 case "blog-dsql-2026-11-16" {
@@ -85,7 +86,7 @@ case "blog-dsql-2026-11-16" {
 
 A case passes when every expected candidate is in the top 5 with the expected category, no `different` candidate has a confident category, and `unmatched` and `state` match if set. With `code = true`, item enrichment searches the checkout too, as the queue does.
 
-A post case reconciles the post as `avizor posts` does: its title, excerpt, and URL, plus its matched announcements' URLs. Decisions on the post are ignored. A post expected `covered` must be covered by one of its expected candidates. A post with `work = true` must be significant. A significant post with `work = false` still passes, but counts against significance precision.
+A post case reconciles the post as `avizor posts` does: its title, excerpt, and URL, plus its matched announcements' URLs. Decisions on the post are ignored. A post expected `covered` must be covered by one of its expected candidates. A post with `work = true` must be significant. A significant post with `work = false` still passes, but counts against significance precision. A post with `items` must list one of them among its SDK items.
 
 ## Judging confident candidates
 
@@ -119,6 +120,8 @@ Labels come from repository history, not from Avizor's output.
 | `post-no-work` | 76 | Posts from the same pass decided as having no Terraform work, with reasons such as SDK tooling, model availability, customer stories, event guides, and roundups. They measure significance precision. |
 | `blog` | 51 | AWS blog posts linked from provider issues created since 2025-11-18, each mapped by hand to the SDK item the issue tracks, plus the three examples from #62. Issues linking a post with no matching item (no API change, such as the 90-minute Lambda timeout, or not provider work, such as retry behavior) are left out. A case passes when any listed post is in the top 5 of `brief`'s blog posts. These measure only blog ranking, not reconciliation. |
 
+Post `items` are the SDK items a post's issues track, for 32 of the 36 posts with work: the items decided with those issues, the releases the issues cite (a `Release YYYY-MM-DD` link, or an aws-sdk-go-v2 commit or tag), or, for 9 posts whose issues cite none, the item found by hand in the release notes. The other 4 have no SDK change yet.
+
 The gap sample tests the claim behind every gap draft: that nothing covers the item. Items in implemented services, with the SDK version available and some inferred work, were drafted in a seeded random order until 30 had no confident existing work (32 drafted; the other 2 had correct confident candidates). Each was checked by hand against provider code and a GitHub search of issues and PRs. These labels don't come from the release-commit signal Avizor matches on.
 
 The covered sample tests the opposite claim: that a `covered` item, which the queue hides, needs nothing more. It's 30 of the 61 covered items that aren't other item cases, in a seeded random order (seed 13). Two items (Network Firewall and DevOps Agent) were first labeled `covered` and relabeled `partial` after the queue flagged them, so those two labels could be biased toward Avizor's output.
@@ -138,7 +141,7 @@ The covered sample tests the opposite claim: that a `covered` item, which the qu
 | `wrong` | Confident candidates labeled `different`. Each fails its case. |
 | `unjudged` | Confident candidates with no verdict. Should be 0. |
 
-For post cases labeled with `work`, the report adds a line: how many posts with work are significant (recall), how many without work are, and precision, the share of significant posts that have work.
+For post cases with `items`, the report adds a line with how many list an expected item, and how many list one first. For post cases labeled with `work`, another line gives how many posts with work are significant (recall), how many without work are, and precision, the share of significant posts that have work.
 
 The report also counts cases with existing work that were summarized as unmatched, and ends with the index it ran against: when it was synced and how many issues, PRs, signals, and comments with signals it holds. Results can move when the index does, even for cases pinned with `as_of`, because a sync can add or correct records created before a case's `as_of`. Compare runs only on the same index, and note the index line with any result.
 

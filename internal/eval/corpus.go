@@ -51,6 +51,9 @@ type Case struct {
 	// Work, if set, says whether the post has Terraform work. A post with work must be significant; a post without work
 	// may be, and counts against significance precision. Post cases only.
 	Work *bool `hcl:"work,optional"`
+	// Items lists pulled SDK item IDs, any of which is a right item to draft the post's issue from: one of them must
+	// be among the items listed for the post. Post cases only.
+	Items []string `hcl:"items,optional"`
 	// Blog lists blog post URLs, any of which is a right post for the item: one of them must be in the top 5 blog
 	// posts. A case with Blog measures only blog posts, not reconciliation. Item cases only.
 	Blog []string `hcl:"blog,optional"`
@@ -153,6 +156,9 @@ func (cs *Case) validate() error {
 	if cs.Work != nil && cs.Post == "" {
 		return errors.New("work needs a post")
 	}
+	if len(cs.Items) > 0 && cs.Post == "" {
+		return errors.New("items needs a post")
+	}
 	if len(cs.Blog) > 0 {
 		if cs.Item == "" {
 			return errors.New("blog needs an item")
@@ -162,8 +168,8 @@ func (cs *Case) validate() error {
 		}
 		return nil
 	}
-	if len(cs.Expect) == 0 && cs.Unmatched == nil && cs.State == "" && cs.Work == nil && len(cs.Different)+len(cs.DifferentPaths) == 0 {
-		return errors.New("needs at least one of expect, unmatched, state, work, or different")
+	if len(cs.Expect) == 0 && cs.Unmatched == nil && cs.State == "" && cs.Work == nil && len(cs.Items) == 0 && len(cs.Different)+len(cs.DifferentPaths) == 0 {
+		return errors.New("needs at least one of expect, unmatched, state, work, items, or different")
 	}
 	if err := cs.validateJudgments(); err != nil {
 		return err
