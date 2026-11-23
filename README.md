@@ -207,7 +207,7 @@ avizor queue --since 90d --service s3 --all --format text
 
 `--all` shows every state, and `--state gap,covered` picks some. An item counts as `no_code` only if the code search ran. With `--no-code`, nothing is hidden as `no_code` or shown as `partial`.
 
-For `partial`, a new argument counts as present when the files calling its operations use its likely Terraform name. `avizor inspect` shows where. When a confident issue cites the item's release commit, the item stays `covered`, since that issue tracks the whole launch.
+For `partial`, a new argument counts as present when the files calling its operations use its likely Terraform name. `avizor inspect` shows where. It counts as tracked when a confident candidate's title names it, or its body does and the candidate isn't about another resource: its title names no Terraform type, or one registered in those files. A mention in a paragraph that puts it out of scope ("not part of this request", "separate change") doesn't count. On a copy of the 2026-11-23 state with item decisions removed, this makes 1 of 787 items over 120 days `partial` instead of `covered`: observabilityadmin 2026-08-03, whose telemetry rule `kms_key_arn` only a centralization rule PR names. When a confident issue cites the item's release commit, the item stays `covered`, since that issue tracks the whole launch.
 
 A `gap` is a guess. Many need no provider work, and covering work can be in the related list, so check that list before drafting.
 
