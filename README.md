@@ -228,7 +228,18 @@ avizor posts --significant --format text
 | `no_work` | no | Decided as having no Terraform work (`skipped`). |
 | `deferred` | no | Deferred, and the revisit date hasn't passed. |
 
-A post is significant when it's likely to have Terraform work. It needs one of these signals: it's tagged as a launch announcement, it's on the AWS News Blog, or it matches a What's New announcement. Some kinds of post aren't significant whatever their signals: weekly and monthly roundups, event guides (the events tag or "re:Invent" in the title), developer tools (the developer tools tags or the Developer Tools Blog), and customer and partner stories (their post-type tags or the APN Blog). The summary reports coverage for all posts and for significant ones, and `--significant` lists only significant posts. On the 112 posts decided in the 2026-11-19 coverage pass, 34 of the 36 with work are significant, and 21 of the 76 without work are left out.
+A post is significant when it's likely to have Terraform work. It needs one of these signals: it's tagged as a launch announcement, it's on the AWS News Blog, or it matches a What's New announcement. Some kinds of post aren't significant whatever their signals:
+
+- roundups ("Weekly Roundup", "Monthly Roundup", "ICYMI", "This Month in");
+- event guides (the events tag or "re:Invent" in the title);
+- developer tools (the developer tools tags or the Developer Tools Blog);
+- customer and partner stories (their post-type tags or the APN Blog);
+- model availability ("now available in Amazon Bedrock", or SageMaker JumpStart in the title);
+- AWS Transform ("AWS Transform" or "ATX" in the title);
+- the AWS Open Source Blog;
+- new Regions and Local Zones ("Now Open", "Local Zones in", "new Region").
+
+The summary reports coverage for all posts and for significant ones, and `--significant` lists only significant posts. On the 112 posts decided in the 2026-11-19 coverage pass, 34 of the 36 with work are significant, and 24 of the 76 without work are left out. Over the 90 days to 2026-11-23, the last four kinds leave out 25 of 329 significant posts, all decided as no work. Over a year, they leave out 51 of 908, none covered by an issue.
 
 `--launch` keeps only posts tagged as launch announcements. Each post is marked if it's on the AWS News Blog (`news`), a launch (`launch`), or significant (`sig`), and the text output has its URL for `avizor decide`. A post older than `--since` is checked too when its decision's revisit date has passed, and listed if it reopens. A revisit date on any decision ends it: the post is reconciled again. `--all` shows every state, `--state open,covered` picks some, and `--as-of` reads the index as it was at a date. The summary lines report coverage: covered posts as a share of covered and open ones. The 104 launch posts from 2026-11-02 to 2026-11-19 take about 4 seconds.
 

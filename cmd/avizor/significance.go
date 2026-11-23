@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 
@@ -25,6 +26,14 @@ const (
 	KindDeveloperTools = "developer_tools"
 	// KindCustomerStory: a customer or partner story.
 	KindCustomerStory = "customer_story"
+	// KindModelAvailability: a model now available in Amazon Bedrock or SageMaker JumpStart.
+	KindModelAvailability = "model_availability"
+	// KindTransform: AWS Transform, whose agents and jobs the provider doesn't manage.
+	KindTransform = "transform"
+	// KindOpenSource: the AWS Open Source Blog, about projects outside AWS services.
+	KindOpenSource = "open_source"
+	// KindRegion: a new Region or Local Zone. New Regions need no provider work.
+	KindRegion = "region"
 )
 
 // Blog post tags the kinds come from.
@@ -38,8 +47,18 @@ const (
 
 // Blog URL prefixes the kinds come from.
 const (
-	developerBlogPrefix = "https://aws.amazon.com/blogs/developer/"
-	partnerBlogPrefix   = "https://aws.amazon.com/blogs/apn/"
+	developerBlogPrefix  = "https://aws.amazon.com/blogs/developer/"
+	partnerBlogPrefix    = "https://aws.amazon.com/blogs/apn/"
+	openSourceBlogPrefix = "https://aws.amazon.com/blogs/opensource/"
+)
+
+// Titles the kinds come from, matched lowercase. Model availability names Bedrock or SageMaker JumpStart, since
+// "Introducing ... on AWS" is also how launches with work are titled ("Introducing 1:1 NAT on AWS Transit Gateway").
+var (
+	roundupRE           = regexp.MustCompile(`weekly roundup|monthly roundup|^icymi|^this month in\b`)
+	modelAvailabilityRE = regexp.MustCompile(`\bnow (generally )?available (in|on) amazon bedrock\b|\bsagemaker jumpstart\b`)
+	transformRE         = regexp.MustCompile(`\baws transform\b|\batx\b`)
+	regionRE            = regexp.MustCompile(`^now open\b|\blocal zones? in\b|\bnew (aws )?region\b`)
 )
 
 // PostSignificance is whether a post is significant, and why.
@@ -80,7 +99,7 @@ func postKind(p whatsnew.Post) string {
 }
 
 // postKinds are the kinds of post that are not significant, in the order postKind checks them.
-var postKinds = []string{KindRoundup, KindEvent, KindDeveloperTools, KindCustomerStory}
+var postKinds = []string{KindRoundup, KindEvent, KindDeveloperTools, KindCustomerStory, KindModelAvailability, KindTransform, KindOpenSource, KindRegion}
 
 // isKind reports whether a post is of a kind.
 func isKind(p whatsnew.Post, kind string) bool {
@@ -90,13 +109,21 @@ func isKind(p whatsnew.Post, kind string) bool {
 	}
 	switch kind {
 	case KindRoundup:
-		return strings.Contains(title, "weekly roundup") || strings.Contains(title, "monthly roundup") || strings.HasPrefix(title, "icymi")
+		return roundupRE.MatchString(title)
 	case KindEvent:
 		return has(tagEvents) || strings.Contains(title, "re:invent")
 	case KindDeveloperTools:
 		return has(tagDevTools, tagDeveloperTools) || strings.HasPrefix(p.URL, developerBlogPrefix)
 	case KindCustomerStory:
 		return has(tagCustomerSolution, tagPartnerSolution) || strings.HasPrefix(p.URL, partnerBlogPrefix)
+	case KindModelAvailability:
+		return modelAvailabilityRE.MatchString(title)
+	case KindTransform:
+		return transformRE.MatchString(title)
+	case KindOpenSource:
+		return strings.HasPrefix(p.URL, openSourceBlogPrefix)
+	case KindRegion:
+		return regionRE.MatchString(title)
 	}
 	return false
 }
