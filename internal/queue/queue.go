@@ -261,7 +261,7 @@ func Uncovered(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, texts 
 			switch {
 			case slices.Contains(out, a):
 				ws = append(ws, w)
-			case !memberNamed(w, docs, titles, append(enrich.MemberNames(member), member)):
+			case !memberNamed(w, en.Service.Package, docs, titles, append(enrich.MemberNames(member), member)):
 				ws, out = append(ws, w), append(out, a)
 			}
 		}
@@ -274,7 +274,7 @@ func Uncovered(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, texts 
 // its title names no Terraform type, or one of the types registered in the files that call the argument's operations
 // (w.Resources). And the paragraph naming it can't put it out of scope ("not part of this request"). A gateway
 // request that mentions a runtime argument made in the same release doesn't track the runtime argument.
-func memberNamed(w enrich.Work, docs, titles, names []string) bool {
+func memberNamed(w enrich.Work, pkg string, docs, titles, names []string) bool {
 	has := func(d string) bool {
 		return slices.ContainsFunc(names, func(n string) bool { return n != "" && hasWord(d, strings.ToLower(n)) })
 	}
@@ -282,7 +282,7 @@ func memberNamed(w enrich.Work, docs, titles, names []string) bool {
 		if has(titles[i]) {
 			return true
 		}
-		if !has(d) || aboutOther(titles[i], w.Resources) {
+		if !has(d) || aboutOther(titles[i], pkg, w.Resources) {
 			continue
 		}
 		if slices.ContainsFunc(paragraphs(d), func(p string) bool { return has(p) && !outOfScope(p) }) {
@@ -304,15 +304,16 @@ func paragraphs(s string) []string {
 var tfTypeRE = regexp.MustCompile(`\baws_[a-z0-9]+(?:_[a-z0-9]+)*\b`)
 
 // aboutOther reports whether a title names Terraform types and none of resources, the types a member likely
-// belongs to. A name that starts one of resources, such as the service prefix in "r/aws_kinesisanalyticsv2: Support
-// enhanced snapshots", counts as naming it. With no resources known, nothing is about another resource.
-func aboutOther(title string, resources []string) bool {
+// belongs to. The service package's prefix, as in "r/aws_kinesisanalyticsv2: Support enhanced snapshots", names
+// every resource of the package; a shorter type, such as aws_lb for aws_lb_listener, doesn't. With no resources
+// known, nothing is about another resource.
+func aboutOther(title, pkg string, resources []string) bool {
 	if len(resources) == 0 {
 		return false
 	}
 	ts := tfTypeRE.FindAllString(title, -1)
 	return len(ts) > 0 && !slices.ContainsFunc(ts, func(t string) bool {
-		return slices.ContainsFunc(resources, func(r string) bool { return r == t || strings.HasPrefix(r, t+"_") })
+		return slices.Contains(resources, t) || pkg != "" && t == "aws_"+pkg
 	})
 }
 
