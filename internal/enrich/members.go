@@ -115,6 +115,14 @@ func (e *Enricher) findMembers(ws []Work, m *smithy.Model) {
 		shape, member, _ := strings.Cut(w.Subject, ".")
 		names := MemberNames(member)
 		w.Member = names[0]
+		for _, f := range w.UsedBy {
+			for _, t := range registeredTypes(read(f).src) {
+				if !slices.Contains(w.Resources, t) {
+					w.Resources = append(w.Resources, t)
+				}
+			}
+		}
+		slices.Sort(w.Resources)
 		nested := m != nil && !inputs[shape]
 		for _, f := range w.UsedBy {
 			x := read(f)
@@ -495,4 +503,16 @@ func attrConstants(checkout string) map[string]string {
 	}
 	attrCache[checkout] = m
 	return m
+}
+
+// typeAnnotationRE matches the annotations that register a Terraform resource or data source type in a provider file.
+var typeAnnotationRE = regexp.MustCompile(`(?m)^// @(?:SDK|Framework)(?:Resource|DataSource|EphemeralResource)\("([a-z0-9_]+)"`)
+
+// registeredTypes returns the Terraform types src registers, in order.
+func registeredTypes(src string) []string {
+	var out []string
+	for _, m := range typeAnnotationRE.FindAllStringSubmatch(src, -1) {
+		out = append(out, m[1])
+	}
+	return out
 }

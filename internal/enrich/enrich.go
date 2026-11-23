@@ -124,8 +124,11 @@ type Work struct {
 	// already use it. A name found for another field matches too, so FoundIn suggests, not proves, the argument exists.
 	// For a member of a nested structure, FoundIn counts only uses inside the parent's block (Parent), and files that
 	// use the name only elsewhere are in OutsideBlock.
-	Member       string   `json:"member,omitempty"`
-	FoundIn      []string `json:"found_in,omitempty"`
+	Member  string   `json:"member,omitempty"`
+	FoundIn []string `json:"found_in,omitempty"`
+	// Resources are the Terraform resource and data source types registered in the UsedBy files, for a new argument:
+	// the types the argument likely belongs to.
+	Resources    []string `json:"resources,omitempty"`
 	Parent       []string `json:"parent,omitempty"`
 	OutsideBlock []string `json:"outside_block,omitempty"`
 	// SharedName is set for a new member when another shape already had a member of that name, as when an update

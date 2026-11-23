@@ -4,6 +4,7 @@ package queue
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -217,14 +218,14 @@ func Uncovered(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, texts 
 		return nil, nil
 	}
 	matched := map[string]bool{}
-	var docs []string
+	var docs, titles []string
 	if rec != nil {
 		for _, c := range rec.Candidates {
 			doc := c.Title
 			if t, ok := texts[c.Number]; ok && c.Number != 0 {
 				doc = t
 			}
-			docs = append(docs, strings.ToLower(doc))
+			docs, titles = append(docs, strings.ToLower(doc)), append(titles, strings.ToLower(c.Title))
 			if c.Category == reconcile.CategoryRelated {
 				continue
 			}
@@ -260,12 +261,55 @@ func Uncovered(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, texts 
 			switch {
 			case slices.Contains(out, a):
 				ws = append(ws, w)
-			case !named(append(enrich.MemberNames(member), member)...):
+			case !memberNamed(w, docs, titles, append(enrich.MemberNames(member), member)):
 				ws, out = append(ws, w), append(out, a)
 			}
 		}
 	}
 	return ws, out
+}
+
+// memberNamed reports whether a candidate's text names a new argument, so the argument counts as tracked. A
+// candidate's title naming it always counts. Its body counts only when the candidate isn't about another resource:
+// its title names no Terraform type, or one of the types registered in the files that call the argument's operations
+// (w.Resources). And the paragraph naming it can't put it out of scope ("not part of this request"). A gateway
+// request that mentions a runtime argument made in the same release doesn't track the runtime argument.
+func memberNamed(w enrich.Work, docs, titles, names []string) bool {
+	has := func(d string) bool {
+		return slices.ContainsFunc(names, func(n string) bool { return n != "" && hasWord(d, strings.ToLower(n)) })
+	}
+	for i, d := range docs {
+		if has(titles[i]) {
+			return true
+		}
+		if !has(d) || aboutOther(titles[i], w.Resources) {
+			continue
+		}
+		if slices.ContainsFunc(strings.Split(d, "\n\n"), func(p string) bool { return has(p) && !outOfScope(p) }) {
+			return true
+		}
+	}
+	return false
+}
+
+// tfTypeRE matches Terraform type names such as aws_bedrockagentcore_gateway.
+var tfTypeRE = regexp.MustCompile(`\baws_[a-z0-9]+(?:_[a-z0-9]+)+\b`)
+
+// aboutOther reports whether a title names Terraform types and none of resources, the types a member likely
+// belongs to. With no resources known, nothing is about another resource.
+func aboutOther(title string, resources []string) bool {
+	if len(resources) == 0 {
+		return false
+	}
+	ts := tfTypeRE.FindAllString(title, -1)
+	return len(ts) > 0 && !slices.ContainsFunc(ts, func(t string) bool { return slices.Contains(resources, t) })
+}
+
+// outOfScopePhrases say that text names something it doesn't ask for.
+var outOfScopePhrases = []string{"not part of this", "separate change", "separate issue", "separate request", "out of scope", "not in scope", "not included in this"}
+
+func outOfScope(p string) bool {
+	return slices.ContainsFunc(outOfScopePhrases, func(x string) bool { return strings.Contains(p, x) })
 }
 
 // deleteVerbs start operations that end a resource's life.

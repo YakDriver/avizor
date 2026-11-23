@@ -3656,3 +3656,13 @@ case "post-introducing-resource-context-for-firewall-policies" {
     number = 51066
   }
 }
+
+case "item-partial-bedrockagentcorecontrol-2026-11-10" {
+  item  = "aws-sdk-go-v2/bedrockagentcorecontrol/release-2026-11-10"
+  as_of = "2026-11-19T20:00:00Z"
+  code  = true
+  kind  = "item-partial"
+  note  = "resourceConfigurations (#80): only #50911, a gateway request, names it, as out of scope; #51142 came later"
+  state = "partial"
+  same  = [50911, 50972, 51024, 51074]
+}

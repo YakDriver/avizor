@@ -633,3 +633,14 @@ func TestMarkNotSettable(t *testing.T) {
 		t.Errorf("basis = %q", got)
 	}
 }
+
+func TestRegisteredTypes(t *testing.T) {
+	t.Parallel()
+
+	src := "package x\n\n// @FrameworkResource(\"aws_widget_thing\", name=\"Thing\")\n// @SDKDataSource(\"aws_widget_thing\", name=\"Thing\")\n" +
+		"// @FrameworkEphemeralResource(\"aws_widget_token\", name=\"Token\")\nfunc f() {} // @SDKResource(\"aws_not_a_line_start\")\n"
+	got := registeredTypes(src)
+	if want := []string{"aws_widget_thing", "aws_widget_thing", "aws_widget_token"}; !slices.Equal(got, want) {
+		t.Errorf("registeredTypes = %v, want %v", got, want)
+	}
+}
