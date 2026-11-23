@@ -39,6 +39,8 @@ func TestClassify(t *testing.T) {
 	ownResource := titled("r/aws_widget_thing: Add size")
 	colorTitle := titled("r/aws_widget_gadget: Add color")
 	untitled := titled("Widget size")
+	oneWord := titled("r/aws_instance: Add size")
+	servicePrefix := titled("r/aws_widget: Support colors")
 	mentions := map[int]string{7: "Add size.\n\nThe same release added color to things."}
 	outOfScope := map[int]string{7: "Add size.\n\nThe same release added color to things. That is a separate change and not part of this request."}
 	release := "https://github.com/aws/aws-sdk-go-v2/commit/abc"
@@ -69,6 +71,9 @@ func TestClassify(t *testing.T) {
 		"argument in another resource's title":         {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{thingColor}}, rec: colorTitle, texts: map[int]string{7: "Add color"}, state: Covered},
 		"argument named, no type in the title":         {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{thingColor}}, rec: untitled, texts: mentions, state: Covered},
 		"argument named out of scope":                  {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{thingColor}}, rec: untitled, texts: outOfScope, state: Partial, reason: "argument color"},
+		"argument named, one-word type":                {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{thingColor}}, rec: oneWord, texts: mentions, state: Partial, reason: "argument color"},
+		"out of scope in another CRLF paragraph":       {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{thingColor}}, rec: untitled, texts: map[int]string{7: "Add color.\r\n\r\nSize is a separate change."}, state: Covered},
+		"argument named under the service prefix":      {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{thingColor}}, rec: servicePrefix, texts: mentions, state: Covered},
 		"argument named, resources unknown":            {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{missing}}, rec: otherResource, texts: mentions, state: Covered},
 		"resource noun named":                          {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used, gadget}}, rec: tracked, texts: map[int]string{7: "Support the Gadget API"}, state: Covered},
 		"resource type named":                          {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used, gadget}}, rec: tracked, texts: map[int]string{7: "New resource: aws_widget_gadget"}, state: Covered},

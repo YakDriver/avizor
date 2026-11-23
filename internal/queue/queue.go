@@ -285,24 +285,27 @@ func memberNamed(w enrich.Work, docs, titles, names []string) bool {
 		if !has(d) || aboutOther(titles[i], w.Resources) {
 			continue
 		}
-		if slices.ContainsFunc(strings.Split(d, "\n\n"), func(p string) bool { return has(p) && !outOfScope(p) }) {
+		if slices.ContainsFunc(strings.Split(strings.ReplaceAll(d, "\r\n", "\n"), "\n\n"), func(p string) bool { return has(p) && !outOfScope(p) }) {
 			return true
 		}
 	}
 	return false
 }
 
-// tfTypeRE matches Terraform type names such as aws_bedrockagentcore_gateway.
-var tfTypeRE = regexp.MustCompile(`\baws_[a-z0-9]+(?:_[a-z0-9]+)+\b`)
+// tfTypeRE matches Terraform type names such as aws_bedrockagentcore_gateway and aws_instance.
+var tfTypeRE = regexp.MustCompile(`\baws_[a-z0-9]+(?:_[a-z0-9]+)*\b`)
 
 // aboutOther reports whether a title names Terraform types and none of resources, the types a member likely
-// belongs to. With no resources known, nothing is about another resource.
+// belongs to. A name that starts one of resources, such as the service prefix in "r/aws_kinesisanalyticsv2: Support
+// enhanced snapshots", counts as naming it. With no resources known, nothing is about another resource.
 func aboutOther(title string, resources []string) bool {
 	if len(resources) == 0 {
 		return false
 	}
 	ts := tfTypeRE.FindAllString(title, -1)
-	return len(ts) > 0 && !slices.ContainsFunc(ts, func(t string) bool { return slices.Contains(resources, t) })
+	return len(ts) > 0 && !slices.ContainsFunc(ts, func(t string) bool {
+		return slices.ContainsFunc(resources, func(r string) bool { return r == t || strings.HasPrefix(r, t+"_") })
+	})
 }
 
 // outOfScopePhrases say that text names something it doesn't ask for.
