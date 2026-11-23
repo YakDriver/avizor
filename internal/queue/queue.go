@@ -247,6 +247,16 @@ func Uncovered(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, texts 
 		return named(append(slices.Clone(w.Operations), w.Subject, enrich.Snake(w.Subject))...) ||
 			slices.ContainsFunc(docs, func(d string) bool { return hasWordEnd(d, suffix) })
 	}
+	// An argument is uncovered when any of its work entries is, and then all of them are, whatever their order.
+	uncovered := map[string]bool{}
+	for _, w := range en.Work {
+		if w.Member != "" && len(w.FoundIn) == 0 {
+			_, member, _ := strings.Cut(w.Subject, ".")
+			if !memberNamed(w, en.Service.Package, docs, titles, append(enrich.MemberNames(member), member)) {
+				uncovered["argument "+w.Member] = true
+			}
+		}
+	}
 	var ws []enrich.Work
 	var out []string
 	for _, w := range en.Work {
@@ -255,14 +265,10 @@ func Uncovered(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, texts 
 			!slices.ContainsFunc(w.Operations, func(op string) bool { return matched[op] }) &&
 			!namedResource(w):
 			ws, out = append(ws, w), append(out, "resource "+w.Subject)
-		case w.Member != "" && len(w.FoundIn) == 0:
-			_, member, _ := strings.Cut(w.Subject, ".")
-			a := "argument " + w.Member
-			switch {
-			case slices.Contains(out, a):
-				ws = append(ws, w)
-			case !memberNamed(w, en.Service.Package, docs, titles, append(enrich.MemberNames(member), member)):
-				ws, out = append(ws, w), append(out, a)
+		case w.Member != "" && len(w.FoundIn) == 0 && uncovered["argument "+w.Member]:
+			ws = append(ws, w)
+			if a := "argument " + w.Member; !slices.Contains(out, a) {
+				out = append(out, a)
 			}
 		}
 	}

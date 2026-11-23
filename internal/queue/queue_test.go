@@ -123,3 +123,26 @@ func TestClassifyEntry(t *testing.T) {
 		t.Errorf("entry = %+v", e)
 	}
 }
+
+// An argument with several work entries is uncovered when any entry is, and then every entry is in the work,
+// whichever comes first (#80).
+func TestUncoveredOrder(t *testing.T) {
+	t.Parallel()
+
+	impl := enrich.ServiceMatch{Status: enrich.ServiceImplemented, Package: "widget"}
+	create := enrich.Work{Kind: enrich.WorkNewArgument, Subject: "CreateThingRequest.Color", Operations: []string{"CreateThing"},
+		UsedBy: []string{"thing.go"}, Member: "color", Resources: []string{"aws_widget_thing"}}
+	// The same member, from a gadget operation, named by a request about the gadget only.
+	gadget := create
+	gadget.Subject, gadget.Operations, gadget.Resources = "CreateGadgetRequest.Color", []string{"CreateGadget"}, []string{"aws_widget_gadget"}
+	rec := &reconcile.Result{Candidates: []reconcile.Candidate{{Category: reconcile.CategoryTracked, Number: 7, Title: "r/aws_widget_gadget: Add size"}}}
+	texts := map[int]string{7: "Add size and color."}
+	it := &awssdk.Item{ID: "sdk/widget/release-1"}
+	for _, order := range [][]enrich.Work{{create, gadget}, {gadget, create}} {
+		en := &enrich.Result{Service: impl, CodeSearched: true, Work: order}
+		ws, labels := Uncovered(it, en, rec, texts)
+		if len(ws) != 2 || len(labels) != 1 || labels[0] != "argument color" {
+			t.Errorf("order %s, %s: work %d, labels %v; want 2, [argument color]", order[0].Subject, order[1].Subject, len(ws), labels)
+		}
+	}
+}
