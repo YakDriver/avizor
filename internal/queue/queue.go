@@ -285,11 +285,19 @@ func memberNamed(w enrich.Work, docs, titles, names []string) bool {
 		if !has(d) || aboutOther(titles[i], w.Resources) {
 			continue
 		}
-		if slices.ContainsFunc(strings.Split(strings.ReplaceAll(d, "\r\n", "\n"), "\n\n"), func(p string) bool { return has(p) && !outOfScope(p) }) {
+		if slices.ContainsFunc(paragraphs(d), func(p string) bool { return has(p) && !outOfScope(p) }) {
 			return true
 		}
 	}
 	return false
+}
+
+// paragraphRE matches a blank line, which may hold spaces or tabs, and the line breaks around it.
+var paragraphRE = regexp.MustCompile(`\r?\n[ \t]*\r?\n`)
+
+// paragraphs splits text at blank lines, as Markdown does.
+func paragraphs(s string) []string {
+	return paragraphRE.Split(s, -1)
 }
 
 // tfTypeRE matches Terraform type names such as aws_bedrockagentcore_gateway and aws_instance.
