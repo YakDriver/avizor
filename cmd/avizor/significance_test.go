@@ -83,6 +83,8 @@ func TestPostSignificance(t *testing.T) {
 			signals: []string{SignalLaunch}, kind: KindModelAvailability},
 		"gpt-4o": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/machine-learning/c/", Title: "Use GPT-4o with Amazon Bedrock", Tags: launch},
 			signals: []string{SignalLaunch}, kind: KindModelAvailability},
+		"qwen3": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/machine-learning/c/", Title: "Qwen3 and Qwen2.5 models are now on Amazon Bedrock", Tags: launch},
+			signals: []string{SignalLaunch}, kind: KindModelAvailability},
 		"c5 report": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/security/s/", Title: "AWS achieves 2025 C5 Type 2 attestation report with 183 services in scope", Tags: launch},
 			signals: []string{SignalLaunch}, kind: KindCompliance},
 		"c5 instances": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/aws/c/", Title: "Introducing Amazon EC2 C5 instances", Tags: launch},

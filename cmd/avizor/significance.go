@@ -65,7 +65,7 @@ const (
 // programs, not "training", which is also model training ("Checkpointless training on Amazon SageMaker HyperPod").
 var (
 	roundupRE           = regexp.MustCompile(`weekly roundup|monthly roundup|^icymi|^this month in\b`)
-	modelFamily         = `\b(claude|gpt-?[\d.]+[a-z]*|gpt[- ]oss|openai (gpt|models?)|gemma|grok|llama|mistral|deepseek|qwen|kimi|nemotron)\b`
+	modelFamily         = `\b(claude|gpt-?[\d.]+[a-z]*|gpt[- ]oss|openai (gpt|models?)|(gemma|grok|llama|mistral|deepseek|qwen|kimi|nemotron)[\d.]*)\b`
 	modelPlatform       = `\b(amazon bedrock|on aws|sagemaker)\b`
 	modelAvailabilityRE = regexp.MustCompile(`\bnow (generally )?available (in|on) amazon bedrock\b|\bsagemaker jumpstart\b|\bamazon bedrock expands\b.*\bmodel availability\b|` +
 		modelFamily + `.*` + modelPlatform + `|` + modelPlatform + `.*` + modelFamily)
