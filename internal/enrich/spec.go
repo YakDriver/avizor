@@ -79,6 +79,9 @@ type Field struct {
 	Unlisted string `json:"unlisted,omitempty"`
 	// Empty is set for a structure, or a list or map of structures, with no members, such as a union's none option.
 	Empty bool `json:"empty,omitempty"`
+	// Sensitive is set for an ephemeral resource's member that holds a secret: one with the sensitive trait, on it or
+	// below it, named like a token, secret, password, credentials, or key.
+	Sensitive bool `json:"sensitive,omitempty"`
 }
 
 // SpecStatus is the read result's status member and its values, grouped.
@@ -155,6 +158,12 @@ func buildSpecs(ws []Work, m *smithy.Model, d *smithy.Diff) {
 		}
 	}
 	for i := range ws {
+		if op := ephemeralOperation(m, ws[i]); op != "" {
+			ws[i].Kind = WorkNewEphemeral
+			ws[i].Basis = "new operation " + op + " returns a sensitive value, with no read, update, or delete, for " + ws[i].Subject
+			ws[i].Spec = ephemeralSpec(m, ws[i].Subject, op)
+			continue
+		}
 		if ws[i].Kind == WorkNewResource || ws[i].Kind == WorkNewDataSource {
 			ws[i].Spec = buildSpec(m, ws[i], resourceTypes)
 		}
@@ -257,6 +266,78 @@ func buildSpec(m *smithy.Model, w Work, resourceTypes []string) *Spec {
 		noteInputs = argInputs(m, []string{read})
 	}
 	s.Notes = notes(m, noteOps, noteInputs)
+	return s
+}
+
+// ephemeralVerbs open an ephemeral resource: an operation that creates or gets a value, like CreateBearerToken or
+// GetScopedCredentials.
+var ephemeralVerbs = []string{"Create", "Get", "Generate", "Issue"}
+
+// ephemeralOperation returns the operation of a new resource or data source that is better an ephemeral resource: its
+// only operation creates or gets a value, and its output holds a sensitive member within specDepth levels. A token or
+// credentials returned this way would otherwise be in state, and with no read, update, or delete there's nothing to
+// manage. Returns "" otherwise.
+func ephemeralOperation(m *smithy.Model, w Work) string {
+	if (w.Kind != WorkNewResource && w.Kind != WorkNewDataSource) || len(w.Operations) != 1 {
+		return ""
+	}
+	op := w.Operations[0]
+	if v, _ := splitVerb(op); !slices.Contains(ephemeralVerbs, v) || m.Shapes[op].Type != smithy.TypeOperation {
+		return ""
+	}
+	if !sensitiveIn(m, m.Shapes[op].Output, 0, map[string]bool{}) {
+		return ""
+	}
+	return op
+}
+
+// secretRE matches the names of members and shapes that hold secrets. The sensitive trait alone also marks personal
+// data, such as names and email addresses, which isn't a credential.
+var secretRE = regexp.MustCompile(`(?i)token|secret|password|passphrase|credential|privatekey|accesskey|sessionkey`)
+
+// sensitiveIn reports whether a shape holds a secret within specDepth levels: a member with the sensitive trait, on it
+// or its target, whose name or target's name looks like a secret (secretRE).
+func sensitiveIn(m *smithy.Model, shape string, depth int, seen map[string]bool) bool {
+	sh, ok := m.Shapes[shape]
+	if !ok || seen[shape] || depth > specDepth {
+		return false
+	}
+	seen[shape] = true
+	for _, name := range sortedNames(sh.Members) {
+		if secretMember(m, sh, name) || sensitiveIn(m, sh.Members[name], depth+1, seen) {
+			return true
+		}
+	}
+	return slices.ContainsFunc(sh.Elems, func(e string) bool {
+		return m.Shapes[e].Sensitive && secretRE.MatchString(e) || sensitiveIn(m, e, depth+1, seen)
+	})
+}
+
+// secretMember reports whether a structure's member is a secret: sensitive, and named like one.
+func secretMember(m *smithy.Model, sh smithy.Shape, name string) bool {
+	t := sh.Members[name]
+	return (sh.Info[name].Sensitive || m.Shapes[t].Sensitive) && (secretRE.MatchString(name) || secretRE.MatchString(t))
+}
+
+// ephemeralSpec is an ephemeral resource's spec: its arguments are the operation's input, its attributes the output.
+func ephemeralSpec(m *smithy.Model, subject, op string) *Spec {
+	s := &Spec{Operations: roles(subject, []string{op})}
+	in := m.Shapes[op].Input
+	s.Arguments = slices.DeleteFunc(fields(m, in, 1), func(f Field) bool {
+		return m.Shapes[in].Info[f.Member].IdempotencyToken || slices.Contains(pagingMembers, f.Member)
+	})
+	for i := range s.Arguments {
+		a := &s.Arguments[i]
+		a.Sensitive = secretMember(m, m.Shapes[in], a.Member) || sensitiveIn(m, m.Shapes[in].Members[a.Member], 0, map[string]bool{})
+	}
+	result := readResult(m, m.Shapes[op].Output)
+	s.Attributes = fields(m, result, 2)
+	for i := range s.Attributes {
+		// A structure that holds a secret, like STS's Credentials, is sensitive as a whole.
+		a := &s.Attributes[i]
+		a.Sensitive = secretMember(m, m.Shapes[result], a.Member) || sensitiveIn(m, m.Shapes[result].Members[a.Member], 0, map[string]bool{})
+	}
+	s.Notes = notes(m, []string{op}, []string{in})
 	return s
 }
 
@@ -759,6 +840,9 @@ func FieldText(f Field, argument bool) string {
 	}
 	if f.Deprecated {
 		flags = append(flags, "deprecated")
+	}
+	if f.Sensitive {
+		flags = append(flags, "sensitive")
 	}
 	typ := f.Type
 	single := (f.Type == "list" || f.Type == "set") && (f.Single || f.Constraints.LengthMax != nil && *f.Constraints.LengthMax == 1)

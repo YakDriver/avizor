@@ -339,3 +339,68 @@ func TestFieldShapes(t *testing.T) {
 		}
 	}
 }
+
+// ephemeralModel has a token operation, a credentials read, a read of personal data (sensitive, not a secret), and a
+// token operation with a delete.
+const ephemeralModel = `{
+  "smithy": "2.0",
+  "shapes": {
+    "com.amazonaws.x#Svc": {"type": "service", "traits": {"aws.api#service": {"sdkId": "X"}}},
+    "com.amazonaws.x#CreateBearerToken": {"type": "operation", "input": {"target": "com.amazonaws.x#CreateBearerTokenRequest"},
+      "output": {"target": "com.amazonaws.x#CreateBearerTokenResponse"}},
+    "com.amazonaws.x#CreateBearerTokenRequest": {"type": "structure", "members": {
+      "DurationSeconds": {"target": "smithy.api#Integer"},
+      "ClientToken": {"target": "smithy.api#String", "traits": {"smithy.api#idempotencyToken": {}}}}},
+    "com.amazonaws.x#CreateBearerTokenResponse": {"type": "structure", "members": {
+      "AccessToken": {"target": "com.amazonaws.x#AccessToken"}, "ExpiresIn": {"target": "smithy.api#Integer"}}},
+    "com.amazonaws.x#AccessToken": {"type": "string", "traits": {"smithy.api#sensitive": {}}},
+    "com.amazonaws.x#GetScopedCredentials": {"type": "operation", "input": {"target": "com.amazonaws.x#GetScopedCredentialsRequest"},
+      "output": {"target": "com.amazonaws.x#GetScopedCredentialsResponse"}},
+    "com.amazonaws.x#GetScopedCredentialsRequest": {"type": "structure", "members": {"Policy": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#GetScopedCredentialsResponse": {"type": "structure", "members": {
+      "Credentials": {"target": "com.amazonaws.x#Credentials"}, "SourceIdentity": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#Credentials": {"type": "structure", "members": {
+      "AccessKeyId": {"target": "smithy.api#String"},
+      "SecretAccessKey": {"target": "smithy.api#String", "traits": {"smithy.api#sensitive": {}}}}},
+    "com.amazonaws.x#GetContacts": {"type": "operation", "output": {"target": "com.amazonaws.x#GetContactsResponse"}},
+    "com.amazonaws.x#GetContactsResponse": {"type": "structure", "members": {"EmailAddress": {"target": "com.amazonaws.x#Email"}}},
+    "com.amazonaws.x#Email": {"type": "string", "traits": {"smithy.api#sensitive": {}}}
+  }
+}`
+
+func TestEphemeral(t *testing.T) {
+	t.Parallel()
+
+	m, err := smithy.Parse([]byte(ephemeralModel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := []Work{
+		{Kind: WorkNewResource, Subject: "BearerToken", Operations: []string{"CreateBearerToken"}},
+		{Kind: WorkNewDataSource, Subject: "ScopedCredentials", Operations: []string{"GetScopedCredentials"}},
+		// Personal data is sensitive but not a secret.
+		{Kind: WorkNewDataSource, Subject: "Contacts", Operations: []string{"GetContacts"}},
+		// A delete means there's something to manage.
+		{Kind: WorkNewResource, Subject: "BearerToken", Operations: []string{"CreateBearerToken", "DeleteBearerToken"}},
+	}
+	buildSpecs(ws, m, nil)
+	for i, want := range []string{WorkNewEphemeral, WorkNewEphemeral, WorkNewDataSource, WorkNewResource} {
+		if ws[i].Kind != want {
+			t.Errorf("%s %v: kind = %s, want %s", ws[i].Subject, ws[i].Operations, ws[i].Kind, want)
+		}
+	}
+	token := ws[0].Spec
+	if len(token.Arguments) != 1 || token.Arguments[0].Member != "DurationSeconds" {
+		t.Errorf("token arguments = %+v, want DurationSeconds without the client token", token.Arguments)
+	}
+	sensitive := map[string]bool{}
+	for _, f := range slices.Concat(token.Attributes, ws[1].Spec.Attributes) {
+		sensitive[f.Member] = f.Sensitive
+	}
+	if !sensitive["AccessToken"] || sensitive["ExpiresIn"] || !sensitive["Credentials"] || sensitive["SourceIdentity"] {
+		t.Errorf("sensitive attributes = %v", sensitive)
+	}
+	if got := FieldText(Field{Type: "string", Sensitive: true}, false); got != "sensitive; string" {
+		t.Errorf("FieldText = %q", got)
+	}
+}

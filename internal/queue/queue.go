@@ -140,11 +140,12 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 	if en.Service.Package != "" {
 		e.Service = en.Service.Package
 	}
-	var used, newResource bool
+	var used, newResource, newEphemeral bool
 	for _, w := range en.Work {
 		e.Work[w.Kind]++
 		used = used || len(w.UsedBy) > 0
 		newResource = newResource || w.Kind == enrich.WorkNewResource
+		newEphemeral = newEphemeral || w.Kind == enrich.WorkNewEphemeral
 	}
 	if rec != nil {
 		for _, c := range rec.Candidates {
@@ -182,7 +183,7 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 		e.State, e.Reason = NewService, "new SDK module; "+en.Service.Basis
 	case en.Service.Status != enrich.ServiceImplemented:
 		e.State, e.Reason = Unimplemented, en.Service.Basis
-	case en.CodeSearched && !used && !newResource:
+	case en.CodeSearched && !used && !newResource && !newEphemeral:
 		e.State, e.Reason = NoCode, "no inferred work in code the target has, and no new resource"
 	case en.Availability != nil && en.Availability.Status == enrich.Pending:
 		e.State = Pending
@@ -194,6 +195,8 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 			e.Reason = "work in code the target has"
 		case newResource:
 			e.Reason = "new resource"
+		case newEphemeral:
+			e.Reason = "new ephemeral resource"
 		case len(en.Warnings) > 0:
 			e.Reason = "code not searched: " + strings.Join(en.Warnings, "; ")
 		default:

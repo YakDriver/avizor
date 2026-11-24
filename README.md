@@ -149,7 +149,7 @@ avizor pull aws-blogs --since 365d
 
 - **Service**: the provider package that uses the SDK module, or a service the provider doesn't implement.
 - **Availability**: whether the target's `go.mod` requires the item's SDK version, and the commit and PR that brought it in.
-- **Work** (inferred): new operations grouped into a likely resource, data source, or other operation; new members as arguments or attributes; enum values; type changes; removals. Each kind lists the provider files that call the operations involved, and for a new argument, whether those files use its likely Terraform name.
+- **Work** (inferred): new operations grouped into a likely resource, data source, ephemeral resource, or other operation; new members as arguments or attributes; enum values; type changes; removals. Each kind lists the provider files that call the operations involved, and for a new argument, whether those files use its likely Terraform name. A group whose only operation creates or gets a value (Create, Get, Generate, Issue) and returns a secret is an ephemeral resource, so the value stays out of state: a member with the sensitive trait, within three levels, named like a token, secret, password, credentials, or key (`CreateBearerToken`'s `accessToken`, `GetScopedCredentials`'s `Credentials.SecretAccessKey`). The sensitive trait alone also marks personal data, such as email addresses, so the name has to match too. Its arguments are the operation's input and its attributes the output, with secrets marked sensitive. Over the 120 days to 2026-11-24, 8 items each have one ephemeral resource, and all of them return tokens or credentials.
 - **Spec**, for each inferred resource and data source, from the model:
   - operations by role (create, read, update, delete, list, other) and the identifier (the read's required input);
   - arguments from the create input, with likely Terraform names, required or optional, create-only (no update operation takes them), constraints, enum values, and nested members three levels deep;
@@ -195,7 +195,7 @@ avizor queue --since 90d --service s3 --all --format text
 | State | Shown | Meaning |
 |---|---|---|
 | `resurfaced` | yes | A decision needs another look. |
-| `gap` | yes | The work touches code the target has, or adds a resource, and nothing confidently covers it. |
+| `gap` | yes | The work touches code the target has, or adds a resource or ephemeral resource, and nothing confidently covers it. |
 | `pending` | yes | A gap whose SDK version the target doesn't have yet. |
 | `new_service` | yes | A new SDK module for a service the target doesn't implement. |
 | `partial` | yes | Covered, but some new resource or argument has no code or candidate. |
@@ -314,9 +314,10 @@ Guesses go in a reviewer section (text) or under `inferred` (JSON), each with it
   - ``New resource: `aws_<package>_<noun>` ``;
   - ``New resources: `<a>` and `<b>` ``, or `` `<a>`, `<b>`, and 2 more ``, for several new resources and no new data source;
   - `New data source: ...`;
+  - ``New ephemeral resource: `aws_<package>_<noun>` ``, or `New ephemeral resources: ...`, when there's no new resource;
   - ``r/`<resource>`: Add `<argument>` ``, when the new arguments (or, with none, attributes) are in one resource, or ``r/`<a>`, r/`<b>`: Add ...`` for two resources and no announcement;
   - otherwise the announcement headline, or the first sentence of the notes, with a service prefix if it lacks one.
-- **Labels**: `enhancement` and the service label, plus `new-resource` for an inferred resource and `new-service` for a new SDK module or a service the target doesn't implement. For such a service, the service label is a guess from the module name.
+- **Labels**: `enhancement` and the service label, plus `new-resource` for an inferred resource, `new-ephemeral-resource` for an ephemeral resource, and `new-service` for a new SDK module or a service the target doesn't implement. For such a service, the service label is a guess from the module name.
 
 The reviewer section also lists warnings and possibly related issues and PRs:
 

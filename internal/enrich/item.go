@@ -62,7 +62,7 @@ func ReconcileItem(it *awssdk.Item, res *Result) *reconcile.Item {
 			switch w.Kind {
 			case WorkTagging:
 				continue
-			case WorkNewResource, WorkNewDataSource, WorkNewOperation:
+			case WorkNewResource, WorkNewDataSource, WorkNewEphemeral, WorkNewOperation:
 				if !slices.Contains(kinds, w.Kind) {
 					kinds = append(kinds, w.Kind)
 				}

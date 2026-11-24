@@ -364,3 +364,30 @@ func TestTitleTwoResources(t *testing.T) {
 		t.Errorf("with an announcement: title = %q", got)
 	}
 }
+
+func TestEphemeralDraft(t *testing.T) {
+	t.Parallel()
+
+	en := implemented("sts", enrich.Work{Kind: enrich.WorkNewEphemeral, Subject: "ScopedCredentials", Operations: []string{"GetScopedCredentials"},
+		Basis: "test", Spec: &enrich.Spec{Operations: enrich.SpecOperations{Read: []string{"GetScopedCredentials"}},
+			Arguments:  []enrich.Field{{Name: "policy", Member: "Policy", Type: "string"}},
+			Attributes: []enrich.Field{{Name: "credentials", Member: "Credentials", Type: "structure", Sensitive: true}, {Name: "source_identity", Type: "string"}}}})
+	d, err := New(item("sts", "Adds scoped credentials."), en, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Title != "New ephemeral resource: `aws_sts_scoped_credentials`" || !slices.Contains(d.Labels, "new-ephemeral-resource") || slices.Contains(d.Labels, "new-resource") {
+		t.Errorf("title %q, labels %v", d.Title, d.Labels)
+	}
+	for _, want := range []string{
+		"New ephemeral resource `aws_sts_scoped_credentials`: `GetScopedCredentials`.\n",
+		"- Attributes: `credentials` (sensitive), `source_identity`.\n",
+	} {
+		if !strings.Contains(d.Body, want) {
+			t.Errorf("body has no %q:\n%s", want, d.Body)
+		}
+	}
+	if strings.Contains(d.Body, "No read operation") || strings.Contains(d.Body, "decide:") {
+		t.Errorf("ephemeral resource with a no-read note or decision:\n%s", d.Body)
+	}
+}

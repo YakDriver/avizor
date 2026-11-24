@@ -58,8 +58,10 @@ func TestClassify(t *testing.T) {
 		state    string
 		reason   string
 	}{
-		"gap":                {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used, unused}}, rec: related, state: Gap, reason: "work in code"},
-		"gap new resource":   {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{resource}}, state: Gap, reason: "new resource"},
+		"gap":              {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{used, unused}}, rec: related, state: Gap, reason: "work in code"},
+		"gap new resource": {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{resource}}, state: Gap, reason: "new resource"},
+		"gap new ephemeral resource": {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{{Kind: enrich.WorkNewEphemeral, Subject: "Token"}}},
+			state: Gap, reason: "new ephemeral resource"},
 		"gap without code":   {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{unused}}, noSearch: true, state: Gap, reason: "code not searched"},
 		"gap, search failed": {en: enrich.Result{Service: impl, Availability: available, Work: []enrich.Work{unused}, Warnings: []string{"loading model: boom"}}, noSearch: true, state: Gap, reason: "code not searched: loading model: boom"},
 		"pending":            {en: enrich.Result{Service: impl, Availability: pending, Work: []enrich.Work{used}}, state: Pending, reason: "needs m v2"},
