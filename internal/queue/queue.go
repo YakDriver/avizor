@@ -208,8 +208,8 @@ func Classify(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, d *draf
 }
 
 // uncovered lists a covered item's work that neither code nor a candidate accounts for:
-//   - new resources (with an operation that deletes, so not tokens or presigned URLs) whose operations no code calls,
-//     no confident candidate matched, and no candidate's text names;
+//   - new resources (with an operation that deletes, so not tokens or presigned URLs) and new ephemeral resources
+//     whose operations no code calls, no confident candidate matched, and no candidate's text names;
 //   - new arguments of write operations whose likely Terraform name isn't in the files calling them or in a
 //     candidate's text.
 //
@@ -268,6 +268,9 @@ func Uncovered(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, texts 
 			!slices.ContainsFunc(w.Operations, func(op string) bool { return matched[op] }) &&
 			!namedResource(w):
 			ws, out = append(ws, w), append(out, "resource "+w.Subject)
+		case w.Kind == enrich.WorkNewEphemeral && len(w.UsedBy) == 0 && !slices.ContainsFunc(w.Operations, func(op string) bool { return matched[op] }) &&
+			!namedResource(w):
+			ws, out = append(ws, w), append(out, "ephemeral resource "+w.Subject)
 		case w.Member != "" && len(w.FoundIn) == 0 && uncovered["argument "+w.Member]:
 			ws = append(ws, w)
 			if a := "argument " + w.Member; !slices.Contains(out, a) {

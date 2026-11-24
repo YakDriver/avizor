@@ -1825,8 +1825,8 @@ case "item-covered-sample-cloudwatchomni-2026-09-22" {
   as_of = "2026-11-13T19:00:00Z"
   code  = true
   kind  = "item-covered-sample"
-  note  = "existing code, issues, or PRs cover the work"
-  state = "covered"
+  note  = "existing code, issues, or PRs cover the work, except the GetSpaceCredentialsForOrganization ephemeral resource (#86): no code, and #50218 doesn't name it; relabeled 2026-11-24"
+  state = "partial"
   same  = [50329, 50385, 50428, 50471, 50482, 50483, 50551, 50660, 50679, 50218]
   same_paths = [
     "internal/service/cloudwatchomni/access_grant.go",

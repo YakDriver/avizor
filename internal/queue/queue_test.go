@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -146,5 +147,23 @@ func TestUncoveredOrder(t *testing.T) {
 		if len(ws) != 2 || len(labels) != 1 || labels[0] != "argument color" {
 			t.Errorf("order %s, %s: work %d, labels %v; want 2, [argument color]", order[0].Subject, order[1].Subject, len(ws), labels)
 		}
+	}
+}
+
+// TestUncoveredEphemeral checks that an ephemeral resource no code calls or candidate names is uncovered, though it
+// has no delete, and that a candidate naming it covers it.
+func TestUncoveredEphemeral(t *testing.T) {
+	t.Parallel()
+
+	impl := enrich.ServiceMatch{Status: enrich.ServiceImplemented, Package: "widget"}
+	token := enrich.Work{Kind: enrich.WorkNewEphemeral, Subject: "BearerToken", Operations: []string{"CreateBearerToken"}}
+	en := &enrich.Result{Service: impl, CodeSearched: true, Work: []enrich.Work{token}}
+	it := &awssdk.Item{ID: "sdk/widget/release-1"}
+	rec := &reconcile.Result{Candidates: []reconcile.Candidate{{Category: reconcile.CategoryTracked, Number: 7, Title: "r/aws_widget_gadget: Add size"}}}
+	if _, labels := Uncovered(it, en, rec, nil); !slices.Equal(labels, []string{"ephemeral resource BearerToken"}) {
+		t.Errorf("labels = %v", labels)
+	}
+	if _, labels := Uncovered(it, en, rec, map[int]string{7: "Also add the aws_widget_bearer_token ephemeral resource."}); len(labels) != 0 {
+		t.Errorf("named: labels = %v", labels)
 	}
 }

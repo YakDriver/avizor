@@ -364,7 +364,17 @@ const ephemeralModel = `{
       "SecretAccessKey": {"target": "smithy.api#String", "traits": {"smithy.api#sensitive": {}}}}},
     "com.amazonaws.x#GetContacts": {"type": "operation", "output": {"target": "com.amazonaws.x#GetContactsResponse"}},
     "com.amazonaws.x#GetContactsResponse": {"type": "structure", "members": {"EmailAddress": {"target": "com.amazonaws.x#Email"}}},
-    "com.amazonaws.x#Email": {"type": "string", "traits": {"smithy.api#sensitive": {}}}
+    "com.amazonaws.x#Email": {"type": "string", "traits": {"smithy.api#sensitive": {}}},
+    "com.amazonaws.x#CreateApiKey": {"type": "operation", "output": {"target": "com.amazonaws.x#CreateBearerTokenResponse"}},
+    "com.amazonaws.x#DeleteApiKey": {"type": "operation"},
+    "com.amazonaws.x#GenerateDataKey": {"type": "operation", "output": {"target": "com.amazonaws.x#GenerateDataKeyResponse"}},
+    "com.amazonaws.x#GenerateDataKeyResponse": {"type": "structure", "members": {
+      "Alpha": {"target": "com.amazonaws.x#Outer"}, "Zed": {"target": "com.amazonaws.x#Middle"}}},
+    "com.amazonaws.x#Outer": {"type": "structure", "members": {"Inner": {"target": "com.amazonaws.x#Wrap"}}},
+    "com.amazonaws.x#Wrap": {"type": "structure", "members": {"Mid": {"target": "com.amazonaws.x#Middle"}}},
+    "com.amazonaws.x#Middle": {"type": "structure", "members": {"Deep": {"target": "com.amazonaws.x#Holder"}}},
+    "com.amazonaws.x#Holder": {"type": "structure", "members": {"Plaintext": {"target": "com.amazonaws.x#SecretBlob"}}},
+    "com.amazonaws.x#SecretBlob": {"type": "blob", "traits": {"smithy.api#sensitive": {}}}
   }
 }`
 
@@ -380,11 +390,14 @@ func TestEphemeral(t *testing.T) {
 		{Kind: WorkNewDataSource, Subject: "ScopedCredentials", Operations: []string{"GetScopedCredentials"}},
 		// Personal data is sensitive but not a secret.
 		{Kind: WorkNewDataSource, Subject: "Contacts", Operations: []string{"GetContacts"}},
-		// A delete means there's something to manage.
+		// A delete means there's something to manage, in the release or already in the model.
 		{Kind: WorkNewResource, Subject: "BearerToken", Operations: []string{"CreateBearerToken", "DeleteBearerToken"}},
+		{Kind: WorkNewResource, Subject: "ApiKey", Operations: []string{"CreateApiKey"}},
+		// A Generate is other work; its secret is three levels down by one path, four by another that's walked first.
+		{Kind: WorkNewOperation, Subject: "DataKey", Operations: []string{"GenerateDataKey"}},
 	}
 	buildSpecs(ws, m, nil)
-	for i, want := range []string{WorkNewEphemeral, WorkNewEphemeral, WorkNewDataSource, WorkNewResource} {
+	for i, want := range []string{WorkNewEphemeral, WorkNewEphemeral, WorkNewDataSource, WorkNewResource, WorkNewResource, WorkNewEphemeral} {
 		if ws[i].Kind != want {
 			t.Errorf("%s %v: kind = %s, want %s", ws[i].Subject, ws[i].Operations, ws[i].Kind, want)
 		}
@@ -399,6 +412,14 @@ func TestEphemeral(t *testing.T) {
 	}
 	if !sensitive["AccessToken"] || sensitive["ExpiresIn"] || !sensitive["Credentials"] || sensitive["SourceIdentity"] {
 		t.Errorf("sensitive attributes = %v", sensitive)
+	}
+	if dk := ws[5].Spec; !slices.Equal(dk.Operations.Create, []string{"GenerateDataKey"}) {
+		t.Errorf("data key operations = %+v, want the Generate as its create", dk.Operations)
+	}
+	// The output's members are the attributes, a wrapper structure too, with nested secrets marked.
+	creds := ws[1].Spec.Attributes[0]
+	if creds.Member != "Credentials" || len(creds.Fields) != 2 || !creds.Fields[1].Sensitive || creds.Fields[0].Sensitive {
+		t.Errorf("credentials = %+v", creds)
 	}
 	if got := FieldText(Field{Type: "string", Sensitive: true}, false); got != "sensitive; string" {
 		t.Errorf("FieldText = %q", got)

@@ -91,7 +91,11 @@ func resources(en *enrich.Result, pkg, prefix string, decide decider) []Resource
 				r.Lines = append(r.Lines, "  - `tags`")
 			}
 		}
-		if len(s.Attributes) > 0 {
+		if len(s.Attributes) > 0 && w.Kind == enrich.WorkNewEphemeral {
+			// An ephemeral resource's attributes are its result, secrets marked, so they're listed with their fields.
+			r.Lines = append(r.Lines, "- Attributes:")
+			r.Lines = append(r.Lines, fieldLines(s.Attributes, 1, false, r.Name, w.Subject, decide)...)
+		} else if len(s.Attributes) > 0 {
 			var names, abbrev []string
 			for _, f := range s.Attributes {
 				if f.Sensitive {

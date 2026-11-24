@@ -381,7 +381,7 @@ func TestEphemeralDraft(t *testing.T) {
 	}
 	for _, want := range []string{
 		"New ephemeral resource `aws_sts_scoped_credentials`: `GetScopedCredentials`.\n",
-		"- Attributes: `credentials` (sensitive), `source_identity`.\n",
+		"- Attributes:\n  - `credentials` (sensitive; structure)\n  - `source_identity` (string)\n",
 	} {
 		if !strings.Contains(d.Body, want) {
 			t.Errorf("body has no %q:\n%s", want, d.Body)
