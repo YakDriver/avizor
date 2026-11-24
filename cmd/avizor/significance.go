@@ -65,11 +65,13 @@ const (
 // programs, not "training", which is also model training ("Checkpointless training on Amazon SageMaker HyperPod").
 var (
 	roundupRE           = regexp.MustCompile(`weekly roundup|monthly roundup|^icymi|^this month in\b`)
+	modelFamily         = `\b(claude|gpt-?[\d.]+[a-z]*|gpt[- ]oss|openai (gpt|models?)|gemma|grok|llama|mistral|deepseek|qwen|kimi|nemotron)\b`
+	modelPlatform       = `\b(amazon bedrock|on aws|sagemaker)\b`
 	modelAvailabilityRE = regexp.MustCompile(`\bnow (generally )?available (in|on) amazon bedrock\b|\bsagemaker jumpstart\b|\bamazon bedrock expands\b.*\bmodel availability\b|` +
-		`\b(claude|gpt-[\d.]+|gpt oss|openai (gpt|models?)|gemma|grok|llama|mistral|deepseek|qwen|kimi|nemotron)\b.*\b(amazon bedrock|on aws|sagemaker)\b`)
+		modelFamily + `.*` + modelPlatform + `|` + modelPlatform + `.*` + modelFamily)
 	transformRE  = regexp.MustCompile(`\baws transform\b|\batx\b`)
 	regionRE     = regexp.MustCompile(`^now open\b|\blocal zones? in\b|\bnew (aws )?region\b`)
-	complianceRE = regexp.MustCompile(`\bsoc [123]\b|\biso(/iec)? \d{4,5}\b|\biso\b.*\bcertificat|\bpci\b|\birap\b|\bhitrust\b|\bc5\b|\bdspt\b|` +
+	complianceRE = regexp.MustCompile(`\bsoc [123]\b|\biso(/iec)? \d{4,5}\b|\biso\b.*\bcertificat|\bpci\b|\birap\b|\bhitrust\b|\bc5(:\d{4}| type| reports?| attestation)\b|\bdspt\b|` +
 		`\bfedramp\b|\bhipaa\b|\baccreditation\b|\battestation\b|\bcertification audit\b|\brenews\b.*\bcertification\b|` +
 		`\bcompliance (guide|guidance|package)|\bassessment report\b|\breports? (is|are) (now )?available\b|\bcritical third party\b`)
 	trainingRE    = regexp.MustCompile(`\baws training and certification\b|\baws certifi(cation|ed)\b|\bcertification exam|\bskill builder\b|\bbadges?\b|\bcloud quest\b|\bsimulearn\b|\bvirtual training\b`)

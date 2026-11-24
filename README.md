@@ -234,15 +234,15 @@ A post is significant when it's likely to have Terraform work. It needs one of t
 - event guides (the events tag or "re:Invent" in the title);
 - developer tools (the developer tools tags or the Developer Tools Blog);
 - customer and partner stories (their post-type tags or the APN Blog);
-- model availability ("now available in Amazon Bedrock", "Amazon Bedrock expands ... model availability", SageMaker JumpStart, or a model family such as Claude, GPT, Grok, or Kimi with "Amazon Bedrock", "SageMaker", or "on AWS" in the title);
+- model availability ("now available in Amazon Bedrock", "Amazon Bedrock expands ... model availability", SageMaker JumpStart, or a model family such as Claude, GPT, Grok, or Kimi and "Amazon Bedrock", "SageMaker", or "on AWS", in either order, in the title);
 - AWS Transform ("AWS Transform" or "ATX" in the title);
 - the AWS Open Source Blog;
 - new Regions and Local Zones ("Now Open", "Local Zones in", "new Region");
-- compliance reports, guides, packages, accreditations, and audits (SOC, ISO, PCI, IRAP, HITRUST, C5, HIPAA, "attestation", "accreditation");
+- compliance reports, guides, packages, accreditations, and audits (SOC, ISO, PCI, IRAP, HITRUST, C5 reports, HIPAA, "attestation", "accreditation");
 - AWS Training and Certification, Skill Builder, badges, Cloud Quest, and SimuLearn, but not model training;
 - analyst recognition ("named a Leader", "Magic Quadrant", "MarketScape").
 
-The summary reports coverage for all posts and for significant ones, and `--significant` lists only significant posts. On the 112 posts decided in the 2026-11-19 coverage pass, 34 of the 36 with work are significant, and 24 of the 76 without work are left out. Over the 90 days to 2026-11-23, the last four kinds and the "This Month in" roundups leave out 25 of 329 significant posts, all decided as no work. Over a year, they leave out 51 of 908, none covered by an issue. On a copy of the 2026-11-24 state, the last three kinds and the wider model availability rule leave out 92 of the 862 significant posts over a year: 62 decided as no work, 30 undecided, and none covered by an issue. Coverage of significant posts goes from 41% (199 of 481) to 44% (199 of 451).
+The summary reports coverage for all posts and for significant ones, and `--significant` lists only significant posts. On the 112 posts decided in the 2026-11-19 coverage pass, 34 of the 36 with work are significant, and 24 of the 76 without work are left out. Over the 90 days to 2026-11-23, the last four kinds and the "This Month in" roundups leave out 25 of 329 significant posts, all decided as no work. Over a year, they leave out 51 of 908, none covered by an issue. On a copy of the 2026-11-24 state, the last three kinds and the wider model availability rule leave out 93 of the 855 significant posts over a year: 62 decided as no work, 31 undecided, and none covered by an issue. Coverage of significant posts goes from 42% (198 of 474) to 45% (198 of 443).
 
 `--launch` keeps only posts tagged as launch announcements. Each post is marked if it's on the AWS News Blog (`news`), a launch (`launch`), or significant (`sig`), and the text output has its URL for `avizor decide`. A post older than `--since` is checked too when its decision's revisit date has passed, and listed if it reopens. A revisit date on any decision ends it: the post is reconciled again. `--all` shows every state, `--state open,covered` picks some, and `--as-of` reads the index as it was at a date. The summary lines report coverage: covered posts as a share of covered and open ones. The 104 launch posts from 2026-11-02 to 2026-11-19 take about 4 seconds.
 
