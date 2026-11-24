@@ -307,6 +307,34 @@ func TestRunOperationsFilter(t *testing.T) {
 	}
 }
 
+// TestRunNewOperations checks that with NewOperations set, an operation named in text is strong only if the set has it.
+func TestRunNewOperations(t *testing.T) {
+	t.Parallel()
+
+	const text = "Does the provider support DetachAndDeleteS3AccessPoint?"
+	r := reconciler(t, seed(t), "")
+	r.NewOperations = opSet{}
+	res, err := r.Run(context.Background(), "", text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := find(t, res.Candidates, 40000, "")
+	if c.Category != CategoryRelated {
+		t.Errorf("#40000 category = %s, want related for an old operation", c.Category)
+	}
+	if !slices.ContainsFunc(c.Signals, func(m Match) bool { return m.Type == "op" && m.Strength == StrengthWeak }) {
+		t.Errorf("#40000 signals = %+v, want a weak op signal", c.Signals)
+	}
+
+	r.NewOperations = opSet{"DetachAndDeleteS3AccessPoint": true}
+	if res, err = r.Run(context.Background(), "", text); err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res.Candidates, 40000, ""); c.Category != CategoryConsidered {
+		t.Errorf("#40000 category = %s, want previously_considered for a new operation", c.Category)
+	}
+}
+
 func TestRunChangeRequest(t *testing.T) {
 	t.Parallel()
 

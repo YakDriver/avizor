@@ -81,3 +81,35 @@ func TestItemIndexRank(t *testing.T) {
 		t.Errorf("empty index = %#v", got)
 	}
 }
+
+func TestItemIndexNewOperations(t *testing.T) {
+	t.Parallel()
+
+	post := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	item := func(id string, at time.Time, status string, ops ...string) *awssdk.Item {
+		return &awssdk.Item{ID: id, Status: status, Release: awssdk.Release{PublishedAt: at}, Diff: &smithy.Diff{AddedOperations: ops}}
+	}
+	x := NewItemIndex([]*awssdk.Item{
+		item("recent", post.AddDate(0, 0, -100), items.StatusNew, "CreateGizmo"),
+		item("after", post.Add(PostItemsAfter), items.StatusNew, "DeleteGizmo"),
+		item("late", post.Add(PostItemsAfter+time.Hour), items.StatusNew, "UpdateGizmo"),
+		item("old", post.Add(-PostItemsBefore-time.Hour), items.StatusNew, "InvokeModel"),
+		item("old-and-recent", post.Add(-PostItemsBefore-time.Hour), items.StatusNew, "GetGizmo"),
+		item("recent-again", post.AddDate(0, 0, -1), items.StatusNew, "GetGizmo"),
+	}, nil)
+	ops := x.NewOperations(whatsnew.Post{PostedAt: post})
+	for op, want := range map[string]bool{"CreateGizmo": true, "DeleteGizmo": true, "UpdateGizmo": false, "InvokeModel": false,
+		"GetGizmo": true, "ListGizmos": false} {
+		if got := ops.Has(op); got != want {
+			t.Errorf("Has(%s) = %t, want %t", op, got, want)
+		}
+	}
+	// Without items, nothing is known to be old.
+	var none *ItemIndex
+	if got := none.NewOperations(whatsnew.Post{PostedAt: post}); got != nil {
+		t.Errorf("nil index: NewOperations = %v, want nil", got)
+	}
+	if got := NewItemIndex(nil, nil).NewOperations(whatsnew.Post{PostedAt: post}); got != nil {
+		t.Errorf("empty index: NewOperations = %v, want nil", got)
+	}
+}

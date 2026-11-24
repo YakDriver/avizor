@@ -32,10 +32,11 @@ type StateSource interface {
 	State(ctx context.Context, id string, code bool, rec *reconcile.Result, texts map[int]string) (state, reason string, err error)
 }
 
-// PostSource resolves post cases. PostText is what a post is reconciled from. PostState classifies the reconciled post
-// as `avizor posts` does, ignoring decisions. Cases with post need one.
+// PostSource resolves post cases. PostText is what a post is reconciled from, and the operations new for it (see
+// reconcile.Reconciler.NewOperations), nil for any. PostState classifies the reconciled post as `avizor posts` does,
+// ignoring decisions. Cases with post need one.
 type PostSource interface {
-	PostText(ctx context.Context, url string) (string, error)
+	PostText(ctx context.Context, url string) (string, reconcile.OperationSet, error)
 	PostState(ctx context.Context, url string, res *reconcile.Result) (PostState, error)
 }
 
@@ -326,10 +327,11 @@ func (r *Runner) runCase(ctx context.Context, cs *Case) CaseResult {
 		if !ok {
 			return fail(errors.New("no post source: post cases need one"))
 		}
-		text, err := ps.PostText(ctx, cs.Post)
+		text, ops, err := ps.PostText(ctx, cs.Post)
 		if err != nil {
 			return fail(err)
 		}
+		rc.NewOperations = ops
 		if res, err = rc.Run(ctx, "", text); err != nil {
 			return fail(err)
 		}

@@ -219,7 +219,7 @@ avizor posts --since 2026-11-01 --launch --all --format text
 avizor posts --significant --format text
 ```
 
-`avizor posts` checks whether existing issues and PRs cover each blog post from the last 30 days, newest first. AWS writes blog posts for the bigger launches, so every post with Terraform work should have an issue. The check doesn't need an SDK release: it reconciles the post's title, excerpt, and URL, plus the URLs of the What's New announcements that match it, as `candidates --text` would. An announcement matches when it was posted from 45 days before the post to 3 days after and scores at least 0.35, and 75% of the best. An open issue or PR, or a merged PR, with a strong signal covers the post. Usually that signal is a link to the post or to one of its announcements.
+`avizor posts` checks whether existing issues and PRs cover each blog post from the last 30 days, newest first. AWS writes blog posts for the bigger launches, so every post with Terraform work should have an issue. The check doesn't need an SDK release: it reconciles the post's title, excerpt, and URL, plus the URLs of the What's New announcements that match it, as `candidates --text` would. An announcement matches when it was posted from 45 days before the post to 3 days after and scores at least 0.35, and 75% of the best. An open issue or PR, or a merged PR, with a strong signal covers the post. Usually that signal is a link to the post or to one of its announcements. An API operation the post names is strong only when a pulled item released from a year before the post to a week after it added the operation. An older one, like the `InvokeModel` in a model availability post, is named by issues and PRs about any feature that calls it. With no pulled items, every operation counts. On a copy of the 2026-11-24 state with post decisions removed, this opens 4 of the 188 posts covered over a year, all decided as no work, and changes no other post's covering issues. The Bedrock Claude post had been covered by 16 Bedrock issues and PRs through `InvokeModel` and references to them.
 
 | State | Shown | Meaning |
 |---|---|---|
@@ -234,7 +234,7 @@ A post is significant when it's likely to have Terraform work. It needs one of t
 - event guides (the events tag or "re:Invent" in the title);
 - developer tools (the developer tools tags or the Developer Tools Blog);
 - customer and partner stories (their post-type tags or the APN Blog);
-- model availability ("now available in Amazon Bedrock", or SageMaker JumpStart in the title);
+- model availability ("now available in Amazon Bedrock", "Amazon Bedrock expands ... model availability", or SageMaker JumpStart in the title);
 - AWS Transform ("AWS Transform" or "ATX" in the title);
 - the AWS Open Source Blog;
 - new Regions and Local Zones ("Now Open", "Local Zones in", "new Region").
@@ -327,7 +327,7 @@ The reviewer section also lists warnings and possibly related issues and PRs:
 
 ## Evaluate
 
-`avizor eval` scores reconciliation and queue states against 207 cases labeled from provider history, blog post ranking against 51 more, and blog post coverage, significance, and items against 112 posts. See [eval/README.md](eval/README.md).
+`avizor eval` scores reconciliation and queue states against 207 cases labeled from provider history, blog post ranking against 51 more, blog post coverage against 116 posts, and significance and items against 112 of them. See [eval/README.md](eval/README.md).
 
 ## Develop
 

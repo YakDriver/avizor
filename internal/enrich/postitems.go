@@ -8,6 +8,7 @@ import (
 
 	"github.com/YakDriver/avizor/internal/awssdk"
 	"github.com/YakDriver/avizor/internal/items"
+	"github.com/YakDriver/avizor/internal/reconcile"
 	"github.com/YakDriver/avizor/internal/whatsnew"
 )
 
@@ -57,18 +58,25 @@ type ItemIndex struct {
 	items map[string]*awssdk.Item
 	// anns maps an item to the URLs of the announcements that match it.
 	anns map[string][]string
+	// added maps an operation to the releases of the items that add it.
+	added map[string][]time.Time
 }
 
 // NewItemIndex indexes items and matches each to announcements, if there are any. Skipped items have no API change to
 // draft from, so they're left out.
 func NewItemIndex(its []*awssdk.Item, anns *whatsnew.Matcher) *ItemIndex {
-	x := &ItemIndex{items: map[string]*awssdk.Item{}, anns: map[string][]string{}}
+	x := &ItemIndex{items: map[string]*awssdk.Item{}, anns: map[string][]string{}, added: map[string][]time.Time{}}
 	var docs []whatsnew.Announcement
 	for _, it := range its {
 		if it.Status == items.StatusSkipped {
 			continue
 		}
 		x.items[it.ID] = it
+		if it.Diff != nil {
+			for _, op := range it.Diff.AddedOperations {
+				x.added[op] = append(x.added[op], it.Release.PublishedAt)
+			}
+		}
 		if anns != nil {
 			x.anns[it.ID] = itemAnnouncements(anns, it)
 		}
@@ -77,6 +85,31 @@ func NewItemIndex(its []*awssdk.Item, anns *whatsnew.Matcher) *ItemIndex {
 	}
 	x.m = whatsnew.NewMatcher(docs)
 	return x
+}
+
+// NewOperations returns the operations new for a post: those that items released from PostItemsBefore the post to
+// PostItemsAfter it add. A post that names an older operation, like InvokeModel, names an API that many unrelated issues
+// and PRs mention, not its launch. An operation no pulled item adds counts as old, so for a post less than
+// PostItemsBefore after the first pulled release, an operation added in between counts as old too. With no items, it
+// returns nil, which leaves every operation as it was.
+func (x *ItemIndex) NewOperations(p whatsnew.Post) reconcile.OperationSet {
+	if x == nil || len(x.items) == 0 {
+		return nil
+	}
+	return PostOperations{x: x, at: p.PostedAt}
+}
+
+// PostOperations is the set of operations new for a post. See ItemIndex.NewOperations. It's safe for concurrent use.
+type PostOperations struct {
+	x  *ItemIndex
+	at time.Time
+}
+
+// Has reports whether an item released in the post's window adds op.
+func (o PostOperations) Has(op string) bool {
+	return slices.ContainsFunc(o.x.added[op], func(t time.Time) bool {
+		return !t.Before(o.at.Add(-PostItemsBefore)) && !t.After(o.at.Add(PostItemsAfter))
+	})
 }
 
 // Len is the number of items indexed.

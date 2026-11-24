@@ -52,11 +52,12 @@ const (
 	openSourceBlogPrefix = "https://aws.amazon.com/blogs/opensource/"
 )
 
-// Titles the kinds come from, matched lowercase. Model availability names Bedrock or SageMaker JumpStart, since
+// Titles the kinds come from, matched lowercase. Model availability names Bedrock ("now available in Amazon Bedrock",
+// "Amazon Bedrock expands ... model availability") or SageMaker JumpStart, since
 // "Introducing ... on AWS" is also how launches with work are titled ("Introducing 1:1 NAT on AWS Transit Gateway").
 var (
 	roundupRE           = regexp.MustCompile(`weekly roundup|monthly roundup|^icymi|^this month in\b`)
-	modelAvailabilityRE = regexp.MustCompile(`\bnow (generally )?available (in|on) amazon bedrock\b|\bsagemaker jumpstart\b`)
+	modelAvailabilityRE = regexp.MustCompile(`\bnow (generally )?available (in|on) amazon bedrock\b|\bsagemaker jumpstart\b|\bamazon bedrock expands\b.*\bmodel availability\b`)
 	transformRE         = regexp.MustCompile(`\baws transform\b|\batx\b`)
 	regionRE            = regexp.MustCompile(`^now open\b|\blocal zones? in\b|\bnew (aws )?region\b`)
 )
