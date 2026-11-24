@@ -370,11 +370,26 @@ const ephemeralModel = `{
     "com.amazonaws.x#GenerateDataKey": {"type": "operation", "output": {"target": "com.amazonaws.x#GenerateDataKeyResponse"}},
     "com.amazonaws.x#GenerateDataKeyResponse": {"type": "structure", "members": {
       "Alpha": {"target": "com.amazonaws.x#Outer"}, "Zed": {"target": "com.amazonaws.x#Middle"}}},
-    "com.amazonaws.x#Outer": {"type": "structure", "members": {"Inner": {"target": "com.amazonaws.x#Wrap"}}},
-    "com.amazonaws.x#Wrap": {"type": "structure", "members": {"Mid": {"target": "com.amazonaws.x#Middle"}}},
+    "com.amazonaws.x#Outer": {"type": "structure", "members": {"Inner": {"target": "com.amazonaws.x#Middle"}}},
     "com.amazonaws.x#Middle": {"type": "structure", "members": {"Deep": {"target": "com.amazonaws.x#Holder"}}},
     "com.amazonaws.x#Holder": {"type": "structure", "members": {"Plaintext": {"target": "com.amazonaws.x#SecretBlob"}}},
-    "com.amazonaws.x#SecretBlob": {"type": "blob", "traits": {"smithy.api#sensitive": {}}}
+    "com.amazonaws.x#SecretBlob": {"type": "blob", "traits": {"smithy.api#sensitive": {}}},
+    "com.amazonaws.x#GetPeople": {"type": "operation", "output": {"target": "com.amazonaws.x#GetPeopleResponse"}},
+    "com.amazonaws.x#GetPeopleResponse": {"type": "structure", "members": {
+      "Names": {"target": "smithy.api#String"}, "NextToken": {"target": "com.amazonaws.x#PageToken"}}},
+    "com.amazonaws.x#PageToken": {"type": "string", "traits": {"smithy.api#sensitive": {}}},
+    "com.amazonaws.x#CreateReservation": {"type": "operation", "output": {"target": "com.amazonaws.x#CreateBearerTokenResponse"}},
+    "com.amazonaws.x#CancelReservation": {"type": "operation"},
+    "com.amazonaws.x#GetGroupKeys": {"type": "operation", "output": {"target": "com.amazonaws.x#GetGroupKeysResponse"}},
+    "com.amazonaws.x#GetGroupKeysResponse": {"type": "structure", "members": {"Groups": {"target": "com.amazonaws.x#GroupList"}}},
+    "com.amazonaws.x#GroupList": {"type": "list", "member": {"target": "com.amazonaws.x#Group"}},
+    "com.amazonaws.x#Group": {"type": "structure", "members": {"Entries": {"target": "com.amazonaws.x#EntryList"}}},
+    "com.amazonaws.x#EntryList": {"type": "list", "member": {"target": "com.amazonaws.x#Entry"}},
+    "com.amazonaws.x#Entry": {"type": "structure", "members": {"Secret": {"target": "com.amazonaws.x#SecretBlob"}}},
+    "com.amazonaws.x#GetDeepKeys": {"type": "operation", "output": {"target": "com.amazonaws.x#GetDeepKeysResponse"}},
+    "com.amazonaws.x#GetDeepKeysResponse": {"type": "structure", "members": {"A": {"target": "com.amazonaws.x#LevelA"}}},
+    "com.amazonaws.x#LevelA": {"type": "structure", "members": {"B": {"target": "com.amazonaws.x#LevelB"}}},
+    "com.amazonaws.x#LevelB": {"type": "structure", "members": {"C": {"target": "com.amazonaws.x#Entry"}}}
   }
 }`
 
@@ -395,9 +410,16 @@ func TestEphemeral(t *testing.T) {
 		{Kind: WorkNewResource, Subject: "ApiKey", Operations: []string{"CreateApiKey"}},
 		// A Generate is other work; its secret is three levels down by one path, four by another that's walked first.
 		{Kind: WorkNewOperation, Subject: "DataKey", Operations: []string{"GenerateDataKey"}},
+		// A sensitive paging token isn't a secret; an existing Cancel is a lifecycle.
+		{Kind: WorkNewDataSource, Subject: "People", Operations: []string{"GetPeople"}},
+		{Kind: WorkNewResource, Subject: "Reservation", Operations: []string{"CreateReservation"}},
+		// Levels count as fields do: Groups[].Entries[].Secret is the third level, A.B.C.Secret the fourth.
+		{Kind: WorkNewDataSource, Subject: "GroupKeys", Operations: []string{"GetGroupKeys"}},
+		{Kind: WorkNewDataSource, Subject: "DeepKeys", Operations: []string{"GetDeepKeys"}},
 	}
 	buildSpecs(ws, m, nil)
-	for i, want := range []string{WorkNewEphemeral, WorkNewEphemeral, WorkNewDataSource, WorkNewResource, WorkNewResource, WorkNewEphemeral} {
+	for i, want := range []string{WorkNewEphemeral, WorkNewEphemeral, WorkNewDataSource, WorkNewResource, WorkNewResource, WorkNewEphemeral,
+		WorkNewDataSource, WorkNewResource, WorkNewEphemeral, WorkNewDataSource} {
 		if ws[i].Kind != want {
 			t.Errorf("%s %v: kind = %s, want %s", ws[i].Subject, ws[i].Operations, ws[i].Kind, want)
 		}
