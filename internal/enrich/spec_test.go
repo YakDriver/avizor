@@ -303,6 +303,23 @@ func TestFieldShapes(t *testing.T) {
 		t.Errorf("Format above specDepth = %+v", f)
 	}
 
+	// The read is found when the release adds a list, and as a plural Describe.
+	sm, err := smithy.Parse([]byte(specModel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for subject, tc := range map[string]struct {
+		ops  []string
+		read string
+	}{
+		"Router": {[]string{"CreateRouter", "ListRouters"}, "DescribeRouter"},
+		"Policy": {[]string{"CreatePolicy"}, "DescribePolicies"},
+	} {
+		if s := buildSpec(sm, Work{Kind: WorkNewResource, Subject: subject, Operations: tc.ops}, nil); s.ExistingRead != tc.read || len(s.Attributes) == 0 {
+			t.Errorf("%s: existing read = %q, attributes %v; want %s", subject, s.ExistingRead, s.Attributes, tc.read)
+		}
+	}
+
 	// A new create for a noun the model could already read reads with that operation.
 	g := buildSpec(m, Work{Kind: WorkNewResource, Subject: "Gadget", Operations: []string{"CreateGadget"}}, nil)
 	if g.ExistingRead != "GetGadget" || !slices.Equal(g.Operations.Read, []string{"GetGadget"}) || len(g.Attributes) != 2 {

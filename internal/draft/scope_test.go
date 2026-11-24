@@ -561,7 +561,7 @@ func TestGroupChangesMerge(t *testing.T) {
 	t.Parallel()
 
 	zone, record, lag, conn := "internal/service/widget/zone.go", "internal/service/widget/record.go", "internal/service/widget/lag.go", "internal/service/widget/connection.go"
-	sweep, list := "internal/service/widget/sweep.go", "internal/service/widget/document_list.go"
+	sweep, list, document := "internal/service/widget/sweep.go", "internal/service/widget/document_list.go", "internal/service/widget/document.go"
 	guard := &enrich.Field{Type: "list", Elem: "structure", Fields: []enrich.Field{{Name: "name", Type: "string"}}}
 	flag := &enrich.Field{Type: "boolean"}
 	mode := &enrich.Field{Type: "enum", Values: []string{"A", "B"}}
@@ -577,9 +577,14 @@ func TestGroupChangesMerge(t *testing.T) {
 		{Kind: enrich.WorkNewArgument, Subject: "CreateConnectionRequest.BillingMode", Operations: []string{"CreateConnection"}, UsedBy: []string{conn}, Field: mode},
 		{Kind: enrich.WorkNewAttribute, Subject: "Connection.BillingMode", Operations: []string{"DescribeConnections"}, UsedBy: []string{conn, lag, sweep}, Field: mode},
 		{Kind: enrich.WorkNewArgument, Subject: "CreateLagRequest.BillingMode", Operations: []string{"CreateLag"}, UsedBy: []string{lag, sweep}, Field: mode},
-		// A summary that only a list resource calls joins the argument.
-		{Kind: enrich.WorkNewArgument, Subject: "CreateDocumentRequest.Platforms", Operations: []string{"CreateDocument"}, UsedBy: []string{record}, Field: mode},
+		// A summary that only its resource's list resource calls joins the argument; one that another resource's list
+		// resource calls doesn't, and a list of integers isn't a list of strings.
+		{Kind: enrich.WorkNewArgument, Subject: "CreateDocumentRequest.Platforms", Operations: []string{"CreateDocument"}, UsedBy: []string{document}, Field: mode},
 		{Kind: enrich.WorkNewAttribute, Subject: "DocumentIdentifier.Platforms", Operations: []string{"ListDocuments"}, UsedBy: []string{list, sweep}, Field: mode},
+		{Kind: enrich.WorkNewArgument, Subject: "CreateCertificateRequest.Usage", Operations: []string{"CreateCertificate"}, UsedBy: []string{record}, Field: mode},
+		{Kind: enrich.WorkNewAttribute, Subject: "PeeringSummary.Usage", Operations: []string{"ListPeerings"}, UsedBy: []string{"internal/service/widget/peering_list.go"}, Field: mode},
+		{Kind: enrich.WorkNewArgument, Subject: "CreateQueueRequest.Sizes", Operations: []string{"CreateQueue"}, UsedBy: []string{zone}, Field: &enrich.Field{Type: "list", Elem: "string"}},
+		{Kind: enrich.WorkNewArgument, Subject: "UpdateQueueSettingsRequest.Sizes", Operations: []string{"UpdateQueueSettings"}, UsedBy: []string{zone}, Field: &enrich.Field{Type: "list", Elem: "integer"}},
 	})
 	var got []string
 	for _, c := range cs {
@@ -593,6 +598,10 @@ func TestGroupChangesMerge(t *testing.T) {
 		"billing_mode: `CreateConnectionRequest.BillingMode` returned by `Connection.BillingMode`",
 		"billing_mode: `CreateLagRequest.BillingMode` returned by ",
 		"platforms: `CreateDocumentRequest.Platforms` returned by `DocumentIdentifier.Platforms`",
+		"usage: `CreateCertificateRequest.Usage` returned by ",
+		"usage: `PeeringSummary.Usage` returned by ",
+		"sizes: `CreateQueueRequest.Sizes` returned by ",
+		"sizes: `UpdateQueueSettingsRequest.Sizes` returned by ",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("changes =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

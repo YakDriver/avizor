@@ -677,10 +677,19 @@ func groupChanges(works []enrich.Work) []*change {
 		if j < 0 && fromSummary(c) {
 			// A summary repeats the members of the full shape, the argument's or an attribute's, of the same resource:
 			// the summary's callers, if any, also call the full shape's operations. List resources and sweepers call
-			// only the list, so they don't count: ScopeSummary is what scope_list.go lists of aws_networksecuritymanager_scope.
+			// only the list, so they don't count, but a list resource names its resource: ScopeSummary is what
+			// scope_list.go lists of aws_networksecuritymanager_scope.
 			related := func(o *change) bool {
-				return o != c && o.name == c.name && slices.Equal(o.paths, c.paths) && (sameScalar(o.field, c.field) || sameShape(o.field, c.field)) &&
-					(!called(withoutListFiles(c.works)) || readBy(withoutListFiles(c.works), o.works))
+				if o == c || o.name != c.name || !slices.Equal(o.paths, c.paths) || !sameScalar(o.field, c.field) && !sameShape(o.field, c.field) {
+					return false
+				}
+				if own := withoutListFiles(c.works); called(own) {
+					return readBy(own, o.works)
+				}
+				// Only list files call it: the summary must be of the other change's noun (ChannelSummary of Channel,
+				// DocumentIdentifier of CreateDocumentRequest), or be listed by its resource's list resource
+				// (document_list.go for document.go). A sweeper lists every resource, so it says nothing.
+				return !called(c.works) || summaryOf(c.works, o.works) || listedBy(c.works, o.works)
 			}
 			j = slices.IndexFunc(cs, func(o *change) bool { return related(o) && o.argument })
 			if j < 0 {
@@ -763,9 +772,11 @@ func fromSummary(c *change) bool {
 	})
 }
 
-// sameScalar reports whether two fields are the same scalar type, and for enums, have the same values.
+// sameScalar reports whether two fields are the same type with no listed members: the same element type, enum
+// values, and recursive or unlisted shape. A list of strings and a list of integers aren't the same.
 func sameScalar(a, b *enrich.Field) bool {
-	return a != nil && b != nil && a.Type == b.Type && len(a.Fields) == 0 && len(b.Fields) == 0 && slices.Equal(a.Values, b.Values)
+	return a != nil && b != nil && a.Type == b.Type && a.Elem == b.Elem && len(a.Fields) == 0 && len(b.Fields) == 0 &&
+		slices.Equal(a.Values, b.Values) && a.Recursive == b.Recursive && a.Unlisted == b.Unlisted
 }
 
 // sharedCaller reports whether a provider file calls operations of both sets of works: the same resource has them.
@@ -794,6 +805,36 @@ func withoutListFiles(ws []enrich.Work) []enrich.Work {
 		out[i] = w
 	}
 	return out
+}
+
+// summaryOf reports whether the summary works' shapes are summaries of a noun one of the full works' shapes is of:
+// ChannelSummary or ChannelMetadata of Channel or DescribeChannelResponse.
+func summaryOf(summary, full []enrich.Work) bool {
+	nouns := map[string]bool{}
+	for _, w := range full {
+		shape, _, _ := strings.Cut(w.Subject, ".")
+		nouns[shapeNoun(shape)] = true
+	}
+	return slices.ContainsFunc(summary, func(w enrich.Work) bool {
+		shape, _, _ := strings.Cut(w.Subject, ".")
+		for _, suffix := range []string{"Summary", "Metadata", "Identifier", "Info", "Item", "Entry"} {
+			if base, ok := strings.CutSuffix(shape, suffix); ok && base != "" && nouns[base] {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// listedBy reports whether a list resource that calls the summary's operations is the list of a file that calls the
+// other works': X_list.go for X.go.
+func listedBy(summary, full []enrich.Work) bool {
+	return slices.ContainsFunc(summary, func(w enrich.Work) bool {
+		return slices.ContainsFunc(w.UsedBy, func(f string) bool {
+			base, ok := strings.CutSuffix(f, "_list.go")
+			return ok && slices.ContainsFunc(full, func(o enrich.Work) bool { return slices.Contains(o.UsedBy, base+".go") })
+		})
+	})
 }
 
 // called reports whether a provider file calls one of the works' operations.

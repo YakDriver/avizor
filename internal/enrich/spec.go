@@ -163,17 +163,14 @@ func buildSpecs(ws []Work, m *smithy.Model, d *smithy.Diff) {
 
 func buildSpec(m *smithy.Model, w Work, resourceTypes []string) *Spec {
 	s := &Spec{Operations: roles(w.Subject, w.Operations)}
-	ops := s.Operations
+	ops := &s.Operations
 
 	create, read := first(ops.Create), first(ops.Read)
-	if create != "" && read == "" && len(ops.List) == 0 {
+	if create != "" && read == "" {
 		// The release may add a create for a noun the model could already read.
-		for _, v := range []string{"Get", "Describe"} {
-			if op := v + w.Subject; m.Shapes[op].Type == smithy.TypeOperation && !slices.Contains(w.Operations, op) {
-				read, s.ExistingRead = op, op
-				s.Operations.Read = []string{op}
-				break
-			}
+		if op := existingRead(m, w); op != "" {
+			read, s.ExistingRead = op, op
+			ops.Read = []string{op}
 		}
 	}
 	if create == "" && read == "" {
@@ -261,6 +258,24 @@ func buildSpec(m *smithy.Model, w Work, resourceTypes []string) *Spec {
 	}
 	s.Notes = notes(m, noteOps, noteInputs)
 	return s
+}
+
+// existingRead returns the model's read of a resource's noun that the release doesn't add: Get or Describe of the
+// noun, then of its plural (DescribePolicies for Policy), or "".
+func existingRead(m *smithy.Model, w Work) string {
+	nouns := []string{w.Subject}
+	if base, ok := strings.CutSuffix(w.Subject, "y"); ok {
+		nouns = append(nouns, base+"ies")
+	}
+	nouns = append(nouns, w.Subject+"s", w.Subject+"es")
+	for _, n := range nouns {
+		for _, v := range []string{"Get", "Describe"} {
+			if op := v + n; m.Shapes[op].Type == smithy.TypeOperation && !slices.Contains(w.Operations, op) {
+				return op
+			}
+		}
+	}
+	return ""
 }
 
 // roles sorts a group's operations by role. An operation whose noun is the group's subject is singular; a Describe,
