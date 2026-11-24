@@ -287,22 +287,21 @@ func (e *evalItems) post(ctx context.Context, url string) (*evalPost, error) {
 	return ep, ep.err
 }
 
-// PostText is what a post is reconciled from, as posts does.
-func (e *evalItems) PostText(ctx context.Context, url string) (string, error) {
+// PostText is what a post is reconciled from, and the operations new for it, as posts does.
+func (e *evalItems) PostText(ctx context.Context, url string) (string, reconcile.OperationSet, error) {
 	ep, err := e.post(ctx, url)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return postText(*ep.p, ep.anns), nil
+	idx, err := e.itemIndex(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	return postText(*ep.p, ep.anns), idx.NewOperations(*ep.p), nil
 }
 
-// PostState classifies a reconciled post as posts does, without a decision.
-func (e *evalItems) PostState(ctx context.Context, url string, res *reconcile.Result) (eval.PostState, error) {
-	ep, err := e.post(ctx, url)
-	if err != nil {
-		return eval.PostState{}, err
-	}
-	pe := postEntry(*ep.p, ep.anns, res, nil, 0, time.Now())
+// itemIndex loads every pulled item once, for post cases.
+func (e *evalItems) itemIndex(ctx context.Context) (*enrich.ItemIndex, error) {
 	e.idxOnce.Do(func() {
 		ist, err := openItems(e.c.dir)
 		if err != nil {
@@ -312,11 +311,22 @@ func (e *evalItems) PostState(ctx context.Context, url string, res *reconcile.Re
 		defer ist.Close()
 		e.idx, e.idxErr = loadItemIndex(ctx, ist, announcements(e.c.dir, e.stderr))
 	})
-	if e.idxErr != nil {
-		return eval.PostState{}, e.idxErr
+	return e.idx, e.idxErr
+}
+
+// PostState classifies a reconciled post as posts does, without a decision.
+func (e *evalItems) PostState(ctx context.Context, url string, res *reconcile.Result) (eval.PostState, error) {
+	ep, err := e.post(ctx, url)
+	if err != nil {
+		return eval.PostState{}, err
+	}
+	pe := postEntry(*ep.p, ep.anns, res, nil, 0, time.Now())
+	idx, err := e.itemIndex(ctx)
+	if err != nil {
+		return eval.PostState{}, err
 	}
 	var ids []string
-	for _, it := range rankPostItems(e.idx, *ep.p, ep.anns) {
+	for _, it := range rankPostItems(idx, *ep.p, ep.anns) {
 		ids = append(ids, it.ID)
 	}
 	return eval.PostState{State: pe.State, Numbers: pe.Numbers, Significant: pe.Significant, Signals: pe.Signals, Items: ids}, nil

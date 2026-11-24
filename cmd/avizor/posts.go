@@ -226,6 +226,7 @@ func cmdPosts(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 			for i := range next {
 				matched[i] = postAnnouncements(anns, ps[i])
 				postItems[i] = rankPostItems(idx, ps[i], matched[i])
+				r.NewOperations = idx.NewOperations(ps[i])
 				results[i], errs[i] = r.Run(ctx, "", postText(ps[i], matched[i]))
 			}
 		})

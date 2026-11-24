@@ -70,6 +70,10 @@ type Reconciler struct {
 	// the names came from, for provenance.
 	Operations       OperationSet
 	OperationsSource string
+	// NewOperations, if set, makes an operation named in an input other than an item strong only when the set has it.
+	// Posts set it to the operations recent SDK releases added: an old operation such as InvokeModel, named in a post's
+	// excerpt, matches issues and PRs about any feature that calls it.
+	NewOperations OperationSet
 	// AsOf, if set, reconciles against the index as it was at that time. See index.Store.AsOf. Code search reflects
 	// the checkout as it is now, so callers usually set Options.NoCode with it.
 	AsOf time.Time
@@ -189,6 +193,8 @@ func (r *Reconciler) run(ctx context.Context, in *input) (*Result, error) {
 			strength := signalStrength(h, focus, request)
 			if in.item != nil {
 				strength = in.item.strength(h.Kind, h.Value, h.Where)
+			} else if h.Kind == signal.KindOp && r.NewOperations != nil && !r.NewOperations.Has(h.Value) {
+				strength = StrengthWeak
 			}
 			get(h.Number).addSignal(Match{Type: h.Kind, Value: h.Value, Where: h.Where, Strength: strength})
 		}

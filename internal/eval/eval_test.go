@@ -516,8 +516,8 @@ type fakePosts struct {
 	states map[string]PostState
 }
 
-func (f *fakePosts) PostText(context.Context, string) (string, error) {
-	return "Support CreateWidget", nil
+func (f *fakePosts) PostText(context.Context, string) (string, reconcile.OperationSet, error) {
+	return "Support CreateWidget", nil, nil
 }
 
 func (f *fakePosts) PostState(_ context.Context, url string, _ *reconcile.Result) (PostState, error) {

@@ -34,6 +34,8 @@
 #                      (2026-11-19T19:15Z). They should be open and significant.
 #   post-no-work       Posts from the same pass decided as having no Terraform work. They measure significance
 #                      precision; a significant one doesn't fail.
+#   post-generic-op    Posts with no work covered only through an old operation in the excerpt (#93). They should be
+#                      open.
 #
 # The gap sample: 32 items drafted in a seeded random order (seed 20261112) from items in implemented services with
 # the SDK version available and some inferred work, until 30 had no confident existing work. Each was hand-checked
@@ -3665,4 +3667,39 @@ case "item-partial-bedrockagentcorecontrol-2026-11-10" {
   note  = "resourceConfigurations (#80): only #50911, a gateway request, names it, as out of scope; #51142 came later"
   state = "partial"
   same  = [50911, 50972, 51024, 51074]
+}
+
+# Posts with no Terraform work that only issues and PRs naming an old operation from the excerpt covered (#93),
+# decided as skipped on 2026-11-24. They should be open.
+
+case "post-generic-op-bedrock-claude-india" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/amazon-bedrock-expands-claude-model-availability-to-india-cross-region-inference/"
+  as_of = "2026-11-24T14:00:00Z"
+  kind  = "post-generic-op"
+  note  = "model Region expansion; InvokeModel matched 10 Bedrock issues and PRs, and references 6 more"
+  state = "open"
+}
+
+case "post-generic-op-agentcore-gateway-mcp" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/how-agentcore-gateway-supports-the-mcp-2026-07-28-spec/"
+  as_of = "2026-11-24T14:00:00Z"
+  kind  = "post-generic-op"
+  note  = "a new value of supported_versions; UpdateGateway matched 14 gateway issues and PRs"
+  state = "open"
+}
+
+case "post-generic-op-sagemaker-async-inline" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/amazon-sagemaker-ai-async-inference-now-supports-inline-request-payloads/"
+  as_of = "2026-11-24T14:00:00Z"
+  kind  = "post-generic-op"
+  note  = "a runtime change; InvokeEndpointAsync matched 13, mostly SDK bump PRs"
+  state = "open"
+}
+
+case "post-generic-op-quick-custom-permissions" {
+  post  = "https://aws.amazon.com/blogs/machine-learning/automate-user-level-custom-permissions-for-amazon-quick/"
+  as_of = "2026-11-24T14:00:00Z"
+  kind  = "post-generic-op"
+  note  = "already supported; RegisterUser matched 4, 3 of them SDK bump PRs"
+  state = "open"
 }

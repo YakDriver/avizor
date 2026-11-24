@@ -47,6 +47,8 @@ func TestPostSignificance(t *testing.T) {
 			signals: []string{SignalLaunch}, kind: KindRoundup},
 		"model in bedrock": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/aws/m/", Title: "Pegasus 1.5 from TwelveLabs is now available in Amazon Bedrock"},
 			signals: []string{SignalNewsBlog}, kind: KindModelAvailability},
+		"bedrock expands models": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/machine-learning/m/", Title: "Amazon Bedrock expands Claude model availability to in-country inferencing in India"},
+			anns: ann, signals: []string{SignalAnnouncement}, kind: KindModelAvailability},
 		"model in jumpstart": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/machine-learning/m/", Title: "PolyAI Dialog-RSN-1 is now on Amazon SageMaker JumpStart", Tags: launch},
 			signals: []string{SignalLaunch}, kind: KindModelAvailability},
 		"introducing on aws": {p: whatsnew.Post{URL: "https://aws.amazon.com/blogs/networking-and-content-delivery/n/", Title: "Introducing 1:1 NAT on AWS Transit Gateway and AWS Cloud WAN", Tags: launch},
