@@ -554,3 +554,116 @@ func TestScopeBlockInputLimits(t *testing.T) {
 		t.Errorf("body reassigns an attribute:\n%s", d.Body)
 	}
 }
+
+// TestGroupChangesMerge covers #87: one field from inputs of different nouns, or a block's create and update shapes,
+// joins; blocks of different shapes, other resources' inputs, and a summary listed only by a list resource don't.
+func TestGroupChangesMerge(t *testing.T) {
+	t.Parallel()
+
+	zone, record, lag, conn := "internal/service/widget/zone.go", "internal/service/widget/record.go", "internal/service/widget/lag.go", "internal/service/widget/connection.go"
+	sweep, list, document := "internal/service/widget/sweep.go", "internal/service/widget/document_list.go", "internal/service/widget/document.go"
+	guard := &enrich.Field{Type: "list", Elem: "structure", Fields: []enrich.Field{{Name: "name", Type: "string"}}}
+	flag := &enrich.Field{Type: "boolean"}
+	mode := &enrich.Field{Type: "enum", Values: []string{"A", "B"}}
+	cs := groupChanges([]enrich.Work{
+		{Kind: enrich.WorkNewArgument, Subject: "CreateHostedZoneRequest.ChangeGuardrails", Operations: []string{"CreateHostedZone"}, UsedBy: []string{zone}, Field: guard},
+		{Kind: enrich.WorkNewArgument, Subject: "UpdateHostedZoneFeaturesRequest.ChangeGuardrails", Operations: []string{"UpdateHostedZoneFeatures"}, UsedBy: []string{zone}, Field: guard},
+		{Kind: enrich.WorkNewArgument, Subject: "AgentAccessConfig.ReplaySessionEnabled", Operations: []string{"CreateStack"}, UsedBy: []string{zone}, Field: flag},
+		{Kind: enrich.WorkNewArgument, Subject: "AgentAccessConfigForUpdate.ReplaySessionEnabled", Operations: []string{"UpdateStack"}, UsedBy: []string{zone}, Field: flag},
+		// Different blocks with a member of the same name.
+		{Kind: enrich.WorkNewArgument, Subject: "CustomOriginConfig.HttpVersion", Operations: []string{"CreateDistribution"}, UsedBy: []string{record}, Field: mode},
+		{Kind: enrich.WorkNewArgument, Subject: "VpcOriginConfig.HttpVersion", Operations: []string{"CreateDistribution"}, UsedBy: []string{record}, Field: mode},
+		// Two resources' create inputs that only the sweeper calls together.
+		{Kind: enrich.WorkNewArgument, Subject: "CreateConnectionRequest.BillingMode", Operations: []string{"CreateConnection"}, UsedBy: []string{conn}, Field: mode},
+		{Kind: enrich.WorkNewAttribute, Subject: "Connection.BillingMode", Operations: []string{"DescribeConnections"}, UsedBy: []string{conn, lag, sweep}, Field: mode},
+		{Kind: enrich.WorkNewArgument, Subject: "CreateLagRequest.BillingMode", Operations: []string{"CreateLag"}, UsedBy: []string{lag, sweep}, Field: mode},
+		// A summary that only its resource's list resource calls joins the argument; one that another resource's list
+		// resource calls doesn't, and a list of integers isn't a list of strings.
+		{Kind: enrich.WorkNewArgument, Subject: "CreateDocumentRequest.Platforms", Operations: []string{"CreateDocument"}, UsedBy: []string{document}, Field: mode},
+		{Kind: enrich.WorkNewAttribute, Subject: "DocumentIdentifier.Platforms", Operations: []string{"ListDocuments"}, UsedBy: []string{list, sweep}, Field: mode},
+		{Kind: enrich.WorkNewArgument, Subject: "CreateCertificateRequest.Usage", Operations: []string{"CreateCertificate"}, UsedBy: []string{record}, Field: mode},
+		{Kind: enrich.WorkNewAttribute, Subject: "PeeringSummary.Usage", Operations: []string{"ListPeerings"}, UsedBy: []string{"internal/service/widget/peering_list.go"}, Field: mode},
+		{Kind: enrich.WorkNewArgument, Subject: "CreateQueueRequest.Sizes", Operations: []string{"CreateQueue"}, UsedBy: []string{zone}, Field: &enrich.Field{Type: "list", Elem: "string"}},
+		{Kind: enrich.WorkNewArgument, Subject: "UpdateQueueSettingsRequest.Sizes", Operations: []string{"UpdateQueueSettings"}, UsedBy: []string{zone}, Field: &enrich.Field{Type: "list", Elem: "integer"}},
+		// Nested fields that differ below the first level, and a query's filter, stay apart.
+		{Kind: enrich.WorkNewArgument, Subject: "CreateQueueRequest.Options", Operations: []string{"CreateQueue"}, UsedBy: []string{zone},
+			Field: &enrich.Field{Type: "structure", Fields: []enrich.Field{{Name: "sizes", Type: "list", Elem: "string"}}}},
+		{Kind: enrich.WorkNewArgument, Subject: "UpdateQueueSettingsRequest.Options", Operations: []string{"UpdateQueueSettings"}, UsedBy: []string{zone},
+			Field: &enrich.Field{Type: "structure", Fields: []enrich.Field{{Name: "sizes", Type: "list", Elem: "integer"}}}},
+		{Kind: enrich.WorkNewArgument, Subject: "CreateQueueRequest.QueueType", Operations: []string{"CreateQueue"}, UsedBy: []string{zone}, Field: mode},
+		{Kind: enrich.WorkNewArgument, Subject: "ListQueuesRequest.QueueType", Operations: []string{"ListQueues"}, UsedBy: []string{zone, "internal/service/widget/queues_data_source.go"}, Field: mode},
+	})
+	var got []string
+	for _, c := range cs {
+		got = append(got, c.name+": "+strings.Join(c.subjects, ", ")+" returned by "+strings.Join(c.returned, ", "))
+	}
+	want := []string{
+		"change_guardrails: `CreateHostedZoneRequest.ChangeGuardrails`, `UpdateHostedZoneFeaturesRequest.ChangeGuardrails` returned by ",
+		"replay_session_enabled: `AgentAccessConfig.ReplaySessionEnabled`, `AgentAccessConfigForUpdate.ReplaySessionEnabled` returned by ",
+		"http_version: `CustomOriginConfig.HttpVersion` returned by ",
+		"http_version: `VpcOriginConfig.HttpVersion` returned by ",
+		"billing_mode: `CreateConnectionRequest.BillingMode` returned by `Connection.BillingMode`",
+		"billing_mode: `CreateLagRequest.BillingMode` returned by ",
+		"platforms: `CreateDocumentRequest.Platforms` returned by `DocumentIdentifier.Platforms`",
+		"usage: `CreateCertificateRequest.Usage` returned by ",
+		"usage: `PeeringSummary.Usage` returned by ",
+		"sizes: `CreateQueueRequest.Sizes` returned by ",
+		"sizes: `UpdateQueueSettingsRequest.Sizes` returned by ",
+		"options: `CreateQueueRequest.Options` returned by ",
+		"options: `UpdateQueueSettingsRequest.Options` returned by ",
+		"queue_type: `CreateQueueRequest.QueueType` returned by ",
+		"queue_type: `ListQueuesRequest.QueueType` returned by ",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("changes =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// TestShapeNamed checks that a nested shape's words pick among several resources.
+func TestShapeNamed(t *testing.T) {
+	t.Parallel()
+
+	names := []string{"aws_fsx_ontap_volume", "aws_fsx_openzfs_snapshot", "aws_fsx_openzfs_volume"}
+	for _, tc := range []struct {
+		subject string
+		want    []string
+	}{
+		{"CreateOntapVolumeConfiguration.CloneConfiguration", []string{"aws_fsx_ontap_volume"}},
+		{"Snapshot.SnapshotType", []string{"aws_fsx_openzfs_snapshot"}},
+		// No resource has the shape's words, or the member is top-level: all are kept.
+		{"FailureDetails.Message", names},
+		{"CreateVolumeRequest.Size", names},
+	} {
+		ws := []enrich.Work{{Subject: tc.subject, Operations: []string{"CreateVolume"}}}
+		if got := shapeNamed(names, ws, "aws_"); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: shapeNamed = %v, want %v", tc.subject, got, tc.want)
+		}
+	}
+}
+
+// TestScopeNoRead checks the notes for a new resource with no read operation, and with one the model already has.
+func TestScopeNoRead(t *testing.T) {
+	t.Parallel()
+
+	en := implemented("widget",
+		enrich.Work{Kind: enrich.WorkNewResource, Subject: "Secret", Spec: &enrich.Spec{
+			Operations: enrich.SpecOperations{Create: []string{"CreateSecret"}, Delete: []string{"DeleteSecret"}}}},
+		enrich.Work{Kind: enrich.WorkNewResource, Subject: "Gadget", Spec: &enrich.Spec{ExistingRead: "GetGadget",
+			Operations: enrich.SpecOperations{Create: []string{"CreateGadget"}, Read: []string{"GetGadget"}}}},
+	)
+	d, err := New(item("widget", "Adds secrets."), en, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"- No read operation, so changes outside Terraform aren't detected. <!-- decide: resource without a read, or none -->\n",
+		"- Read is `GetGadget`, which the model already has.\n",
+	} {
+		if !strings.Contains(d.Body, want) {
+			t.Errorf("body has no %q:\n%s", want, d.Body)
+		}
+	}
+	if n := strings.Count(d.Body, "No read operation"); n != 1 {
+		t.Errorf("%d no-read notes, want 1:\n%s", n, d.Body)
+	}
+}
