@@ -43,6 +43,8 @@ type Shape struct {
 	Constraints Constraints
 	// Info has structure and union members' traits that matter for a resource's schema, for members with any.
 	Info map[string]MemberInfo
+	// Sensitive is set for a shape with the sensitive trait, such as a token or secret string.
+	Sensitive bool
 }
 
 // Constraints are a shape's or member's validation traits. Length applies to strings, lists, and maps; Range to
@@ -85,6 +87,8 @@ type MemberInfo struct {
 	Default     string      `json:"default,omitempty"`
 	Deprecated  bool        `json:"deprecated,omitempty"`
 	Constraints Constraints `json:"constraints,omitzero"`
+	// Sensitive is set for a member with the sensitive trait.
+	Sensitive bool `json:"sensitive,omitempty"`
 }
 
 func (i MemberInfo) empty() bool {
@@ -118,6 +122,7 @@ func infoOf(traits map[string]json.RawMessage) MemberInfo {
 	_, i.Required = traits["smithy.api#required"]
 	_, i.IdempotencyToken = traits["smithy.api#idempotencyToken"]
 	_, i.Deprecated = traits["smithy.api#deprecated"]
+	_, i.Sensitive = traits["smithy.api#sensitive"]
 	if raw, ok := traits["smithy.api#default"]; ok {
 		i.Default = string(raw)
 	}
@@ -248,6 +253,7 @@ func Parse(data []byte) (*Model, error) {
 			continue
 		}
 		sh := Shape{Type: s.Type, Doc: docOf(s.Traits), Constraints: constraintsOf(s.Traits)}
+		_, sh.Sensitive = s.Traits["smithy.api#sensitive"]
 		if s.Input != nil {
 			sh.Input = shortName(s.Input.Target)
 		}

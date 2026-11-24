@@ -125,7 +125,7 @@ Post `items` are the SDK items a post's issues track, for 32 of the 36 posts wit
 
 The gap sample tests the claim behind every gap draft: that nothing covers the item. Items in implemented services, with the SDK version available and some inferred work, were drafted in a seeded random order until 30 had no confident existing work (32 drafted; the other 2 had correct confident candidates). Each was checked by hand against provider code and a GitHub search of issues and PRs. These labels don't come from the release-commit signal Avizor matches on.
 
-The covered sample tests the opposite claim: that a `covered` item, which the queue hides, needs nothing more. It's 30 of the 61 covered items that aren't other item cases, in a seeded random order (seed 13). Two items (Network Firewall and DevOps Agent) were first labeled `covered` and relabeled `partial` after the queue flagged them, so those two labels could be biased toward Avizor's output.
+The covered sample tests the opposite claim: that a `covered` item, which the queue hides, needs nothing more. It's 30 of the 61 covered items that aren't other item cases, in a seeded random order (seed 13). Two items (Network Firewall and DevOps Agent) were first labeled `covered` and relabeled `partial` after the queue flagged them, so those two labels could be biased toward Avizor's output. A third, CloudWatch Omni 2026-09-22, was relabeled `partial` with #86: its `GetSpaceCredentialsForOrganization` is an ephemeral resource that no code or issue covers.
 
 `same` and `different` labels were added by reading each confident candidate. Gap-sample cases were judged against provider `main` at `37436a92a45` (2026-11-12), and covered-sample and `item-partial` cases at `873712b39f8` (2026-11-13).
 

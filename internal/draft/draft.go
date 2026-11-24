@@ -364,12 +364,15 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 		addLabel(cmp(opts.LabelPrefix, "service/")+pkg, "the new service's package would most likely be named after its SDK module")
 	}
 
-	var newTypes, newDataSources []string
+	var newTypes, newDataSources, newEphemeral []string
 	for _, w := range en.Work {
 		switch w.Kind {
 		case enrich.WorkNewResource:
 			addLabel("new-resource", w.Basis)
 			newTypes = append(newTypes, opts.Prefix+pkg+"_"+enrich.Snake(w.Subject))
+		case enrich.WorkNewEphemeral:
+			addLabel("new-ephemeral-resource", w.Basis)
+			newEphemeral = append(newEphemeral, opts.Prefix+pkg+"_"+enrich.Snake(w.Subject))
 		case enrich.WorkNewDataSource:
 			// Not labeled: new read operations are usually statuses or sub-resource listings, not data sources.
 			newDataSources = append(newDataSources, opts.Prefix+pkg+"_"+enrich.Snake(w.Subject))
@@ -379,6 +382,15 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 	subject := strings.TrimSuffix(headline, ".")
 	service := cmp(it.Service.SDKID, en.Service.Package, it.Service.Module)
 	switch {
+	case len(newEphemeral) == 1 && len(newTypes) == 0:
+		title := fmt.Sprintf("New ephemeral resource: `%s`", newEphemeral[0])
+		infer("title", title, "one new ephemeral resource: an operation returning a sensitive value, with no read, update, or delete")
+		infer("terraform_name", newEphemeral[0], "provider prefix, service package, and the operation's noun in snake case")
+		return title, labels
+	case len(newEphemeral) > 1 && len(newTypes) == 0 && len(newDataSources) == 0:
+		title := "New ephemeral resources: " + addNames(newEphemeral)
+		infer("title", title, "new ephemeral resources: operations returning sensitive values, with no read, update, or delete")
+		return title, labels
 	case len(newTypes) == 1:
 		title := fmt.Sprintf("New resource: `%s`", newTypes[0])
 		infer("title", title, "one new resource inferred from the new operations")

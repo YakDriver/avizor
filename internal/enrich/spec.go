@@ -79,6 +79,9 @@ type Field struct {
 	Unlisted string `json:"unlisted,omitempty"`
 	// Empty is set for a structure, or a list or map of structures, with no members, such as a union's none option.
 	Empty bool `json:"empty,omitempty"`
+	// Sensitive is set for an ephemeral resource's member that holds a secret: one with the sensitive trait, on it or
+	// below it, named like a token, secret, password, credentials, or key.
+	Sensitive bool `json:"sensitive,omitempty"`
 }
 
 // SpecStatus is the read result's status member and its values, grouped.
@@ -155,6 +158,12 @@ func buildSpecs(ws []Work, m *smithy.Model, d *smithy.Diff) {
 		}
 	}
 	for i := range ws {
+		if op := ephemeralOperation(m, ws[i]); op != "" {
+			ws[i].Kind = WorkNewEphemeral
+			ws[i].Basis = "new operation " + op + " returns a sensitive value, with no read, update, or delete, for " + ws[i].Subject
+			ws[i].Spec = ephemeralSpec(m, op)
+			continue
+		}
 		if ws[i].Kind == WorkNewResource || ws[i].Kind == WorkNewDataSource {
 			ws[i].Spec = buildSpec(m, ws[i], resourceTypes)
 		}
@@ -257,6 +266,125 @@ func buildSpec(m *smithy.Model, w Work, resourceTypes []string) *Spec {
 		noteInputs = argInputs(m, []string{read})
 	}
 	s.Notes = notes(m, noteOps, noteInputs)
+	return s
+}
+
+// ephemeralVerbs open an ephemeral resource: an operation that creates or gets a value, like CreateBearerToken or
+// GetScopedCredentials.
+var ephemeralVerbs = []string{"Create", "Get", "Generate", "Issue"}
+
+// ephemeralOperation returns the operation of a new resource, data source, or other operation that is better an
+// ephemeral resource: its only operation creates or gets a value, its output holds a secret within specDepth levels,
+// and the model has no other operation for its noun that reads, updates, deletes, or lists it. A token or credentials
+// returned this way would otherwise be in state, and with nothing else to call there's nothing to manage. Returns ""
+// otherwise.
+func ephemeralOperation(m *smithy.Model, w Work) string {
+	if (w.Kind != WorkNewResource && w.Kind != WorkNewDataSource && w.Kind != WorkNewOperation) || len(w.Operations) != 1 {
+		return ""
+	}
+	op := w.Operations[0]
+	v, noun := splitVerb(op)
+	if !slices.Contains(ephemeralVerbs, v) || m.Shapes[op].Type != smithy.TypeOperation || managed(m, op, noun) {
+		return ""
+	}
+	if !sensitiveIn(m, m.Shapes[op].Output, 1, map[string]int{}) {
+		return ""
+	}
+	return op
+}
+
+// managed reports whether the model has an operation other than op that reads, updates, deletes, or lists noun, or
+// its plural: a CreateSecret with a DeleteSecret makes a resource, even when the release adds only the create.
+func managed(m *smithy.Model, op, noun string) bool {
+	nouns := []string{noun, noun + "s", noun + "es"}
+	if base, ok := strings.CutSuffix(noun, "y"); ok {
+		nouns = append(nouns, base+"ies")
+	}
+	for _, v := range []string{"Get", "BatchGet", "Describe", "Update", "Modify", "Put", "Delete", "Cancel", "List"} {
+		for _, n := range nouns {
+			if o := v + n; o != op && m.Shapes[o].Type == smithy.TypeOperation {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// secretRE matches the names of members and shapes that hold secrets. The sensitive trait alone also marks personal
+// data, such as names and email addresses, which isn't a credential.
+var secretRE = regexp.MustCompile(`(?i)token|secret|password|passphrase|credential|privatekey|accesskey|sessionkey`)
+
+// sensitiveIn reports whether a structure's members, at level (1 for an output's own members), or their nested fields
+// down to specDepth, hold a secret: a member with the sensitive trait, on it, its target, or its list or map element,
+// whose name or target's name looks like a secret (secretRE). Levels count as fields do: a structure's members are a
+// level below it, and a list's element structure's members too. Paging members, like a sensitive NextToken, are left
+// out, as fields leaves them out. levels records the shallowest level each shape was walked at, so a shape shared by a
+// deep and a shallow path is walked again at the shallow one.
+func sensitiveIn(m *smithy.Model, shape string, level int, levels map[string]int) bool {
+	sh, ok := m.Shapes[shape]
+	if l, seen := levels[shape]; !ok || level > specDepth || seen && l <= level {
+		return false
+	}
+	levels[shape] = level
+	for _, name := range sortedNames(sh.Members) {
+		if slices.Contains(pagingMembers, name) {
+			continue
+		}
+		if secretMember(m, sh, name) || sensitiveIn(m, nested(m, sh.Members[name]), level+1, levels) {
+			return true
+		}
+	}
+	return false
+}
+
+// nested returns the structure or union whose members are a field's nested fields: the target, or a list's or map's
+// element.
+func nested(m *smithy.Model, target string) string {
+	if e := m.Shapes[target].Elems; len(e) > 0 && (m.TypeOf(target) == "list" || m.TypeOf(target) == "set" || m.TypeOf(target) == "map") {
+		return e[len(e)-1]
+	}
+	return target
+}
+
+// secretMember reports whether a structure's member is a secret: sensitive, on the member, its target, or its
+// element, and named like one.
+func secretMember(m *smithy.Model, sh smithy.Shape, name string) bool {
+	t := sh.Members[name]
+	e := nested(m, t)
+	return (sh.Info[name].Sensitive || m.Shapes[t].Sensitive || m.Shapes[e].Sensitive) &&
+		(secretRE.MatchString(name) || secretRE.MatchString(t) || secretRE.MatchString(e))
+}
+
+// markSecrets marks the fields of a structure, at level, and their nested fields, that hold a secret. A structure
+// that holds one, like STS's Credentials, is sensitive as a whole.
+func markSecrets(m *smithy.Model, shape string, fs []Field, level int) {
+	sh := m.Shapes[shape]
+	for i := range fs {
+		f := &fs[i]
+		target := nested(m, sh.Members[f.Member])
+		f.Sensitive = secretMember(m, sh, f.Member) || sensitiveIn(m, target, level+1, map[string]int{})
+		markSecrets(m, target, f.Fields, level+1)
+	}
+}
+
+// ephemeralSpec is an ephemeral resource's spec: its arguments are the operation's input, its attributes the output's
+// members. A Get is its read, and any other verb its create.
+func ephemeralSpec(m *smithy.Model, op string) *Spec {
+	s := &Spec{}
+	if v, _ := splitVerb(op); v == "Get" {
+		s.Operations.Read = []string{op}
+	} else {
+		s.Operations.Create = []string{op}
+	}
+	in := m.Shapes[op].Input
+	s.Arguments = slices.DeleteFunc(fields(m, in, 1), func(f Field) bool {
+		return m.Shapes[in].Info[f.Member].IdempotencyToken || slices.Contains(pagingMembers, f.Member)
+	})
+	markSecrets(m, in, s.Arguments, 1)
+	out := m.Shapes[op].Output
+	s.Attributes = slices.DeleteFunc(fields(m, out, 1), func(f Field) bool { return slices.Contains(pagingMembers, f.Member) })
+	markSecrets(m, out, s.Attributes, 1)
+	s.Notes = notes(m, []string{op}, []string{in})
 	return s
 }
 
@@ -759,6 +887,9 @@ func FieldText(f Field, argument bool) string {
 	}
 	if f.Deprecated {
 		flags = append(flags, "deprecated")
+	}
+	if f.Sensitive {
+		flags = append(flags, "sensitive")
 	}
 	typ := f.Type
 	single := (f.Type == "list" || f.Type == "set") && (f.Single || f.Constraints.LengthMax != nil && *f.Constraints.LengthMax == 1)

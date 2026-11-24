@@ -339,3 +339,111 @@ func TestFieldShapes(t *testing.T) {
 		}
 	}
 }
+
+// ephemeralModel has a token operation, a credentials read, a read of personal data (sensitive, not a secret), and a
+// token operation with a delete.
+const ephemeralModel = `{
+  "smithy": "2.0",
+  "shapes": {
+    "com.amazonaws.x#Svc": {"type": "service", "traits": {"aws.api#service": {"sdkId": "X"}}},
+    "com.amazonaws.x#CreateBearerToken": {"type": "operation", "input": {"target": "com.amazonaws.x#CreateBearerTokenRequest"},
+      "output": {"target": "com.amazonaws.x#CreateBearerTokenResponse"}},
+    "com.amazonaws.x#CreateBearerTokenRequest": {"type": "structure", "members": {
+      "DurationSeconds": {"target": "smithy.api#Integer"},
+      "ClientToken": {"target": "smithy.api#String", "traits": {"smithy.api#idempotencyToken": {}}}}},
+    "com.amazonaws.x#CreateBearerTokenResponse": {"type": "structure", "members": {
+      "AccessToken": {"target": "com.amazonaws.x#AccessToken"}, "ExpiresIn": {"target": "smithy.api#Integer"}}},
+    "com.amazonaws.x#AccessToken": {"type": "string", "traits": {"smithy.api#sensitive": {}}},
+    "com.amazonaws.x#GetScopedCredentials": {"type": "operation", "input": {"target": "com.amazonaws.x#GetScopedCredentialsRequest"},
+      "output": {"target": "com.amazonaws.x#GetScopedCredentialsResponse"}},
+    "com.amazonaws.x#GetScopedCredentialsRequest": {"type": "structure", "members": {"Policy": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#GetScopedCredentialsResponse": {"type": "structure", "members": {
+      "Credentials": {"target": "com.amazonaws.x#Credentials"}, "SourceIdentity": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#Credentials": {"type": "structure", "members": {
+      "AccessKeyId": {"target": "smithy.api#String"},
+      "SecretAccessKey": {"target": "smithy.api#String", "traits": {"smithy.api#sensitive": {}}}}},
+    "com.amazonaws.x#GetContacts": {"type": "operation", "output": {"target": "com.amazonaws.x#GetContactsResponse"}},
+    "com.amazonaws.x#GetContactsResponse": {"type": "structure", "members": {"EmailAddress": {"target": "com.amazonaws.x#Email"}}},
+    "com.amazonaws.x#Email": {"type": "string", "traits": {"smithy.api#sensitive": {}}},
+    "com.amazonaws.x#CreateApiKey": {"type": "operation", "output": {"target": "com.amazonaws.x#CreateBearerTokenResponse"}},
+    "com.amazonaws.x#DeleteApiKey": {"type": "operation"},
+    "com.amazonaws.x#GenerateDataKey": {"type": "operation", "output": {"target": "com.amazonaws.x#GenerateDataKeyResponse"}},
+    "com.amazonaws.x#GenerateDataKeyResponse": {"type": "structure", "members": {
+      "Alpha": {"target": "com.amazonaws.x#Outer"}, "Zed": {"target": "com.amazonaws.x#Middle"}}},
+    "com.amazonaws.x#Outer": {"type": "structure", "members": {"Inner": {"target": "com.amazonaws.x#Middle"}}},
+    "com.amazonaws.x#Middle": {"type": "structure", "members": {"Deep": {"target": "com.amazonaws.x#Holder"}}},
+    "com.amazonaws.x#Holder": {"type": "structure", "members": {"Plaintext": {"target": "com.amazonaws.x#SecretBlob"}}},
+    "com.amazonaws.x#SecretBlob": {"type": "blob", "traits": {"smithy.api#sensitive": {}}},
+    "com.amazonaws.x#GetPeople": {"type": "operation", "output": {"target": "com.amazonaws.x#GetPeopleResponse"}},
+    "com.amazonaws.x#GetPeopleResponse": {"type": "structure", "members": {
+      "Names": {"target": "smithy.api#String"}, "NextToken": {"target": "com.amazonaws.x#PageToken"}}},
+    "com.amazonaws.x#PageToken": {"type": "string", "traits": {"smithy.api#sensitive": {}}},
+    "com.amazonaws.x#CreateReservation": {"type": "operation", "output": {"target": "com.amazonaws.x#CreateBearerTokenResponse"}},
+    "com.amazonaws.x#CancelReservation": {"type": "operation"},
+    "com.amazonaws.x#GetGroupKeys": {"type": "operation", "output": {"target": "com.amazonaws.x#GetGroupKeysResponse"}},
+    "com.amazonaws.x#GetGroupKeysResponse": {"type": "structure", "members": {"Groups": {"target": "com.amazonaws.x#GroupList"}}},
+    "com.amazonaws.x#GroupList": {"type": "list", "member": {"target": "com.amazonaws.x#Group"}},
+    "com.amazonaws.x#Group": {"type": "structure", "members": {"Entries": {"target": "com.amazonaws.x#EntryList"}}},
+    "com.amazonaws.x#EntryList": {"type": "list", "member": {"target": "com.amazonaws.x#Entry"}},
+    "com.amazonaws.x#Entry": {"type": "structure", "members": {"Secret": {"target": "com.amazonaws.x#SecretBlob"}}},
+    "com.amazonaws.x#GetDeepKeys": {"type": "operation", "output": {"target": "com.amazonaws.x#GetDeepKeysResponse"}},
+    "com.amazonaws.x#GetDeepKeysResponse": {"type": "structure", "members": {"A": {"target": "com.amazonaws.x#LevelA"}}},
+    "com.amazonaws.x#LevelA": {"type": "structure", "members": {"B": {"target": "com.amazonaws.x#LevelB"}}},
+    "com.amazonaws.x#LevelB": {"type": "structure", "members": {"C": {"target": "com.amazonaws.x#Entry"}}}
+  }
+}`
+
+func TestEphemeral(t *testing.T) {
+	t.Parallel()
+
+	m, err := smithy.Parse([]byte(ephemeralModel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := []Work{
+		{Kind: WorkNewResource, Subject: "BearerToken", Operations: []string{"CreateBearerToken"}},
+		{Kind: WorkNewDataSource, Subject: "ScopedCredentials", Operations: []string{"GetScopedCredentials"}},
+		// Personal data is sensitive but not a secret.
+		{Kind: WorkNewDataSource, Subject: "Contacts", Operations: []string{"GetContacts"}},
+		// A delete means there's something to manage, in the release or already in the model.
+		{Kind: WorkNewResource, Subject: "BearerToken", Operations: []string{"CreateBearerToken", "DeleteBearerToken"}},
+		{Kind: WorkNewResource, Subject: "ApiKey", Operations: []string{"CreateApiKey"}},
+		// A Generate is other work; its secret is three levels down by one path, four by another that's walked first.
+		{Kind: WorkNewOperation, Subject: "DataKey", Operations: []string{"GenerateDataKey"}},
+		// A sensitive paging token isn't a secret; an existing Cancel is a lifecycle.
+		{Kind: WorkNewDataSource, Subject: "People", Operations: []string{"GetPeople"}},
+		{Kind: WorkNewResource, Subject: "Reservation", Operations: []string{"CreateReservation"}},
+		// Levels count as fields do: Groups[].Entries[].Secret is the third level, A.B.C.Secret the fourth.
+		{Kind: WorkNewDataSource, Subject: "GroupKeys", Operations: []string{"GetGroupKeys"}},
+		{Kind: WorkNewDataSource, Subject: "DeepKeys", Operations: []string{"GetDeepKeys"}},
+	}
+	buildSpecs(ws, m, nil)
+	for i, want := range []string{WorkNewEphemeral, WorkNewEphemeral, WorkNewDataSource, WorkNewResource, WorkNewResource, WorkNewEphemeral,
+		WorkNewDataSource, WorkNewResource, WorkNewEphemeral, WorkNewDataSource} {
+		if ws[i].Kind != want {
+			t.Errorf("%s %v: kind = %s, want %s", ws[i].Subject, ws[i].Operations, ws[i].Kind, want)
+		}
+	}
+	token := ws[0].Spec
+	if len(token.Arguments) != 1 || token.Arguments[0].Member != "DurationSeconds" {
+		t.Errorf("token arguments = %+v, want DurationSeconds without the client token", token.Arguments)
+	}
+	sensitive := map[string]bool{}
+	for _, f := range slices.Concat(token.Attributes, ws[1].Spec.Attributes) {
+		sensitive[f.Member] = f.Sensitive
+	}
+	if !sensitive["AccessToken"] || sensitive["ExpiresIn"] || !sensitive["Credentials"] || sensitive["SourceIdentity"] {
+		t.Errorf("sensitive attributes = %v", sensitive)
+	}
+	if dk := ws[5].Spec; !slices.Equal(dk.Operations.Create, []string{"GenerateDataKey"}) {
+		t.Errorf("data key operations = %+v, want the Generate as its create", dk.Operations)
+	}
+	// The output's members are the attributes, a wrapper structure too, with nested secrets marked.
+	creds := ws[1].Spec.Attributes[0]
+	if creds.Member != "Credentials" || len(creds.Fields) != 2 || !creds.Fields[1].Sensitive || creds.Fields[0].Sensitive {
+		t.Errorf("credentials = %+v", creds)
+	}
+	if got := FieldText(Field{Type: "string", Sensitive: true}, false); got != "sensitive; string" {
+		t.Errorf("FieldText = %q", got)
+	}
+}

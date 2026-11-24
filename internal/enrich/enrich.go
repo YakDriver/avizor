@@ -49,13 +49,16 @@ const (
 const (
 	WorkNewResource   = "new_resource"
 	WorkNewDataSource = "new_data_source"
-	WorkNewOperation  = "new_operation"
-	WorkNewArgument   = "new_argument"
-	WorkNewAttribute  = "new_attribute"
-	WorkNewEnumValue  = "new_enum_value"
-	WorkTypeChange    = "type_change"
-	WorkRemoval       = "removal"
-	WorkTagging       = "tagging"
+	// WorkNewEphemeral is an ephemeral resource: an operation that returns a token or credentials, with no read,
+	// update, or delete, so the value shouldn't be in state.
+	WorkNewEphemeral = "new_ephemeral_resource"
+	WorkNewOperation = "new_operation"
+	WorkNewArgument  = "new_argument"
+	WorkNewAttribute = "new_attribute"
+	WorkNewEnumValue = "new_enum_value"
+	WorkTypeChange   = "type_change"
+	WorkRemoval      = "removal"
+	WorkTagging      = "tagging"
 )
 
 // Result is an item's enrichment for one target.

@@ -47,7 +47,7 @@ const (
 func resources(en *enrich.Result, pkg, prefix string, decide decider) []Resource {
 	var out []Resource
 	for _, w := range en.Work {
-		if w.Kind != enrich.WorkNewResource && w.Kind != enrich.WorkNewDataSource {
+		if w.Kind != enrich.WorkNewResource && w.Kind != enrich.WorkNewDataSource && w.Kind != enrich.WorkNewEphemeral {
 			continue
 		}
 		s := w.Spec
@@ -56,16 +56,19 @@ func resources(en *enrich.Result, pkg, prefix string, decide decider) []Resource
 			s = &enrich.Spec{Operations: enrich.SpecOperations{Other: w.Operations}}
 		}
 		r := Resource{Kind: "resource", Name: prefix + pkg + "_" + enrich.Snake(w.Subject)}
-		if w.Kind == enrich.WorkNewDataSource {
+		switch w.Kind {
+		case enrich.WorkNewDataSource:
 			r.Kind = "data source"
 			r.Decide = decide(r.Name, "data source, part of another resource, or none")
+		case enrich.WorkNewEphemeral:
+			r.Kind = "ephemeral resource"
 		}
 		var ops []string
 		for _, op := range slices.Concat(s.Operations.Create, s.Operations.Read, s.Operations.Update, s.Operations.Delete, s.Operations.List) {
 			ops = append(ops, "`"+op+"`")
 		}
 		r.Operations = strings.Join(ops, ", ")
-		r.NoRead = w.Spec != nil && len(s.Operations.Read) == 0 && len(s.Operations.List) == 0
+		r.NoRead = w.Kind != enrich.WorkNewEphemeral && w.Spec != nil && len(s.Operations.Read) == 0 && len(s.Operations.List) == 0
 
 		// A data source's arguments are its read input, required or optional too.
 		argument := true
@@ -88,10 +91,18 @@ func resources(en *enrich.Result, pkg, prefix string, decide decider) []Resource
 				r.Lines = append(r.Lines, "  - `tags`")
 			}
 		}
-		if len(s.Attributes) > 0 {
+		if len(s.Attributes) > 0 && w.Kind == enrich.WorkNewEphemeral {
+			// An ephemeral resource's attributes are its result, secrets marked, so they're listed with their fields.
+			r.Lines = append(r.Lines, "- Attributes:")
+			r.Lines = append(r.Lines, fieldLines(s.Attributes, 1, false, r.Name, w.Subject, decide)...)
+		} else if len(s.Attributes) > 0 {
 			var names, abbrev []string
 			for _, f := range s.Attributes {
-				names = append(names, "`"+f.Name+"`")
+				if f.Sensitive {
+					names = append(names, "`"+f.Name+"` (sensitive)")
+				} else {
+					names = append(names, "`"+f.Name+"`")
+				}
 				if abbreviates(f.Name, w.Subject) {
 					abbrev = append(abbrev, "`"+f.Member+"`")
 				}
@@ -531,7 +542,7 @@ func changes(in scopeInput, decide decider) scopeChanges {
 	}
 
 	newType := slices.ContainsFunc(en.Work, func(w enrich.Work) bool {
-		return w.Kind == enrich.WorkNewResource || w.Kind == enrich.WorkNewDataSource
+		return w.Kind == enrich.WorkNewResource || w.Kind == enrich.WorkNewDataSource || w.Kind == enrich.WorkNewEphemeral
 	})
 	if len(out.targets) == 1 && len(headed) == len(out.lines)-nestedLines(out.lines) && !newType {
 		for _, i := range headed {

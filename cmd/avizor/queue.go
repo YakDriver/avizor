@@ -297,6 +297,7 @@ func writeQueueText(w io.Writer, shown []queue.Entry, counts map[string]int, tot
 var workKinds = []struct{ kind, one, many string }{
 	{enrich.WorkNewResource, "resource", "resources"},
 	{enrich.WorkNewDataSource, "data source", "data sources"},
+	{enrich.WorkNewEphemeral, "ephemeral resource", "ephemeral resources"},
 	{enrich.WorkNewOperation, "operation", "operations"},
 	{enrich.WorkNewArgument, "argument", "arguments"},
 	{enrich.WorkNewAttribute, "attribute", "attributes"},
