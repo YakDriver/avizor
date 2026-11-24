@@ -242,7 +242,24 @@ const fieldModel = `{
     "com.amazonaws.x#DeleteWidget": {"type": "operation", "input": {"target": "com.amazonaws.x#PutAccountSettingsRequest"}},
     "com.amazonaws.x#CreateWidgetRequest": {"type": "structure", "members": {"Name": {"target": "smithy.api#String"}}},
     "com.amazonaws.x#CreateWidgetResponse": {"type": "structure", "members": {"Widget": {"target": "com.amazonaws.x#Widget"}}},
-    "com.amazonaws.x#Widget": {"type": "structure", "members": {"WidgetArn": {"target": "smithy.api#String"}}}
+    "com.amazonaws.x#Widget": {"type": "structure", "members": {"WidgetArn": {"target": "smithy.api#String"}}},
+
+    "com.amazonaws.x#Deep": {"type": "structure", "members": {"Format": {"target": "com.amazonaws.x#Format"}, "None": {"target": "com.amazonaws.x#Nothing"},
+      "Nones": {"target": "com.amazonaws.x#NothingList"}}},
+    "com.amazonaws.x#Format": {"type": "structure", "members": {"Kind": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#Nothing": {"type": "structure", "members": {}},
+    "com.amazonaws.x#NothingList": {"type": "list", "member": {"target": "com.amazonaws.x#Nothing"}},
+
+    "com.amazonaws.x#PutAssignment": {"type": "operation", "input": {"target": "com.amazonaws.x#PutAssignmentRequest"},
+      "output": {"target": "com.amazonaws.x#PutAssignmentResponse"}},
+    "com.amazonaws.x#PutAssignmentRequest": {"type": "structure", "members": {"PolicyArn": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#PutAssignmentResponse": {"type": "structure", "members": {"PolicyArn": {"target": "smithy.api#String"},
+      "ReplacedPolicyArn": {"target": "smithy.api#String"}}},
+    "com.amazonaws.x#CreateGadget": {"type": "operation", "input": {"target": "com.amazonaws.x#CreateWidgetRequest"},
+      "output": {"target": "com.amazonaws.x#GadgetOutput"}},
+    "com.amazonaws.x#GetGadget": {"type": "operation", "input": {"target": "com.amazonaws.x#CreateWidgetRequest"},
+      "output": {"target": "com.amazonaws.x#GadgetOutput"}},
+    "com.amazonaws.x#GadgetOutput": {"type": "structure", "members": {"Arn": {"target": "smithy.api#String"}, "Size": {"target": "smithy.api#Integer"}}}
   }
 }`
 
@@ -274,9 +291,32 @@ func TestFieldShapes(t *testing.T) {
 		t.Errorf("Choices text = %q", got)
 	}
 
-	// Tags are set with TagResource only for a resource whose output has an ARN.
-	for op, want := range map[string]string{"PutAccountSettings": "none", "CreateWidget": "tag_resource"} {
-		s := buildSpec(m, Work{Kind: WorkNewResource, Subject: strings.TrimPrefix(strings.TrimPrefix(op, "Put"), "Create"), Operations: []string{op}}, nil)
+	// Members below specDepth are named, not listed, and an empty structure says so.
+	deep := m.Shapes["Deep"]
+	for name, want := range map[string]string{"Format": "optional; structure `Format`, fields not listed", "None": "optional; empty structure",
+		"Nones": "optional; list of empty structure"} {
+		if got := FieldText(fieldOf(m, deep, name, specDepth), true); got != want {
+			t.Errorf("%s text = %q, want %q", name, got, want)
+		}
+	}
+	if f := fieldOf(m, deep, "Format", 1); len(f.Fields) != 1 || f.Unlisted != "" || f.Empty {
+		t.Errorf("Format above specDepth = %+v", f)
+	}
+
+	// A new create for a noun the model could already read reads with that operation.
+	g := buildSpec(m, Work{Kind: WorkNewResource, Subject: "Gadget", Operations: []string{"CreateGadget"}}, nil)
+	if g.ExistingRead != "GetGadget" || !slices.Equal(g.Operations.Read, []string{"GetGadget"}) || len(g.Attributes) != 2 {
+		t.Errorf("Gadget spec = %+v", g)
+	}
+
+	// Tags are set with TagResource only for a resource whose output has its own ARN: an assignment's PolicyArn and
+	// ReplacedPolicyArn are what it refers to.
+	for op, want := range map[string]string{"PutAccountSettings": "none", "CreateWidget": "tag_resource", "PutAssignment": "none", "CreateGadget": "tag_resource"} {
+		ops := []string{op}
+		if op == "CreateGadget" {
+			ops = append(ops, "GetGadget")
+		}
+		s := buildSpec(m, Work{Kind: WorkNewResource, Subject: strings.TrimPrefix(strings.TrimPrefix(op, "Put"), "Create"), Operations: ops}, nil)
 		if s.Tagging == nil || s.Tagging.Kind != want {
 			t.Errorf("%s tagging = %+v, want %s", op, s.Tagging, want)
 		}

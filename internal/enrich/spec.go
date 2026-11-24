@@ -18,6 +18,9 @@ import (
 // the create input with the update inputs.
 type Spec struct {
 	Operations SpecOperations `json:"operations"`
+	// ExistingRead is the read operation when the release doesn't add one and the model already has it, named for the
+	// resource's noun: a new create for a resource the service could already read.
+	ExistingRead string `json:"existing_read,omitempty"`
 	// Identifier are the read operation's required input members.
 	Identifier []string `json:"identifier,omitempty"`
 	// Arguments are the create operation's input members, or the read operation's for a data source.
@@ -71,6 +74,11 @@ type Field struct {
 	// Recursive is the structure or union, or the list or map element, when one of its members refers back to it, as
 	// DynamoDB's AttributeValue does. Its members aren't listed.
 	Recursive string `json:"recursive,omitempty"`
+	// Unlisted is the structure or union, or the list or map element, whose members are below specDepth, so they
+	// aren't listed.
+	Unlisted string `json:"unlisted,omitempty"`
+	// Empty is set for a structure, or a list or map of structures, with no members, such as a union's none option.
+	Empty bool `json:"empty,omitempty"`
 }
 
 // SpecStatus is the read result's status member and its values, grouped.
@@ -158,6 +166,16 @@ func buildSpec(m *smithy.Model, w Work, resourceTypes []string) *Spec {
 	ops := s.Operations
 
 	create, read := first(ops.Create), first(ops.Read)
+	if create != "" && read == "" && len(ops.List) == 0 {
+		// The release may add a create for a noun the model could already read.
+		for _, v := range []string{"Get", "Describe"} {
+			if op := v + w.Subject; m.Shapes[op].Type == smithy.TypeOperation && !slices.Contains(w.Operations, op) {
+				read, s.ExistingRead = op, op
+				s.Operations.Read = []string{op}
+				break
+			}
+		}
+	}
 	if create == "" && read == "" {
 		// A list-only data source (ListContactFlowAliases) reads with its list.
 		read = first(ops.List)
@@ -231,7 +249,7 @@ func buildSpec(m *smithy.Model, w Work, resourceTypes []string) *Spec {
 		if read != "" {
 			outputs = append(outputs, readResult(m, m.Shapes[read].Output))
 		}
-		s.Tagging = tagging(m, m.Shapes[create].Input, resourceTypes, slices.ContainsFunc(outputs, func(o string) bool { return hasARN(m, o) }))
+		s.Tagging = tagging(m, m.Shapes[create].Input, resourceTypes, slices.ContainsFunc(outputs, func(o string) bool { return hasARN(m, o, w.Subject) }))
 	}
 	noteOps, noteInputs := slices.Concat(ops.Create, ops.Update, ops.Delete, ops.Read), slices.Concat(argInputs(m, ops.Create), argInputs(m, ops.Update))
 	if create == "" && read != "" {
@@ -346,7 +364,10 @@ func fieldOf(m *smithy.Model, sh smithy.Shape, name string, depth int) Field {
 			f.Recursive = target
 		case depth < specDepth:
 			f.Fields = fields(m, target, depth+1)
+		case len(ts.Members) > 0:
+			f.Unlisted = target
 		}
+		f.Empty = len(ts.Members) == 0
 	case "list", "set", "map":
 		elem := ts.Elems[len(ts.Elems)-1]
 		f.Elem = m.TypeOf(elem)
@@ -359,7 +380,10 @@ func fieldOf(m *smithy.Model, sh smithy.Shape, name string, depth int) Field {
 				f.Recursive = elem
 			case depth < specDepth:
 				f.Fields = fields(m, elem, depth+1)
+			case len(m.Shapes[elem].Members) > 0:
+				f.Unlisted = elem
 			}
+			f.Empty = len(m.Shapes[elem].Members) == 0
 		}
 	}
 	return f
@@ -546,9 +570,20 @@ func tagging(m *smithy.Model, input string, resourceTypes []string, arn bool) *S
 	return &SpecTags{Kind: "none"}
 }
 
-// hasARN reports whether a shape, or a structure it holds, has a member named for an ARN.
-func hasARN(m *smithy.Model, shape string) bool {
-	isARN := func(name string) bool { return strings.HasSuffix(strings.ToLower(name), "arn") }
+// hasARN reports whether a shape, or a structure it holds, has the resource's own ARN: a member named Arn, or for the
+// end of its noun (PolicyAssignmentArn or AssignmentArn for PolicyAssignment). Other ARNs are what it refers to, as a
+// policy assignment's PolicyArn and PrincipalArn.
+func hasARN(m *smithy.Model, shape, noun string) bool {
+	words := strings.Split(Snake(noun), "_")
+	isARN := func(name string) bool {
+		n := strings.ToLower(name)
+		for i := range words {
+			if n == strings.Join(words[i:], "")+"arn" {
+				return true
+			}
+		}
+		return n == "arn"
+	}
 	for name, t := range m.Shapes[shape].Members {
 		if isARN(name) {
 			return true
@@ -719,8 +754,15 @@ func FieldText(f Field, argument bool) string {
 	case f.Elem != "":
 		typ += " of " + f.Elem
 	}
-	if f.Recursive != "" {
+	switch {
+	case f.Recursive != "":
 		typ += " `" + f.Recursive + "`, recursive"
+	case f.Unlisted != "":
+		typ += " `" + f.Unlisted + "`, fields not listed"
+	case f.Empty && f.Elem != "":
+		typ = strings.Replace(typ, f.Elem, "empty "+f.Elem, 1)
+	case f.Empty:
+		typ = "empty " + typ
 	}
 	desc := []string{typ}
 	c := f

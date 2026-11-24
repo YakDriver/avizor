@@ -343,3 +343,24 @@ func TestListOnlyDataSource(t *testing.T) {
 		t.Errorf("left out = %q", got)
 	}
 }
+
+// TestTitleTwoResources checks that a change to two resources names both, unless an announcement's headline is the
+// title, and that a data source among them falls back.
+func TestTitleTwoResources(t *testing.T) {
+	t.Parallel()
+
+	infer := func(string, string, string) {}
+	en := implemented("widget")
+	two := []string{"aws_widget_stack", "aws_widget_builder"}
+	if got, _ := titleAndLabels(item("widget", "Adds agents."), en, "", opts, two, []string{"agent_access"}, infer); got != "r/`aws_widget_stack`, r/`aws_widget_builder`: Add `agent_access`" {
+		t.Errorf("title = %q", got)
+	}
+	if got, _ := titleAndLabels(item("widget", "Adds agents."), en, "Adds agents.", opts, []string{"aws_widget_stack", "aws_widget_stack" + dataSourceMark}, []string{"agent_access"}, infer); got != "Widget: Adds agents" {
+		t.Errorf("with a data source: title = %q", got)
+	}
+	withAnn := implemented("widget")
+	withAnn.Announcement = &whatsnew.Match{}
+	if got, _ := titleAndLabels(item("widget", "Adds agents."), withAnn, "Widget now supports agents.", opts, two, []string{"agent_access"}, infer); got != "Widget now supports agents" {
+		t.Errorf("with an announcement: title = %q", got)
+	}
+}

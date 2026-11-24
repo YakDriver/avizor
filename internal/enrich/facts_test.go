@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/YakDriver/avizor/internal/smithy"
 )
 
 const frameworkSource = `package x
@@ -170,5 +172,32 @@ var _ = enum.Validate[othertypes.Mode]()
 	}
 	if !ws[2].EnumSearched || ws[2].EnumUses != nil {
 		t.Errorf("Unused = %+v, want searched with no uses", ws[2])
+	}
+}
+
+// TestAboveNamesXMLWrapper checks that the block above a shape in an XML-wrapped list is named for the wrapper's member,
+// as CloudFront's origin is for DistributionConfig.Origins (Quantity and Items).
+func TestAboveNamesXMLWrapper(t *testing.T) {
+	t.Parallel()
+
+	m, err := smithy.Parse([]byte(`{
+  "smithy": "2.0",
+  "shapes": {
+    "com.amazonaws.x#Svc": {"type": "service", "traits": {"aws.api#service": {"sdkId": "X"}}},
+    "com.amazonaws.x#DistributionConfig": {"type": "structure", "members": {"Origins": {"target": "com.amazonaws.x#Origins"}}},
+    "com.amazonaws.x#Origins": {"type": "structure", "members": {"Quantity": {"target": "smithy.api#Integer"}, "Items": {"target": "com.amazonaws.x#OriginList"}}},
+    "com.amazonaws.x#OriginList": {"type": "list", "member": {"target": "com.amazonaws.x#Origin"}},
+    "com.amazonaws.x#Origin": {"type": "structure", "members": {"CustomOriginConfig": {"target": "com.amazonaws.x#CustomOriginConfig"}}},
+    "com.amazonaws.x#CustomOriginConfig": {"type": "structure", "members": {"OriginHttpVersion": {"target": "smithy.api#String"}}}
+  }
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := aboveNames(m, []string{"Origin"}); !slices.Contains(got, "origin") || !slices.Contains(got, "items") {
+		t.Errorf("aboveNames(Origin) = %v, want items and origin", got)
+	}
+	if !xmlWrapper(m, "Origins") || xmlWrapper(m, "Origin") {
+		t.Error("xmlWrapper: want Origins only")
 	}
 }

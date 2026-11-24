@@ -181,13 +181,31 @@ func parentBlockNames(f *ast.File, m *smithy.Model, shape string, inputs map[str
 
 // aboveNames returns the Terraform names of the blocks that can hold one of shapes: the members that target them,
 // and, for a union or an operation input's wrapped structure, the level above too, since those are flattened.
+//
+// An XML list wrapper, CloudFront's Origins with Quantity and Items, isn't a block: the provider names the list for
+// the wrapper's member (origin, from DistributionConfig.Origins), so the level above it counts too.
 func aboveNames(m *smithy.Model, shapes []string) []string {
 	up, names := parents(m, shapes)
 	if slices.ContainsFunc(shapes, func(s string) bool { return m.Shapes[s].Type == smithy.TypeUnion }) {
 		_, more := parents(m, up)
 		names = append(names, more...)
 	}
+	if wrappers := slices.DeleteFunc(slices.Clone(up), func(s string) bool { return !xmlWrapper(m, s) }); len(wrappers) > 0 {
+		_, more := parents(m, wrappers)
+		names = append(names, more...)
+	}
 	return names
+}
+
+// xmlWrapper reports whether a structure wraps a list in the XML style: an Items list and its Quantity.
+func xmlWrapper(m *smithy.Model, shape string) bool {
+	ms := m.Shapes[shape].Members
+	items, ok := ms["Items"]
+	if !ok || ms["Quantity"] == "" {
+		return false
+	}
+	t := m.TypeOf(items)
+	return t == "list" || t == "set"
 }
 
 // placesOf returns the schema definitions in f whose key is one of names, with their paths.

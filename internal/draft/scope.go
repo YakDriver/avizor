@@ -4,6 +4,7 @@ import (
 	gocmp "cmp"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"strings"
 
@@ -222,6 +223,9 @@ func resourceNotes(s *enrich.Spec, name string, decide decider) []string {
 			n += ", with the reason in `" + st.Reason + "`"
 		}
 		out = append(out, n+". Wait for the target value.")
+	}
+	if s.ExistingRead != "" {
+		out = append(out, "Read is `"+s.ExistingRead+"`, which the model already has.")
 	}
 	if u := s.Update; u != nil {
 		switch {
@@ -628,6 +632,31 @@ func groupChanges(works []enrich.Work) []*change {
 		i--
 	}
 
+	// Arguments of the same name and blocks that a provider file writes with both are one field: a create input's and an
+	// update input's of different nouns (CreateHostedZoneRequest.ChangeGuardrails and
+	// UpdateHostedZoneFeaturesRequest.ChangeGuardrails), or of a block's create and update shapes (AgentAccessConfig and
+	// AgentAccessConfigForUpdate). Their fields must match, so blocks of different shapes with a member of the same
+	// name stay apart. Only the arguments' callers count, since a read result reaches more files, and sweepers and list
+	// resources, which call every resource's operations, don't.
+	for i := 0; i < len(cs); i++ {
+		c := cs[i]
+		if !c.argument {
+			continue
+		}
+		j := slices.IndexFunc(cs[:i], func(o *change) bool {
+			return o.argument && o.name == c.name && slices.Equal(o.paths, c.paths) && sharedCaller(withoutListFiles(arguments(c.works)), withoutListFiles(arguments(o.works))) &&
+				sameParents(c.works, o.works) && (sameScalar(o.field, c.field) || sameShape(o.field, c.field))
+		})
+		if j < 0 {
+			continue
+		}
+		for _, w := range c.works {
+			cs[j].add(w)
+		}
+		cs = slices.Delete(cs, i, i+1)
+		i--
+	}
+
 	// An attribute-only change joins an argument of the same name and blocks: the argument's value as read returns it,
 	// when its operations return the argument or the fields have the same shape. Attribute-only changes of the same
 	// name and blocks join when one is from a summary shape, which repeats the full shape's members.
@@ -647,10 +676,11 @@ func groupChanges(works []enrich.Work) []*change {
 		})
 		if j < 0 && fromSummary(c) {
 			// A summary repeats the members of the full shape, the argument's or an attribute's, of the same resource:
-			// the summary's callers, if any, also call the full shape's operations.
+			// the summary's callers, if any, also call the full shape's operations. List resources and sweepers call
+			// only the list, so they don't count: ScopeSummary is what scope_list.go lists of aws_networksecuritymanager_scope.
 			related := func(o *change) bool {
 				return o != c && o.name == c.name && slices.Equal(o.paths, c.paths) && (sameScalar(o.field, c.field) || sameShape(o.field, c.field)) &&
-					(!called(c.works) || readBy(c.works, o.works))
+					(!called(withoutListFiles(c.works)) || readBy(withoutListFiles(c.works), o.works))
 			}
 			j = slices.IndexFunc(cs, func(o *change) bool { return related(o) && o.argument })
 			if j < 0 {
@@ -687,6 +717,43 @@ func groupChanges(works []enrich.Work) []*change {
 	return cs
 }
 
+// sameParents reports whether two sets of works' members are in shapes that can be the same block: operation inputs
+// (top-level members), or nested shapes whose names are the same apart from a create or update suffix or prefix
+// (AgentAccessConfig and AgentAccessConfigForUpdate, CreateOntapVolumeConfiguration and UpdateOntapVolumeConfiguration). CloudFront's CustomOriginConfig and VpcOriginConfig both have OriginHttpVersion, in
+// different blocks. Only the arguments' shapes count; a change can also hold read results.
+func sameParents(a, b []enrich.Work) bool {
+	parent := func(ws []enrich.Work) string {
+		i := max(slices.IndexFunc(ws, func(w enrich.Work) bool { return w.Kind == enrich.WorkNewArgument }), 0)
+		shape, _, _ := strings.Cut(ws[i].Subject, ".")
+		if operationShape(shape, ws[i].Operations) {
+			return ""
+		}
+		for _, suffix := range []string{"ForUpdate", "ForCreate", "Update", "Create"} {
+			if rest, ok := strings.CutSuffix(shape, suffix); ok && rest != "" {
+				return rest
+			}
+		}
+		for _, verb := range []string{"Create", "Update", "Modify"} {
+			if rest, ok := strings.CutPrefix(shape, verb); ok && rest != "" {
+				return rest
+			}
+		}
+		return shape
+	}
+	return parent(a) == parent(b)
+}
+
+// operationShape reports whether shape is one of the operations' input or output shapes: CreateHostedZoneRequest for
+// CreateHostedZone. CustomMemoryStrategyInput ends like one but is a nested structure.
+func operationShape(shape string, ops []string) bool {
+	for _, suffix := range []string{"Input", "Output", "Request", "Response", "Result", "Message"} {
+		if rest, ok := strings.CutSuffix(shape, suffix); ok && slices.Contains(ops, rest) {
+			return true
+		}
+	}
+	return false
+}
+
 // fromSummary reports whether a change's members are all from summary shapes, such as CertificateSummary, or from
 // list results, which only List and Search operations return.
 func fromSummary(c *change) bool {
@@ -708,6 +775,25 @@ func sharedCaller(a, b []enrich.Work) bool {
 			return slices.ContainsFunc(b, func(y enrich.Work) bool { return slices.Contains(y.UsedBy, f) })
 		})
 	})
+}
+
+// arguments returns the new argument works, leaving out read results that a change also holds.
+func arguments(ws []enrich.Work) []enrich.Work {
+	return slices.DeleteFunc(slices.Clone(ws), func(w enrich.Work) bool { return w.Kind != enrich.WorkNewArgument })
+}
+
+// withoutListFiles returns works without their list resource and sweeper callers (*_list.go, sweep.go, and
+// list_pages_gen.go), which only list.
+func withoutListFiles(ws []enrich.Work) []enrich.Work {
+	out := make([]enrich.Work, len(ws))
+	for i, w := range ws {
+		w.UsedBy = slices.DeleteFunc(slices.Clone(w.UsedBy), func(f string) bool {
+			base := path.Base(f)
+			return strings.HasSuffix(base, "_list.go") || base == "sweep.go" || base == "list_pages_gen.go"
+		})
+		out[i] = w
+	}
+	return out
 }
 
 // called reports whether a provider file calls one of the works' operations.
@@ -971,7 +1057,50 @@ func changeResources(ws []enrich.Work, checkout, prefix string, dataSourcesOnly 
 		}
 	}
 	slices.Sort(names)
-	return bestNamed(names, ops, prefix)
+	return shapeNamed(bestNamed(names, ops, prefix), ws, prefix)
+}
+
+// shapeNamed keeps, of several resources, those whose names have the most words of the members' parent shape, when
+// it's a nested shape rather than an operation's input or output: aws_fsx_ontap_volume for
+// CreateOntapVolumeConfiguration.CloneConfiguration, not aws_fsx_openzfs_volume, and aws_fsx_openzfs_snapshot for
+// Snapshot.SnapshotType, not every resource whose operations return a snapshot. Verbs and generic words don't count.
+// With no resource named for a word, all are kept.
+func shapeNamed(names []string, ws []enrich.Work, prefix string) []string {
+	if len(names) < 2 {
+		return names
+	}
+	var shapeWords []string
+	for _, w := range ws {
+		shape, _, _ := strings.Cut(w.Subject, ".")
+		if shapeNoun(shape) != shape {
+			return names
+		}
+		for word := range strings.SplitSeq(enrich.Snake(shape), "_") {
+			if !slices.Contains(genericWords, word) && !slices.ContainsFunc(shapeVerbs, func(v string) bool { return strings.EqualFold(v, word) }) &&
+				!slices.Contains(shapeWords, word) {
+				shapeWords = append(shapeWords, word)
+			}
+		}
+	}
+	counts := make([]int, len(names))
+	for i, n := range names {
+		for _, word := range strings.Split(strings.TrimPrefix(strings.TrimSuffix(n, dataSourceMark), prefix), "_")[1:] {
+			if slices.Contains(shapeWords, word) {
+				counts[i]++
+			}
+		}
+	}
+	best := slices.Max(counts)
+	if best == 0 {
+		return names
+	}
+	var out []string
+	for i, n := range names {
+		if counts[i] == best {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // heads formats a line's resources: "`aws_x`, `aws_y` data source".

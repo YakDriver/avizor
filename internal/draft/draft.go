@@ -233,6 +233,11 @@ func New(it *awssdk.Item, en *enrich.Result, rec *reconcile.Result, opts Options
 		newTypes: newTypes}, decide)
 	for i, r := range data.Resources {
 		data.Resources[i].Notes = append(data.Resources[i].Notes, sc.typeNotes[r.Name]...)
+		if r.NoRead && r.Kind == "resource" && len(sc.typeNotes[r.Name]) == 0 {
+			// Without a read, the provider can't refresh it or detect changes made outside Terraform.
+			data.Resources[i].Notes = append(data.Resources[i].Notes, "No read operation, so changes outside Terraform aren't detected."+
+				decide(r.Name, "resource without a read, or none"))
+		}
 	}
 	data.Changes, data.ChangeNotes, targets, names = sc.lines, sc.notes, sc.targets, sc.names
 	for _, in := range sc.leftOut {
@@ -393,12 +398,17 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 		infer("title", title, "one new data source inferred from new read-only operations")
 		infer("terraform_name", newDataSources[0], "provider prefix, service package, and the new operations' noun in snake case")
 		return title, labels
-	case len(newTypes) == 0 && len(newDataSources) == 0 && len(targets) == 1 && len(names) > 0:
-		title := fmt.Sprintf("r/`%s`: Add %s", targets[0], addNames(names))
-		if name, ok := strings.CutSuffix(targets[0], dataSourceMark); ok {
-			title = fmt.Sprintf("d/`%s`: Add %s", name, addNames(names))
+	case len(newTypes) == 0 && len(newDataSources) == 0 && len(names) > 0 && (len(targets) == 1 || twoResources(targets) && en.Announcement == nil):
+		var heads []string
+		for _, t := range targets {
+			if name, ok := strings.CutSuffix(t, dataSourceMark); ok {
+				heads = append(heads, "d/`"+name+"`")
+				continue
+			}
+			heads = append(heads, "r/`"+t+"`")
 		}
-		infer("title", title, "new members of operations called only by "+targets[0])
+		title := strings.Join(heads, ", ") + ": Add " + addNames(names)
+		infer("title", title, "new members of operations called only by "+strings.Join(targets, " and "))
 		return title, labels
 	}
 	title := subject
@@ -414,6 +424,12 @@ func titleAndLabels(it *awssdk.Item, en *enrich.Result, headline string, opts Op
 	}
 	infer("title", title, "release notes; no single resource is affected")
 	return title, labels
+}
+
+// twoResources reports whether targets are two resources, not data sources. Their title names both, unless an
+// announcement's headline says what the launch is.
+func twoResources(targets []string) bool {
+	return len(targets) == 2 && !slices.ContainsFunc(targets, func(t string) bool { return strings.HasSuffix(t, dataSourceMark) })
 }
 
 // addNames is "`a`", "`a` and `b`", or "`a`, `b`, and 2 more", without repeats.
