@@ -585,6 +585,13 @@ func TestGroupChangesMerge(t *testing.T) {
 		{Kind: enrich.WorkNewAttribute, Subject: "PeeringSummary.Usage", Operations: []string{"ListPeerings"}, UsedBy: []string{"internal/service/widget/peering_list.go"}, Field: mode},
 		{Kind: enrich.WorkNewArgument, Subject: "CreateQueueRequest.Sizes", Operations: []string{"CreateQueue"}, UsedBy: []string{zone}, Field: &enrich.Field{Type: "list", Elem: "string"}},
 		{Kind: enrich.WorkNewArgument, Subject: "UpdateQueueSettingsRequest.Sizes", Operations: []string{"UpdateQueueSettings"}, UsedBy: []string{zone}, Field: &enrich.Field{Type: "list", Elem: "integer"}},
+		// Nested fields that differ below the first level, and a query's filter, stay apart.
+		{Kind: enrich.WorkNewArgument, Subject: "CreateQueueRequest.Options", Operations: []string{"CreateQueue"}, UsedBy: []string{zone},
+			Field: &enrich.Field{Type: "structure", Fields: []enrich.Field{{Name: "sizes", Type: "list", Elem: "string"}}}},
+		{Kind: enrich.WorkNewArgument, Subject: "UpdateQueueSettingsRequest.Options", Operations: []string{"UpdateQueueSettings"}, UsedBy: []string{zone},
+			Field: &enrich.Field{Type: "structure", Fields: []enrich.Field{{Name: "sizes", Type: "list", Elem: "integer"}}}},
+		{Kind: enrich.WorkNewArgument, Subject: "CreateQueueRequest.QueueType", Operations: []string{"CreateQueue"}, UsedBy: []string{zone}, Field: mode},
+		{Kind: enrich.WorkNewArgument, Subject: "ListQueuesRequest.QueueType", Operations: []string{"ListQueues"}, UsedBy: []string{zone, "internal/service/widget/queues_data_source.go"}, Field: mode},
 	})
 	var got []string
 	for _, c := range cs {
@@ -602,6 +609,10 @@ func TestGroupChangesMerge(t *testing.T) {
 		"usage: `PeeringSummary.Usage` returned by ",
 		"sizes: `CreateQueueRequest.Sizes` returned by ",
 		"sizes: `UpdateQueueSettingsRequest.Sizes` returned by ",
+		"options: `CreateQueueRequest.Options` returned by ",
+		"options: `UpdateQueueSettingsRequest.Options` returned by ",
+		"queue_type: `CreateQueueRequest.QueueType` returned by ",
+		"queue_type: `ListQueuesRequest.QueueType` returned by ",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("changes =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

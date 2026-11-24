@@ -637,15 +637,16 @@ func groupChanges(works []enrich.Work) []*change {
 	// UpdateHostedZoneFeaturesRequest.ChangeGuardrails), or of a block's create and update shapes (AgentAccessConfig and
 	// AgentAccessConfigForUpdate). Their fields must match, so blocks of different shapes with a member of the same
 	// name stay apart. Only the arguments' callers count, since a read result reaches more files, and sweepers and list
-	// resources, which call every resource's operations, don't.
+	// resources, which call every resource's operations, don't. A query's request member is a data source's filter, so
+	// it isn't merged with write arguments.
 	for i := 0; i < len(cs); i++ {
 		c := cs[i]
-		if !c.argument {
+		if !c.argument || queryArgument(c.works) {
 			continue
 		}
 		j := slices.IndexFunc(cs[:i], func(o *change) bool {
-			return o.argument && o.name == c.name && slices.Equal(o.paths, c.paths) && sharedCaller(withoutListFiles(arguments(c.works)), withoutListFiles(arguments(o.works))) &&
-				sameParents(c.works, o.works) && (sameScalar(o.field, c.field) || sameShape(o.field, c.field))
+			return o.argument && !queryArgument(o.works) && o.name == c.name && slices.Equal(o.paths, c.paths) &&
+				sharedCaller(withoutListFiles(arguments(c.works)), withoutListFiles(arguments(o.works))) && sameParents(c.works, o.works) && sameField(o.field, c.field)
 		})
 		if j < 0 {
 			continue
@@ -770,6 +771,30 @@ func fromSummary(c *change) bool {
 		shape, _, _ := strings.Cut(w.Subject, ".")
 		return !strings.HasSuffix(shape, "Summary") && !allVerbs(w.Operations, "List", "Search")
 	})
+}
+
+// queryArgument reports whether a change's arguments are all request members of query operations (Get, Describe,
+// List, BatchGet, Search).
+func queryArgument(ws []enrich.Work) bool {
+	args := arguments(ws)
+	return len(args) > 0 && !slices.ContainsFunc(args, func(w enrich.Work) bool {
+		return !allVerbs(w.Operations, "Get", "Describe", "List", "BatchGet", "Search")
+	})
+}
+
+// sameField reports whether two fields have the same type, element type, values, and shape identity, and the same
+// nested fields, all the way down.
+func sameField(a, b *enrich.Field) bool {
+	if a == nil || b == nil || a.Type != b.Type || a.Elem != b.Elem || !slices.Equal(a.Values, b.Values) || a.Recursive != b.Recursive ||
+		a.Unlisted != b.Unlisted || a.Empty != b.Empty || len(a.Fields) != len(b.Fields) {
+		return false
+	}
+	for i := range a.Fields {
+		if a.Fields[i].Name != b.Fields[i].Name || !sameField(&a.Fields[i], &b.Fields[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // sameScalar reports whether two fields are the same type with no listed members: the same element type, enum
